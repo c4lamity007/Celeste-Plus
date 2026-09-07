@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "inputJar": "../../../build/module-qa/obfuscation/payload-stage-v2/payload-thin.jar",
+  "outputJar": "../../../build/module-qa/obfuscation/payload-implementation-v2.jar",
+  "dependencyJars": [
+    "../../../build/module-qa/obfuscation/payload-stage-v2/payload-stable.jar"
+  ],
+  "keepPatterns": [
+    "dev.c4lam.celeste.**"
+  ],
+  "renameClasses": false,
+  "renamePrivateMembers": false,
+  "encryptStrings": true,
+  "stripDebugInfo": true,
+  "includeHighCostStringMode": false,
+  "compositeStringModeOnly": true,
+  "doubleStringProtection": true,
+  "tripleStringProtection": false,
+  "quadStringProtection": false,
+  "fragmentStringVault": false,
+  "autoDetectFrameworkClasses": false,
+  "protectGuiVisualStrings": true,
+  "obfuscateGuiVisualClasses": true,
+  "crazyObfuscation": false,
+  "transformKeptApplicationClasses": true,
+  "protectNonPublicStaticStrings": true,
+  "nativeTranspile": false,
+  "nativeVirtualization": false,
+  "priorityNativePatterns": [],
+  "autoDetectAuthenticationClasses": false,
+  "targetedNativeVirtualization": false,
+  "runtimeStringConcealment": false,
+  "relocateMetadataClasses": false,
+  "flowObfuscateStrings": false,
+  "hardenStringHelpers": false,
+  "relocateAssets": false,
+  "virtualizeExistingNativeLibraries": false
+}

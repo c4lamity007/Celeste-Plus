@@ -1,0 +1,13 @@
+* text=auto eol=lf
+*.java text eol=lf
+*.rs text eol=lf
+*.py text eol=lf
+*.gradle text eol=lf
+*.json text eol=lf
+gradlew text eol=lf
+gradlew.bat text eol=crlf
+*.png binary
+*.jar binary
+*.zip binary
+runtime-overlay/** text eol=lf
+core.lock.json text eol=lf

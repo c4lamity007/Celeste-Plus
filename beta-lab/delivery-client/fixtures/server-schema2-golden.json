@@ -1,0 +1,79 @@
+{
+  "artifact_bytes": {
+    "bootstrap-a": "Q0VMRVNURSBPRkZMSU5FIEZJWFRVUkUgT05MWQBib290c3RyYXAtYQr_",
+    "bootstrap-b": "Q0VMRVNURSBPRkZMSU5FIEZJWFRVUkUgT05MWQBib290c3RyYXAtYgr_",
+    "payload-a": "Q0VMRVNURSBPRkZMSU5FIEZJWFRVUkUgT05MWQBwYXlsb2FkLWEK_w",
+    "payload-b": "Q0VMRVNURSBPRkZMSU5FIEZJWFRVUkUgT05MWQBwYXlsb2FkLWIK_w"
+  },
+  "canonical_catalog": "{\"artifacts\":[{\"id\":\"bootstrap-a\",\"role\":\"bootstrap\",\"sha256\":\"bcadd4e4e75dbb4b79666fa81a3fc418ab2ab162b50658bd0302e6a231fa5edf\",\"size\":42,\"url\":\"/v1/beta/artifacts/owner-beta-golden-1/bootstrap-a\"},{\"id\":\"bootstrap-b\",\"role\":\"bootstrap\",\"sha256\":\"e76f9547a08c4057bbf52bfb7031199f159c017e2e1cc71cc57a6bb8aa26aabe\",\"size\":42,\"url\":\"/v1/beta/artifacts/owner-beta-golden-1/bootstrap-b\"},{\"id\":\"payload-a\",\"role\":\"payload\",\"sha256\":\"b144fe3d6ec3b1a7848b0138242ca8a5aaad1a89dd838b7cf999809fb197d9a8\",\"size\":40,\"url\":\"/v1/beta/artifacts/owner-beta-golden-1/payload-a\"},{\"id\":\"payload-b\",\"role\":\"payload\",\"sha256\":\"44f423bc4f1f1ca3fc476fa0be5f76d691bc3cbd5cc71e3d6be8142648f110cb\",\"size\":40,\"url\":\"/v1/beta/artifacts/owner-beta-golden-1/payload-b\"}],\"client_version\":\"1.0.0-beta.<>&\\\"\\\\\",\"release_id\":\"owner-beta-golden-1\",\"runtime_sha256\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"schema\":\"celeste-beta-release-2\"}",
+  "catalog_sha256": "1efc974080c550a284d997e3d755318ad6de94e140357dcfdae61afaba2bc023",
+  "expected_device": "00000000-0000-0000-0000-000000000042",
+  "expected_uid": 42,
+  "fixture_schema": "celeste-beta-delivery-golden-1",
+  "installer_claims": {
+    "aud": "celeste-installer",
+    "bootstrap": "production-bootstrap",
+    "bootstrap_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "client_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "device": "00000000-0000-0000-0000-000000000042",
+    "exp": 1800000600,
+    "iat": 1799999970,
+    "jti": "offline-golden-installer-ticket-42",
+    "nbf": 1799999965,
+    "payload_release": "production-release",
+    "payload_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "product": "celeste_plus",
+    "release": "production-channel",
+    "sub": "42"
+  },
+  "installer_token": "eyJhbGciOiJFZERTQSIsImtpZCI6ImNlbGVzdGUtcmVsZWFzZS0xIiwidHlwIjoiQ1NUIn0.eyJhdWQiOiJjZWxlc3RlLWluc3RhbGxlciIsImJvb3RzdHJhcCI6InByb2R1Y3Rpb24tYm9vdHN0cmFwIiwiYm9vdHN0cmFwX3NoYTI1NiI6ImNjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2MiLCJjbGllbnRfc2hhMjU2IjoiYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYSIsImRldmljZSI6IjAwMDAwMDAwLTAwMDAtMDAwMC0wMDAwLTAwMDAwMDAwMDA0MiIsImV4cCI6MTgwMDAwMDYwMCwiaWF0IjoxNzk5OTk5OTcwLCJqdGkiOiJvZmZsaW5lLWdvbGRlbi1pbnN0YWxsZXItdGlja2V0LTQyIiwibmJmIjoxNzk5OTk5OTY1LCJwYXlsb2FkX3JlbGVhc2UiOiJwcm9kdWN0aW9uLXJlbGVhc2UiLCJwYXlsb2FkX3NoYTI1NiI6ImJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmIiLCJwcm9kdWN0IjoiY2VsZXN0ZV9wbHVzIiwicmVsZWFzZSI6InByb2R1Y3Rpb24tY2hhbm5lbCIsInN1YiI6IjQyIn0.fUOaA-hfPohxd68_EF8LEuSkub6y-YfkxaGaRwrbMdXx5H8QCi-b4DrVJFiFpjLDiAKGe4VAmR7SzbvdbRqPBA",
+  "manifest_claims": {
+    "artifacts": [
+      {
+        "id": "bootstrap-a",
+        "role": "bootstrap",
+        "sha256": "bcadd4e4e75dbb4b79666fa81a3fc418ab2ab162b50658bd0302e6a231fa5edf",
+        "size": 42,
+        "url": "/v1/beta/artifacts/owner-beta-golden-1/bootstrap-a"
+      },
+      {
+        "id": "bootstrap-b",
+        "role": "bootstrap",
+        "sha256": "e76f9547a08c4057bbf52bfb7031199f159c017e2e1cc71cc57a6bb8aa26aabe",
+        "size": 42,
+        "url": "/v1/beta/artifacts/owner-beta-golden-1/bootstrap-b"
+      },
+      {
+        "id": "payload-a",
+        "role": "payload",
+        "sha256": "b144fe3d6ec3b1a7848b0138242ca8a5aaad1a89dd838b7cf999809fb197d9a8",
+        "size": 40,
+        "url": "/v1/beta/artifacts/owner-beta-golden-1/payload-a"
+      },
+      {
+        "id": "payload-b",
+        "role": "payload",
+        "sha256": "44f423bc4f1f1ca3fc476fa0be5f76d691bc3cbd5cc71e3d6be8142648f110cb",
+        "size": 40,
+        "url": "/v1/beta/artifacts/owner-beta-golden-1/payload-b"
+      }
+    ],
+    "aud": "celeste-beta-manifest",
+    "catalog_sha256": "1efc974080c550a284d997e3d755318ad6de94e140357dcfdae61afaba2bc023",
+    "client_version": "1.0.0-beta.<>&\"\\",
+    "device": "00000000-0000-0000-0000-000000000042",
+    "exp": 1800000120,
+    "iat": 1800000000,
+    "installer_jti": "offline-golden-installer-ticket-42",
+    "installer_sha256": "d8bdb0e3a73860c7fb4920c2f9adff83414c0a54505b07e9882c4b3da9b6c0c8",
+    "nbf": 1800000000,
+    "product": "celeste_plus",
+    "release_id": "owner-beta-golden-1",
+    "runtime_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "schema": "celeste-beta-release-2",
+    "sub": "42"
+  },
+  "manifest_token": "eyJhbGciOiJFZERTQSIsImtpZCI6ImNlbGVzdGUtcmVsZWFzZS0xIiwidHlwIjoiQ1NUIn0.eyJhcnRpZmFjdHMiOlt7ImlkIjoiYm9vdHN0cmFwLWEiLCJyb2xlIjoiYm9vdHN0cmFwIiwic2hhMjU2IjoiYmNhZGQ0ZTRlNzVkYmI0Yjc5NjY2ZmE4MWEzZmM0MThhYjJhYjE2MmI1MDY1OGJkMDMwMmU2YTIzMWZhNWVkZiIsInNpemUiOjQyLCJ1cmwiOiIvdjEvYmV0YS9hcnRpZmFjdHMvb3duZXItYmV0YS1nb2xkZW4tMS9ib290c3RyYXAtYSJ9LHsiaWQiOiJib290c3RyYXAtYiIsInJvbGUiOiJib290c3RyYXAiLCJzaGEyNTYiOiJlNzZmOTU0N2EwOGM0MDU3YmJmNTJiZmI3MDMxMTk5ZjE1OWMwMTdlMmUxY2M3MWNjNTdhNmJiOGFhMjZhYWJlIiwic2l6ZSI6NDIsInVybCI6Ii92MS9iZXRhL2FydGlmYWN0cy9vd25lci1iZXRhLWdvbGRlbi0xL2Jvb3RzdHJhcC1iIn0seyJpZCI6InBheWxvYWQtYSIsInJvbGUiOiJwYXlsb2FkIiwic2hhMjU2IjoiYjE0NGZlM2Q2ZWMzYjFhNzg0OGIwMTM4MjQyY2E4YTVhYWFkMWE4OWRkODM4YjdjZjk5OTgwOWZiMTk3ZDlhOCIsInNpemUiOjQwLCJ1cmwiOiIvdjEvYmV0YS9hcnRpZmFjdHMvb3duZXItYmV0YS1nb2xkZW4tMS9wYXlsb2FkLWEifSx7ImlkIjoicGF5bG9hZC1iIiwicm9sZSI6InBheWxvYWQiLCJzaGEyNTYiOiI0NGY0MjNiYzRmMWYxY2EzZmM0NzZmYTBiZTVmNzZkNjkxYmMzY2JkNWNjNzFlM2Q2YmU4MTQyNjQ4ZjExMGNiIiwic2l6ZSI6NDAsInVybCI6Ii92MS9iZXRhL2FydGlmYWN0cy9vd25lci1iZXRhLWdvbGRlbi0xL3BheWxvYWQtYiJ9XSwiYXVkIjoiY2VsZXN0ZS1iZXRhLW1hbmlmZXN0IiwiY2F0YWxvZ19zaGEyNTYiOiIxZWZjOTc0MDgwYzU1MGEyODRkOTk3ZTNkNzU1MzE4YWQ2ZGU5NGUxNDAzNTdkY2ZkYWU2MWFmYWJhMmJjMDIzIiwiY2xpZW50X3ZlcnNpb24iOiIxLjAuMC1iZXRhLjw-JlwiXFwiLCJkZXZpY2UiOiIwMDAwMDAwMC0wMDAwLTAwMDAtMDAwMC0wMDAwMDAwMDAwNDIiLCJleHAiOjE4MDAwMDAxMjAsImlhdCI6MTgwMDAwMDAwMCwiaW5zdGFsbGVyX2p0aSI6Im9mZmxpbmUtZ29sZGVuLWluc3RhbGxlci10aWNrZXQtNDIiLCJpbnN0YWxsZXJfc2hhMjU2IjoiZDhiZGIwZTNhNzM4NjBjN2ZiNDkyMGMyZjlhZGZmODM0MTRjMGE1NDUwNWIwN2U5ODgyYzRiM2RhOWI2YzBjOCIsIm5iZiI6MTgwMDAwMDAwMCwicHJvZHVjdCI6ImNlbGVzdGVfcGx1cyIsInJlbGVhc2VfaWQiOiJvd25lci1iZXRhLWdvbGRlbi0xIiwicnVudGltZV9zaGEyNTYiOiJkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkIiwic2NoZW1hIjoiY2VsZXN0ZS1iZXRhLXJlbGVhc2UtMiIsInN1YiI6IjQyIn0.5-YF8o5h8Fbi1WHTIIVz6ehkVUqh2ga74zSNYs7BTh-UqUKjziuHX5q7CNgnk0Jo_-TAq03FnmY2z2DgRjeNBQ",
+  "now": 1800000000,
+  "public_key": "GaW3BdbEBMEqEbYi7wIGzM7n05krVYH_jIoIQs47Z6c"
+}

@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "inputJar": "../../../build/module-qa/bootstrap-b/bootstrap-b.bin",
+  "outputJar": "../../../build/module-qa/obfuscation/bootstrap-b.bin",
+  "dependencyJars": [
+    "../../../build/module-qa/obfuscation/a-stage/bootstrap-a-stable.jar"
+  ],
+  "keepPatterns": [
+    "dev.celestebeta.bootstrap.internal.MemoryPayloadBootstrap",
+    "dev.celestebeta.bootstrap.internal.MemoryPayloadBootstrap$PreparedGame"
+  ],
+  "renameClasses": true,
+  "renamePrivateMembers": true,
+  "encryptStrings": true,
+  "stripDebugInfo": true,
+  "includeHighCostStringMode": false,
+  "compositeStringModeOnly": true,
+  "doubleStringProtection": true,
+  "tripleStringProtection": false,
+  "quadStringProtection": false,
+  "fragmentStringVault": false,
+  "autoDetectFrameworkClasses": false,
+  "protectGuiVisualStrings": false,
+  "obfuscateGuiVisualClasses": false,
+  "crazyObfuscation": false,
+  "transformKeptApplicationClasses": true,
+  "protectNonPublicStaticStrings": true,
+  "nativeTranspile": false,
+  "nativeVirtualization": false,
+  "priorityNativePatterns": [],
+  "autoDetectAuthenticationClasses": false,
+  "targetedNativeVirtualization": false,
+  "runtimeStringConcealment": false,
+  "relocateMetadataClasses": false,
+  "flowObfuscateStrings": false,
+  "hardenStringHelpers": false,
+  "relocateAssets": false,
+  "virtualizeExistingNativeLibraries": false
+}

@@ -1,0 +1,95 @@
+plugins { id 'java' }
+group = 'dev.c4lam.celeste.plus'
+version = '0.1.0'
+repositories { mavenCentral() }
+java { toolchain { languageVersion = JavaLanguageVersion.of(21) } }
+dependencies {
+    implementation('com.google.code.gson:gson:2.13.2') { exclude group: 'com.google.errorprone', module: 'error_prone_annotations' }
+    implementation 'org.ow2.asm:asm:9.10.1'
+    implementation 'org.ow2.asm:asm-tree:9.10.1'
+    implementation 'org.ow2.asm:asm-analysis:9.10.1'
+    compileOnly 'com.google.errorprone:error_prone_annotations:2.48.0'
+    testCompileOnly 'com.google.errorprone:error_prone_annotations:2.48.0'
+}
+sourceSets {
+    main {
+        java.srcDirs = ['beta-lab/bootstrap-a/src', 'beta-lab/delivery-client/src', 'beta-lab/memory-runtime/src/main/java'] +
+            ['combined-hooks', 'reload-hooks', 'interaction-hooks', 'rotation-hooks', 'fake-gamble-hooks', 'gameplay-callbacks', 'visual-hooks', 'atmosphere-hooks'].collect { "beta-lab/${it}/src/main/java" }
+    }
+    test { java.srcDirs = ['beta-lab/bootstrap-a/test', 'beta-lab/delivery-client/test'] }
+    bootstrapB {
+        java.srcDirs = ['beta-lab/bootstrap-b/src']
+        compileClasspath += sourceSets.main.output + configurations.compileClasspath
+        runtimeClasspath += sourceSets.main.output + configurations.runtimeClasspath
+    }
+    payloadFixture {
+        java.srcDirs = ['beta-lab/payload-session/src', 'beta-lab/bootstrap-b/fixtures/core', 'beta-lab/integrity-adapter/src/test/java']
+        java.exclude 'fixture/**'
+        // Select the actual integrity implementation rather than the payload-session stub.
+        java.exclude { details -> details.file == file('beta-lab/payload-session/src/dev/c4lam/celeste/auth/ArtifactIntegrity.java') }
+    }
+    bootstrapBTest {
+        java.srcDirs = ['beta-lab/bootstrap-b/test']
+        compileClasspath += sourceSets.main.output + sourceSets.bootstrapB.output + sourceSets.payloadFixture.output + configurations.compileClasspath
+        runtimeClasspath += sourceSets.main.output + sourceSets.bootstrapB.output + sourceSets.payloadFixture.output + configurations.runtimeClasspath
+    }
+}
+tasks.withType(JavaCompile).configureEach {
+    options.release = 21
+    options.encoding = 'UTF-8'
+    options.compilerArgs += ['-Xlint:all', '-Werror', '--add-modules', 'jdk.attach']
+}
+tasks.withType(Jar).configureEach { preserveFileTimestamps = false; reproducibleFileOrder = true }
+def aCheck = tasks.register('betaBootstrapACheck', JavaExec) {
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'dev.celestebeta.bootstrap.external.BootstrapACheck'
+    args layout.buildDirectory.dir('module-qa/bootstrap-a/fixtures').get().asFile.absolutePath
+    enableAssertions = true
+    jvmArgs '-Xverify:all'
+}
+def deliveryCheck = tasks.register('betaDeliveryClientCheck', JavaExec) {
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'dev.c4lam.celeste.beta.delivery.BetaDeliveryClientCheck'
+    args file('beta-lab/delivery-client/fixtures/server-schema2-golden.json').absolutePath
+    enableAssertions = true
+    jvmArgs '-Xverify:all'
+}
+def bCheck = tasks.register('betaBootstrapBCheck', JavaExec) {
+    dependsOn tasks.named('bootstrapBTestClasses'), tasks.named('payloadFixtureClasses')
+    classpath = sourceSets.bootstrapBTest.runtimeClasspath
+    mainClass = 'dev.c4lam.celeste.beta.delivery.BootstrapBCheck'
+    args sourceSets.payloadFixture.output.classesDirs.singleFile.absolutePath
+    enableAssertions = true
+    jvmArgs '-Xverify:all'
+}
+def bootstrapA = tasks.register('betaBootstrapAJar', Jar) {
+    dependsOn tasks.named('classes')
+    from sourceSets.main.output
+    from({ configurations.runtimeClasspath.collect { zipTree(it) } }) { exclude 'META-INF/**', 'module-info.class' }
+    if (project.hasProperty('betaPackageDirectory')) {
+        def prepared = file(project.property('betaPackageDirectory'))
+        from(new File(prepared, 'host-support')) { into 'META-INF/celeste-beta/host-jars'; include '*.jar' }
+        from(new File(prepared, 'bootstrap-trust.json')) { into 'META-INF/celeste-beta' }
+    }
+    archiveFileName = 'bootstrap-a.jar'
+    destinationDirectory = layout.buildDirectory.dir('module-qa/bootstrap-a')
+    manifest { attributes('Implementation-Title': 'Celeste+ host', 'Celeste-Beta-Bootstrap': 'A',
+        'Agent-Class': 'dev.celestebeta.attach.AgentMain', 'Main-Class': 'dev.celestebeta.attach.AttachCli', 'Can-Retransform-Classes': 'true') }
+}
+def bootstrapB = tasks.register('betaBootstrapBJar', Jar) {
+    dependsOn tasks.named('bootstrapBClasses')
+    from sourceSets.bootstrapB.output
+    if (project.hasProperty('betaLayoutFile')) {
+        from(file(project.property('betaLayoutFile'))) { into 'META-INF/celeste-beta'; rename { 'runtime-layout.json' } }
+    }
+    archiveFileName = 'bootstrap-b.bin'
+    destinationDirectory = layout.buildDirectory.dir('module-qa/bootstrap-b')
+    manifest { attributes('Implementation-Title': 'Celeste+ internal bootstrap', 'Celeste-Beta-Bootstrap': 'B') }
+}
+tasks.named('check') { dependsOn aCheck, deliveryCheck, bCheck }
+tasks.named('assemble') { dependsOn bootstrapA, bootstrapB }
+
+// Regression suites are explicit Java main programs, not JUnit-discovered tests.
+tasks.named('test') { enabled = false }

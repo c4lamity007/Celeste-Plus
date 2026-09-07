@@ -1,0 +1,305 @@
+{
+  "description": "Exact source-only extraction before standalone path/build adaptations. Core Java copies are isolated test fixtures, never bootstrap output.",
+  "files": [
+    {
+      "source": "gradlew",
+      "target": "gradlew",
+      "sha256": "b187b4c52e749f5760afdd6fadc31b2a98ad35fb249bf0dff03b72650f320409"
+    },
+    {
+      "source": "gradlew.bat",
+      "target": "gradlew.bat",
+      "sha256": "1d297e00bd21de3ace22b4d7f2de1f9dfa858883d66bbf7c1ccbecccec8f4f3b"
+    },
+    {
+      "source": "gradle/wrapper/gradle-wrapper.jar",
+      "target": "gradle/wrapper/gradle-wrapper.jar",
+      "sha256": "7d3a4ac4de1c32b59bc6a4eb8ecb8e612ccd0cf1ae1e99f66902da64df296172"
+    },
+    {
+      "source": "gradle/wrapper/gradle-wrapper.properties",
+      "target": "gradle/wrapper/gradle-wrapper.properties",
+      "sha256": "ef9f8775fd21a165a249ded98afc533818d3f6ac050f0f2f437d5285576b2257"
+    },
+    {
+      "source": "beta-lab/bootstrap-a/src/dev/celestebeta/attach/AgentMain.java",
+      "target": "beta-lab/bootstrap-a/src/dev/celestebeta/attach/AgentMain.java",
+      "sha256": "dd4038a34d79a48d95262e680457a9cf5083aafad709b5fbdc230c464efedf6a"
+    },
+    {
+      "source": "beta-lab/bootstrap-a/src/dev/celestebeta/attach/AttachCli.java",
+      "target": "beta-lab/bootstrap-a/src/dev/celestebeta/attach/AttachCli.java",
+      "sha256": "3dac0996b5b3ffb49bb29275a140ffb1efd72c81d1bb2309e92b64ce05f3595a"
+    },
+    {
+      "source": "beta-lab/bootstrap-a/src/dev/celestebeta/attach/ResidentControl.java",
+      "target": "beta-lab/bootstrap-a/src/dev/celestebeta/attach/ResidentControl.java",
+      "sha256": "967dbf06acad9d0572f276e26f31fb6095fdada06f24be26d0c9e247e67351b4"
+    },
+    {
+      "source": "beta-lab/bootstrap-a/src/dev/celestebeta/bootstrap/external/BootstrapHost.java",
+      "target": "beta-lab/bootstrap-a/src/dev/celestebeta/bootstrap/external/BootstrapHost.java",
+      "sha256": "919b17bff41052cbadbdcee8e6aa50ae7061f466653929b513c98a9dc770a2f6"
+    },
+    {
+      "source": "beta-lab/bootstrap-a/src/dev/celestebeta/bootstrap/external/ClassFileIdentity.java",
+      "target": "beta-lab/bootstrap-a/src/dev/celestebeta/bootstrap/external/ClassFileIdentity.java",
+      "sha256": "7ef43ceae83903eb7d193ade2428466b8e0a14ddb83888e01ab3014be5d160d0"
+    },
+    {
+      "source": "beta-lab/bootstrap-a/src/dev/celestebeta/bootstrap/external/HookInstallation.java",
+      "target": "beta-lab/bootstrap-a/src/dev/celestebeta/bootstrap/external/HookInstallation.java",
+      "sha256": "6ce5290763dcca3a6cf06f32996772ce34925bb8f8e17341f9364b2eb9be3038"
+    },
+    {
+      "source": "beta-lab/bootstrap-a/src/dev/celestebeta/bootstrap/external/MinecraftTarget.java",
+      "target": "beta-lab/bootstrap-a/src/dev/celestebeta/bootstrap/external/MinecraftTarget.java",
+      "sha256": "ed07a3fc0c85b51831698ead7a18c3ee337c2b0bac14160be411e443973f7cdc"
+    },
+    {
+      "source": "beta-lab/bootstrap-a/src/dev/celestebeta/bootstrap/external/ResidentSupport.java",
+      "target": "beta-lab/bootstrap-a/src/dev/celestebeta/bootstrap/external/ResidentSupport.java",
+      "sha256": "7fbb16b35a8329c635c73db1a196eaf2c01bef255dfcdc0df18bb0c489a76a2f"
+    },
+    {
+      "source": "beta-lab/bootstrap-a/src/dev/celestebeta/bootstrap/external/VerifiedBootstrapLoader.java",
+      "target": "beta-lab/bootstrap-a/src/dev/celestebeta/bootstrap/external/VerifiedBootstrapLoader.java",
+      "sha256": "0b9b685ae048a21d7f45e63a27d04b7f8127e9a74df4e32cd03e876ce8f4f140"
+    },
+    {
+      "source": "beta-lab/bootstrap-a/test/dev/celestebeta/attach/AttachFixtureTarget.java",
+      "target": "beta-lab/bootstrap-a/test/dev/celestebeta/attach/AttachFixtureTarget.java",
+      "sha256": "74b9a1218ffaeb32583e7bd7f73211e44086ba61f69bc966802cedf9697ac2b6"
+    },
+    {
+      "source": "beta-lab/bootstrap-a/test/dev/celestebeta/attach/BootstrapIpcCheck.java",
+      "target": "beta-lab/bootstrap-a/test/dev/celestebeta/attach/BootstrapIpcCheck.java",
+      "sha256": "01b028b251ddbcc4c0ef48e56c6ade3a8bdcfd0419663c9c288ce579d13b2e35"
+    },
+    {
+      "source": "beta-lab/bootstrap-a/test/dev/celestebeta/attach/ResidentControlCheck.java",
+      "target": "beta-lab/bootstrap-a/test/dev/celestebeta/attach/ResidentControlCheck.java",
+      "sha256": "c91ad90584895bc36be4cc7109875bb689c874d22db4df58cdd325576451c8ad"
+    },
+    {
+      "source": "beta-lab/bootstrap-a/test/dev/celestebeta/bootstrap/external/BootstrapACheck.java",
+      "target": "beta-lab/bootstrap-a/test/dev/celestebeta/bootstrap/external/BootstrapACheck.java",
+      "sha256": "d078dfe526f89ad552c93eff2bb8c1074b6c59f8cbf5e90c25c0e4edfd9b5612"
+    },
+    {
+      "source": "beta-lab/bootstrap-b/src/dev/celestebeta/bootstrap/internal/MemoryPayloadBootstrap.java",
+      "target": "beta-lab/bootstrap-b/src/dev/celestebeta/bootstrap/internal/MemoryPayloadBootstrap.java",
+      "sha256": "491e904a1e6a1693b3d5f6422ef1877c045600e045d241c1989ba493c279e8d4"
+    },
+    {
+      "source": "beta-lab/bootstrap-b/test/dev/c4lam/celeste/beta/delivery/BootstrapBCheck.java",
+      "target": "beta-lab/bootstrap-b/test/dev/c4lam/celeste/beta/delivery/BootstrapBCheck.java",
+      "sha256": "1e27ce3ba55018433f4e03b6b764bb78511081fcf5543f7d545aa96f7f88d088"
+    },
+    {
+      "source": "beta-lab/delivery-client/src/dev/c4lam/celeste/beta/delivery/BetaDeliveryClient.java",
+      "target": "beta-lab/delivery-client/src/dev/c4lam/celeste/beta/delivery/BetaDeliveryClient.java",
+      "sha256": "f0612a22185cefd36b6885074ce0aeca67f660851e487e731ceca2b12a2b4c46"
+    },
+    {
+      "source": "beta-lab/delivery-client/src/dev/c4lam/celeste/beta/delivery/HttpsTransport.java",
+      "target": "beta-lab/delivery-client/src/dev/c4lam/celeste/beta/delivery/HttpsTransport.java",
+      "sha256": "d6ed1619ba7d70bfaa2ee240fd3cc517d57f29d82d258158c98e5517163c8f98"
+    },
+    {
+      "source": "beta-lab/delivery-client/test/dev/c4lam/celeste/beta/delivery/BetaDeliveryClientCheck.java",
+      "target": "beta-lab/delivery-client/test/dev/c4lam/celeste/beta/delivery/BetaDeliveryClientCheck.java",
+      "sha256": "182c8e7b2f7c70b61a2beb1d1dacfbd481f04df3755b146633155fb29703a0d6"
+    },
+    {
+      "source": "beta-lab/delivery-client/fixtures/server-schema2-golden.json",
+      "target": "beta-lab/delivery-client/fixtures/server-schema2-golden.json",
+      "sha256": "b4f5e8164fdc1d7ddac10c07f16e08025d9bbe7b27eae009afc7b02fd7837d3e"
+    },
+    {
+      "source": "beta-lab/memory-runtime/src/main/java/dev/c4lam/celeste/beta/memory/TwoPartMemoryClassLoader.java",
+      "target": "beta-lab/memory-runtime/src/main/java/dev/c4lam/celeste/beta/memory/TwoPartMemoryClassLoader.java",
+      "sha256": "459b60c50393eed91eacc54b301aafde9ac4fd33e57ee454dc00163d9133903d"
+    },
+    {
+      "source": "beta-lab/combined-hooks/src/main/java/dev/celestebeta/host/instrument/CombinedHooksTransformer.java",
+      "target": "beta-lab/combined-hooks/src/main/java/dev/celestebeta/host/instrument/CombinedHooksTransformer.java",
+      "sha256": "b51de7beb38c85d64cab46bb86c3b5de9dc44e6a95aff7cc7c9f47ffe151cd47"
+    },
+    {
+      "source": "beta-lab/combined-hooks/src/main/java/dev/celestebeta/host/instrument/FabricCancellationCompatibility.java",
+      "target": "beta-lab/combined-hooks/src/main/java/dev/celestebeta/host/instrument/FabricCancellationCompatibility.java",
+      "sha256": "b13d3b3d53734bd0e529dae2b5cbe3b6bbd5b552f23d13ea52d55068162d0c54"
+    },
+    {
+      "source": "beta-lab/combined-hooks/src/main/java/dev/celestebeta/host/instrument/HookArgumentFrames.java",
+      "target": "beta-lab/combined-hooks/src/main/java/dev/celestebeta/host/instrument/HookArgumentFrames.java",
+      "sha256": "67d2133603d8f1b1528dd7372bef27eeb524bb87df2e7367abdcf8eb5c12ee9c"
+    },
+    {
+      "source": "beta-lab/reload-hooks/src/main/java/dev/celestebeta/host/instrument/ResourceReloadTransformer.java",
+      "target": "beta-lab/reload-hooks/src/main/java/dev/celestebeta/host/instrument/ResourceReloadTransformer.java",
+      "sha256": "947d83ffbee750a3e541581969004d2ba95899dd5d1c0a16b2de69fe2e141052"
+    },
+    {
+      "source": "beta-lab/interaction-hooks/src/main/java/dev/celestebeta/host/instrument/InteractionHooksTransformer.java",
+      "target": "beta-lab/interaction-hooks/src/main/java/dev/celestebeta/host/instrument/InteractionHooksTransformer.java",
+      "sha256": "1c5d438cbf11aa2404eb360801f024bc9c47bff847666cbf82f793fdead0b959"
+    },
+    {
+      "source": "beta-lab/rotation-hooks/src/main/java/dev/celestebeta/host/instrument/RotationHooksTransformer.java",
+      "target": "beta-lab/rotation-hooks/src/main/java/dev/celestebeta/host/instrument/RotationHooksTransformer.java",
+      "sha256": "e51d664bd56ecdb01fce375afe8bb3bfb56b29cd3a4d64c875fe5ab3fd7ac714"
+    },
+    {
+      "source": "beta-lab/fake-gamble-hooks/src/main/java/dev/celestebeta/host/instrument/FakeGambleHooksTransformer.java",
+      "target": "beta-lab/fake-gamble-hooks/src/main/java/dev/celestebeta/host/instrument/FakeGambleHooksTransformer.java",
+      "sha256": "1354282dccaeffc26c1441466f8c1344a703bd4e0e6738e651f0ed0a221a9fc4"
+    },
+    {
+      "source": "beta-lab/gameplay-callbacks/src/main/java/dev/celestebeta/host/instrument/GameplayCallbacksTransformer.java",
+      "target": "beta-lab/gameplay-callbacks/src/main/java/dev/celestebeta/host/instrument/GameplayCallbacksTransformer.java",
+      "sha256": "430fa967a1358fadaf500168fadba6f5ef6ea3940d97e026a344e3dcae6331d4"
+    },
+    {
+      "source": "beta-lab/visual-hooks/src/main/java/dev/celestebeta/host/instrument/VisualHooksTransformer.java",
+      "target": "beta-lab/visual-hooks/src/main/java/dev/celestebeta/host/instrument/VisualHooksTransformer.java",
+      "sha256": "66f0c886f951ded08406a9bb84d47c7467d691e7656594b4c1f0304183a09041"
+    },
+    {
+      "source": "beta-lab/atmosphere-hooks/src/main/java/dev/celestebeta/host/instrument/AtmosphereHooksTransformer.java",
+      "target": "beta-lab/atmosphere-hooks/src/main/java/dev/celestebeta/host/instrument/AtmosphereHooksTransformer.java",
+      "sha256": "b26b32d929af374a4be7d14e989c6eaded0902d89433fe484f220ebb906397ec"
+    },
+    {
+      "source": "beta-lab/payload-session/src/dev/c4lam/celeste/auth/ArtifactIntegrity.java",
+      "target": "beta-lab/payload-session/src/dev/c4lam/celeste/auth/ArtifactIntegrity.java",
+      "sha256": "04dcdb3b944385114ec7c7ae4219cfed3f2c5df9df7c5be67c7f98b720f5804b"
+    },
+    {
+      "source": "beta-lab/payload-session/src/dev/c4lam/celeste/auth/AuthBootstrap.java",
+      "target": "beta-lab/payload-session/src/dev/c4lam/celeste/auth/AuthBootstrap.java",
+      "sha256": "9f61b6e3850ba9a8d4db85340e8f0bcb12b360bf1d5f05fb06c6f09b0d25db3f"
+    },
+    {
+      "source": "beta-lab/payload-session/src/dev/c4lam/celeste/beta/lifecycle/BetaRuntime.java",
+      "target": "beta-lab/payload-session/src/dev/c4lam/celeste/beta/lifecycle/BetaRuntime.java",
+      "sha256": "ca7d2feabcfc0190e0a26a93d3a7169c57f56e606da1885e1164eed7a618a35f"
+    },
+    {
+      "source": "beta-lab/payload-session/src/dev/c4lam/celeste/beta/resources/InternalMemoryResources.java",
+      "target": "beta-lab/payload-session/src/dev/c4lam/celeste/beta/resources/InternalMemoryResources.java",
+      "sha256": "550a3ec8dab0fd20632a159f377de3549ce5b1f2c565afe35f158892eac003ac"
+    },
+    {
+      "source": "beta-lab/payload-session/src/dev/c4lam/celeste/beta/resources/MinecraftInternalResourcesHost.java",
+      "target": "beta-lab/payload-session/src/dev/c4lam/celeste/beta/resources/MinecraftInternalResourcesHost.java",
+      "sha256": "436c945936d54af2dbe355862200e02317271df69bcb05286692c8ee04684ee6"
+    },
+    {
+      "source": "beta-lab/payload-session/src/dev/c4lam/celeste/compat/BetaRenderPipelines.java",
+      "target": "beta-lab/payload-session/src/dev/c4lam/celeste/compat/BetaRenderPipelines.java",
+      "sha256": "44e0e5889aece0d444838507c991c202f013ac72b301e341a3bdd54377da74b2"
+    },
+    {
+      "source": "beta-lab/payload-session/src/dev/c4lam/celeste/compat/BetaTextureLease.java",
+      "target": "beta-lab/payload-session/src/dev/c4lam/celeste/compat/BetaTextureLease.java",
+      "sha256": "319ece51afa5fe3959d35c8c850ce54d47afb09bfee73c885bf25f67bd0d3a08"
+    },
+    {
+      "source": "beta-lab/payload-session/src/dev/c4lam/celeste/compat/RuntimeLogging.java",
+      "target": "beta-lab/payload-session/src/dev/c4lam/celeste/compat/RuntimeLogging.java",
+      "sha256": "46d892419b8c4163f6049563668598a3bcd6fdcb0d11968e602ef2b0ffc79f60"
+    },
+    {
+      "source": "beta-lab/payload-session/src/dev/c4lam/celeste/render/GuiPipelines.java",
+      "target": "beta-lab/payload-session/src/dev/c4lam/celeste/render/GuiPipelines.java",
+      "sha256": "0a20f31d66d587c6d9849ab85f42b908897d61d15ff5f288b1140a15eb010b95"
+    },
+    {
+      "source": "beta-lab/payload-session/src/fixture/SessionCheck.java",
+      "target": "beta-lab/payload-session/src/fixture/SessionCheck.java",
+      "sha256": "4cb46a8247925a91b3ccb4a05d4d6cbbc9b3050115d01f2a4847adee7ed1f118"
+    },
+    {
+      "source": "beta-lab/payload-session/src/net/minecraft/client/MinecraftClient.java",
+      "target": "beta-lab/payload-session/src/net/minecraft/client/MinecraftClient.java",
+      "sha256": "5e2e6050f079d787fa98acba7b6b0423cd35ac8e541c62db2e8af2c42a362f27"
+    },
+    {
+      "source": "beta-lab/payload-session/src/net/minecraft/client/texture/TextureManager.java",
+      "target": "beta-lab/payload-session/src/net/minecraft/client/texture/TextureManager.java",
+      "sha256": "ce6606e84d3c92a23de05bd7a5c3732295d217d98362aa678b454454c0398b51"
+    },
+    {
+      "source": "beta-lab/integrity-adapter/src/test/java/dev/c4lam/celeste/CelesteClient.java",
+      "target": "beta-lab/integrity-adapter/src/test/java/dev/c4lam/celeste/CelesteClient.java",
+      "sha256": "f3940d9bd5c4025701e89fbc07f2fae77c47b5b1116c5629a3f4bc9ff9cc1205"
+    },
+    {
+      "source": "src/main/java/dev/c4lam/celeste/beta/lifecycle/BetaPayloadSession.java",
+      "target": "beta-lab/bootstrap-b/fixtures/core/dev/c4lam/celeste/beta/lifecycle/BetaPayloadSession.java",
+      "sha256": "a151a6c0ec2c22854dd62e6758c46a46fdabee9b23ad331933a26c003ca6489b"
+    },
+    {
+      "source": "src/main/java/dev/c4lam/celeste/auth/ArtifactIntegrity.java",
+      "target": "beta-lab/bootstrap-b/fixtures/core/dev/c4lam/celeste/auth/ArtifactIntegrity.java",
+      "sha256": "a590c13d9bba05f6542a89f42922786d3f27dfb1284a81fc2b7b5d000e560432"
+    },
+    {
+      "source": "src/main/java/dev/c4lam/celeste/auth/Crypto.java",
+      "target": "beta-lab/bootstrap-b/fixtures/core/dev/c4lam/celeste/auth/Crypto.java",
+      "sha256": "a9111baae626e1f1ebc6d3675df7b60f42864a79aeb19768dce9fe916dd97723"
+    },
+    {
+      "source": "beta-lab/native-launcher/src/atomic_store.rs",
+      "target": "beta-lab/native-launcher/src/atomic_store.rs",
+      "sha256": "5a6638f29aed8abf36bb9e2c1d79887b9b16db7d85a32d49217ef1cc7637975d"
+    },
+    {
+      "source": "beta-lab/native-launcher/src/attach.rs",
+      "target": "beta-lab/native-launcher/src/attach.rs",
+      "sha256": "081d2d533a95defd1cb6442b50967ca660be5fa814a5c917a277682431537ff4"
+    },
+    {
+      "source": "beta-lab/native-launcher/src/auth.rs",
+      "target": "beta-lab/native-launcher/src/auth.rs",
+      "sha256": "c5b63e2408b203752f9fcf9e50be53e19d1097180c6c4dd737df87d597350e97"
+    },
+    {
+      "source": "beta-lab/native-launcher/src/delivery.rs",
+      "target": "beta-lab/native-launcher/src/delivery.rs",
+      "sha256": "8cdd24ddbcb774b6d7feca2a453a459aedb79ab633c85a6ca29d7da7d77e173a"
+    },
+    {
+      "source": "beta-lab/native-launcher/src/main.rs",
+      "target": "beta-lab/native-launcher/src/main.rs",
+      "sha256": "7db8973acdd9b7825b8ef97f41418cd4ec0cd52c0abaccdb52dad3583ff46447"
+    },
+    {
+      "source": "beta-lab/native-launcher/src/platform.rs",
+      "target": "beta-lab/native-launcher/src/platform.rs",
+      "sha256": "3c9ef8884ec8d6155dca6023ea1f8c8f5f96677f61610ccdd25d2785df2aa4be"
+    },
+    {
+      "source": "beta-lab/native-launcher/src/release.rs",
+      "target": "beta-lab/native-launcher/src/release.rs",
+      "sha256": "32ff8e859d69f86717e33e7ef4d8be4ca86cd823c59acbb2d6cf161527cca2fe"
+    },
+    {
+      "source": "beta-lab/native-launcher/Cargo.toml",
+      "target": "beta-lab/native-launcher/Cargo.toml",
+      "sha256": "9f9359b21497d4554324d723bbfa7147cf7e4a2ec3e3b84b8727e593ef286173"
+    },
+    {
+      "source": "beta-lab/native-launcher/Cargo.lock",
+      "target": "beta-lab/native-launcher/Cargo.lock",
+      "sha256": "b11d9234dfc1dfe49bfa7d8a7a1e143d9a0379d514590714a31385e98ad6e528"
+    },
+    {
+      "source": "src/main/resources/assets/celeste/textures/gui/celeste-logo.png",
+      "target": "beta-lab/native-launcher/assets/celeste-logo.png",
+      "sha256": "b1bbdb0a5499bcc63ce464b92cfe30a8d86b8a39f0ea3c33db7fc733505e33ee"
+    }
+  ]
+}
