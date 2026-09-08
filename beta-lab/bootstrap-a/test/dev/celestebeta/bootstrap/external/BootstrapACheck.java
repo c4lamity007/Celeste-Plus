@@ -54,9 +54,10 @@ public final class BootstrapACheck {
         interactionApiPresence();
         classIdentity();
         archive();
+        cachedArchiveResources();
         Path root = Path.of(args[0]).toAbsolutePath().normalize(); Files.createDirectories(root);
         Path temporary = Files.createTempDirectory(root, "bootstrap-a-check-").toRealPath();
-        try { support(temporary); dev.celestebeta.attach.BootstrapIpcCheck.run(temporary); }
+        try { support(temporary); supportPreparationCleanup(temporary); dev.celestebeta.attach.BootstrapIpcCheck.run(temporary); }
         finally { eraseFixture(temporary); }
         hooks();
         hostLifetimes();
@@ -180,6 +181,67 @@ public final class BootstrapACheck {
         rejectArchive(corrupt, "stored member CRC checked even when outer archive hash matches");
         centralDirectory(jar);
     }
+
+    private static void cachedArchiveResources() throws Exception {
+        byte[] jar = jar(archiveEntries(), true);
+        List<RetiredArchiveResources> retired = new ArrayList<>();
+        for (int lifetime = 0; lifetime < 3; lifetime++) retired.add(retireArchiveResources(jar));
+        // Only tests request GC: production releases ownership and lets the JVM decide.
+        for (int attempt = 0; attempt < 40 && retired.stream().anyMatch(item -> item.loader().get() != null || item.bytes().get() != null); attempt++) {
+            System.gc(); Thread.sleep(25);
+        }
+        for (RetiredArchiveResources item : retired) {
+            check(item.loader().get() == null, "cached URL/connection/streams do not pin a retired B loader");
+            check(item.bytes().get() == null, "cached resource handles release retired B resource arrays");
+            check(item.handles().size() == 6, "all stale resource handles remain retained during collection check");
+        }
+        java.lang.ref.Reference.reachabilityFence(retired);
+    }
+
+    @SuppressWarnings("deprecation") // Context-relative URLs deliberately exercise the installed handler.
+    private static RetiredArchiveResources retireArchiveResources(byte[] jar) throws Exception {
+        ClassLoader parent = new ClassLoader(BootstrapACheck.class.getClassLoader()) {
+            @Override public URL getResource(String name) {
+                return name.equals(VerifiedBootstrapLoader.LAYOUT) ? BootstrapACheck.class.getResource("BootstrapACheck.class") : super.getResource(name);
+            }
+        };
+        VerifiedBootstrapLoader loader = new VerifiedBootstrapLoader(jar, VerifiedBootstrapLoader.hash(jar), parent);
+        loader.loadClass(INTERNAL);
+        URL resource = loader.getResource(VerifiedBootstrapLoader.LAYOUT);
+        check(resource != null, "owned B resource URL available before retirement");
+        var connected = resource.openConnection(); connected.connect();
+        var pending = resource.openConnection();
+        InputStream urlStream = connected.getInputStream();
+        InputStream directStream = loader.getResourceAsStream(VerifiedBootstrapLoader.LAYOUT);
+        InputStream closedStream = loader.getResourceAsStream(VerifiedBootstrapLoader.LAYOUT);
+        check(directStream != null && closedStream != null, "direct B streams available before retirement");
+        int first = directStream.read(); directStream.mark(0); int second = directStream.read(); directStream.reset();
+        check(first >= 0 && second == directStream.read() && directStream.markSupported(), "resource stream keeps byte/mark/reset semantics");
+        check(directStream.skip(-1) == 0 && directStream.skip(Long.MAX_VALUE) > 0 && directStream.read() == -1,
+            "resource stream skip is bounded and EOF remains stable");
+        closedStream.close();
+        expect(IOException.class, closedStream::read, "explicitly closed resource stream releases access");
+        expect(IOException.class, () -> new URL(resource, "?other").openConnection(), "resource URL query tampering rejected");
+        expect(IOException.class, () -> new URL(resource, "#other").openConnection(), "resource URL fragment tampering rejected");
+        expect(IOException.class, () -> new URL(resource, "//elsewhere" + resource.getPath()).openConnection(), "resource URL authority tampering rejected");
+        var field = VerifiedBootstrapLoader.class.getDeclaredField("entries"); field.setAccessible(true);
+        Object retainedBytes = ((Map<?, ?>) field.get(loader)).get(VerifiedBootstrapLoader.LAYOUT);
+        var bytes = new java.lang.ref.WeakReference<>(retainedBytes);
+        var reference = new java.lang.ref.WeakReference<ClassLoader>(loader);
+        loader.close();
+        check(loader.getResource(VerifiedBootstrapLoader.LAYOUT) == null && !loader.getResources(VerifiedBootstrapLoader.LAYOUT).hasMoreElements(),
+            "closed owned URL and enumeration never fall back to parent metadata");
+        expect(IOException.class, resource::openStream, "cached B URL revoked after close");
+        expect(IOException.class, connected::getInputStream, "already connected B URL revoked after close");
+        expect(IOException.class, pending::connect, "pending B connection revoked after close");
+        expect(IOException.class, urlStream::read, "open URL stream revoked after close");
+        expect(IOException.class, directStream::available, "open direct stream revoked after close");
+        expect(IOException.class, directStream::reset, "reset cannot revive a retired resource stream");
+        return new RetiredArchiveResources(reference, bytes, List.of(resource, connected, pending, urlStream, directStream, closedStream));
+    }
+
+    private record RetiredArchiveResources(java.lang.ref.WeakReference<ClassLoader> loader,
+                                            java.lang.ref.WeakReference<Object> bytes, List<Object> handles) { }
 
     private static void centralDirectory(byte[] original) throws Exception {
         int end = original.length - 22;
@@ -313,6 +375,74 @@ public final class BootstrapACheck {
             }
             check(childCount(root) == before, "rejected resident support leaves no materialized directory: " + mode);
         }
+    }
+
+    private static void supportPreparationCleanup(Path root) throws Exception {
+        long baseline = childCount(root);
+        for (int attempt = 0; attempt < 3; attempt++) {
+            SupportFixture fixture = new SupportFixture();
+            try (TwoPartMemoryClassLoader retained = fixture.retained()) {
+                ResidentSupport prepared = ResidentSupport.prepare(retained, root, fixture.agent());
+                prepared.discardIfUninstalled(); prepared.discardIfUninstalled();
+                check(!Files.exists(prepared.directory()) && childCount(root) == baseline,
+                    "abandoned pre-install support leaves no directory after repeated/idempotent cleanup");
+            }
+        }
+        SupportFixture fixture = new SupportFixture();
+        try (TwoPartMemoryClassLoader retained = fixture.retained()) {
+            ResidentSupport prepared = ResidentSupport.prepare(retained, root, fixture.agent());
+            Path foreign = prepared.directory().resolve("unowned.txt"); Files.writeString(foreign, "keep");
+            IOException original = new IOException("original preparation failure");
+            var rollback = BootstrapHost.class.getDeclaredMethod("rollbackPreparation", HookInstallation.class, VerifiedBootstrapLoader.class, ResidentSupport.class, Throwable.class);
+            rollback.setAccessible(true);
+            reflected(rollback, null, null, null, prepared, original);
+            check(original.getSuppressed().length == 1 && original.getMessage().equals("original preparation failure"),
+                "rollback preserves original failure and records incomplete support cleanup");
+            check(Files.readString(foreign).equals("keep") && childCount(prepared.directory()) == 7,
+                "unowned child refuses preparation cleanup before any deletion");
+            Files.delete(foreign);
+            try (java.util.jar.JarFile bridge = new java.util.jar.JarFile(prepared.directory().resolve("celeste-beta-bridges.jar").toFile())) {
+                field(ResidentSupport.class, "retainedBridge").set(prepared, bridge);
+                prepared.discardIfUninstalled();
+                check(childCount(prepared.directory()) == 6, "partial irreversible bridge installation preserves support files");
+                field(ResidentSupport.class, "retainedBridge").set(prepared, null);
+            }
+            field(ResidentSupport.class, "installed").setBoolean(prepared, true);
+            prepared.discardIfUninstalled();
+            check(childCount(prepared.directory()) == 6, "installed resident support is never discarded by preparation rollback");
+            field(ResidentSupport.class, "installed").setBoolean(prepared, false);
+            reflected(rollback, null, null, null, prepared, new IOException("reversible hook preparation failure"));
+            check(!Files.exists(prepared.directory()) && childCount(root) == baseline,
+                "host reversible rollback discards only its uninstalled prepared support");
+        }
+        // Exercise partial materialization directly without adding a production fault seam.
+        Class<?> type = Arrays.stream(ResidentSupport.class.getDeclaredClasses())
+            .filter(value -> value.getSimpleName().equals("PreparedDirectory")).findFirst().orElseThrow();
+        var constructor = type.getDeclaredConstructor(Path.class); constructor.setAccessible(true);
+        Object partial = constructor.newInstance(root);
+        var write = type.getDeclaredMethod("write", String.class, byte[].class); write.setAccessible(true);
+        var discard = type.getDeclaredMethod("discard"); discard.setAccessible(true);
+        Path first = (Path) reflected(write, partial, "first.jar", new byte[] { 1 });
+        expect(java.nio.file.FileAlreadyExistsException.class, () -> reflected(write, partial, "first.jar", new byte[] { 2 }),
+            "preparation cannot overwrite even its existing file");
+        reflected(discard, partial);
+        check(!Files.exists(first.getParent()) && childCount(root) == baseline, "partial written support directory cleanup removes only recorded files");
+        Object changed = constructor.newInstance(root);
+        Path replaced = (Path) reflected(write, changed, "first.jar", new byte[] { 1 });
+        Files.delete(replaced); Files.createDirectory(replaced);
+        expect(IOException.class, () -> reflected(discard, changed), "changed file type is preserved without recursive cleanup");
+        check(Files.isDirectory(replaced), "replacement directory remains untouched");
+        Files.delete(replaced);
+        reflected(discard, changed);
+        check(childCount(root) == baseline, "safe cleanup can finish once the unowned replacement is removed");
+        Object modified = constructor.newInstance(root);
+        Path altered = (Path) reflected(write, modified, "first.jar", new byte[] { 1 });
+        Files.write(altered, new byte[] { 2 });
+        expect(IOException.class, () -> reflected(discard, modified), "content receipt preserves a modified owned path");
+        check(Files.readAllBytes(altered)[0] == 2, "modified content is never deleted by optional preparation cleanup");
+        Files.write(altered, new byte[] { 1 });
+        reflected(discard, modified);
+        check(childCount(root) == baseline, "verified original content can be safely retired");
     }
 
     private static void classIdentity() throws Exception {

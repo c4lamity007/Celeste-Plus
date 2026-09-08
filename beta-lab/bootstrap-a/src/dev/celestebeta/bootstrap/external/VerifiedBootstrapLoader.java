@@ -31,6 +31,7 @@ final class VerifiedBootstrapLoader extends ClassLoader implements AutoCloseable
         "org.slf4j.", "org.jetbrains.", "com.google.", "org.objectweb.asm.", "com.mojang.", "it.unimi.",
         "org.apache.", "io.netty.", "oshi.", "dev.redstones.mediaplayerinfo.", "dev.c4lam.celeste.");
     private final Map<String, byte[]> entries = new HashMap<>();
+    private final ResourceAccess resourceAccess = new ResourceAccess(entries);
     // Names survive close so retired signed entries cannot silently fall back to a parent copy.
     private final Set<String> classNames = new HashSet<>();
     private final Set<String> resourceNames = new HashSet<>();
@@ -128,8 +129,7 @@ final class VerifiedBootstrapLoader extends ClassLoader implements AutoCloseable
 
     @Override public synchronized InputStream getResourceAsStream(String name) {
         if (ownedResource(name)) {
-            byte[] value = closed ? null : entries.get(name);
-            return value == null ? null : new ByteArrayInputStream(value.clone());
+            return closed || !entries.containsKey(name) ? null : new ResourceStream(resourceAccess, name);
         }
         return super.getResourceAsStream(name);
     }
@@ -139,24 +139,95 @@ final class VerifiedBootstrapLoader extends ClassLoader implements AutoCloseable
         if (closed || !entries.containsKey(name)) return null;
         String path = "/" + resourceId + "/" + name;
         try {
-            return URL.of(java.net.URI.create("celeste-bootstrap:" + path), new URLStreamHandler() {
-                @Override protected URLConnection openConnection(URL url) throws IOException {
-                    if (!url.getPath().equals(path) || url.getQuery() != null || url.getRef() != null) {
-                        throw new IOException("Bootstrap resource URL does not identify its retained entry");
-                    }
-                    return new URLConnection(url) {
-                        @Override public void connect() { connected = true; }
-                        @Override public InputStream getInputStream() throws IOException {
-                            synchronized (VerifiedBootstrapLoader.this) {
-                                byte[] value = closed ? null : entries.get(name);
-                                if (value == null) throw new java.io.FileNotFoundException("Bootstrap resource is unavailable");
-                                return new ByteArrayInputStream(value.clone());
-                            }
-                        }
-                    };
-                }
-            });
+            return URL.of(java.net.URI.create("celeste-bootstrap:" + path), new ResourceHandler(resourceAccess, path, name));
         } catch (java.net.MalformedURLException impossible) { throw new AssertionError(impossible); }
+    }
+
+    // Externally cached URLs/connections/streams must never capture this loader.
+    // The shared access holder contains only owned bytes and is detached on close.
+    private static final class ResourceAccess {
+        private Map<String, byte[]> entries;
+        ResourceAccess(Map<String, byte[]> entries) { this.entries = entries; }
+        private byte[] require(String name) throws IOException {
+            byte[] value = entries == null ? null : entries.get(name);
+            if (value == null) throw new java.io.FileNotFoundException("Bootstrap resource is unavailable");
+            return value;
+        }
+        synchronized void check(String name) throws IOException { require(name); }
+        synchronized int available(String name, int position) throws IOException { return require(name).length - position; }
+        synchronized int read(String name, int position) throws IOException {
+            byte[] value = require(name);
+            return position < value.length ? value[position] & 0xff : -1;
+        }
+        synchronized int read(String name, int position, byte[] target, int offset, int length) throws IOException {
+            byte[] value = require(name);
+            if (length == 0) return 0;
+            if (position == value.length) return -1;
+            int count = Math.min(length, value.length - position);
+            System.arraycopy(value, position, target, offset, count);
+            return count;
+        }
+        synchronized void detach() { entries = null; }
+    }
+
+    private static final class ResourceHandler extends URLStreamHandler {
+        private final ResourceAccess access;
+        private final String path, name;
+        ResourceHandler(ResourceAccess access, String path, String name) {
+            this.access = access; this.path = path; this.name = name;
+        }
+        @Override protected URLConnection openConnection(URL url) throws IOException {
+            if (!url.getProtocol().equals("celeste-bootstrap") || url.getAuthority() != null
+                || !url.getPath().equals(path) || url.getQuery() != null || url.getRef() != null) {
+                throw new IOException("Bootstrap resource URL does not identify its retained entry");
+            }
+            return new ResourceConnection(url, access, name);
+        }
+    }
+
+    private static final class ResourceConnection extends URLConnection {
+        private final ResourceAccess access;
+        private final String name;
+        ResourceConnection(URL url, ResourceAccess access, String name) {
+            super(url); this.access = access; this.name = name;
+        }
+        @Override public void connect() throws IOException { access.check(name); connected = true; }
+        @Override public InputStream getInputStream() throws IOException {
+            connect();
+            return new ResourceStream(access, name);
+        }
+    }
+
+    private static final class ResourceStream extends InputStream {
+        private ResourceAccess access;
+        private final String name;
+        private int position, mark;
+        ResourceStream(ResourceAccess access, String name) { this.access = access; this.name = name; }
+        private ResourceAccess access() throws IOException {
+            if (access == null) throw new IOException("Bootstrap resource stream is closed");
+            return access;
+        }
+        @Override public synchronized int read() throws IOException {
+            int value = access().read(name, position);
+            if (value >= 0) position++;
+            return value;
+        }
+        @Override public synchronized int read(byte[] target, int offset, int length) throws IOException {
+            java.util.Objects.checkFromIndexSize(offset, length, target.length);
+            int count = access().read(name, position, target, offset, length);
+            if (count > 0) position += count;
+            return count;
+        }
+        @Override public synchronized long skip(long count) throws IOException {
+            int skipped = (int) Math.min(Math.max(count, 0), access().available(name, position));
+            position += skipped;
+            return skipped;
+        }
+        @Override public synchronized int available() throws IOException { return access().available(name, position); }
+        @Override public boolean markSupported() { return true; }
+        @Override public synchronized void mark(int limit) { mark = position; }
+        @Override public synchronized void reset() throws IOException { access().check(name); position = mark; }
+        @Override public synchronized void close() { access = null; }
     }
 
     @Override public synchronized java.util.Enumeration<URL> getResources(String name) throws IOException {
@@ -215,6 +286,7 @@ final class VerifiedBootstrapLoader extends ClassLoader implements AutoCloseable
 
     @Override public synchronized void close() {
         closed = true;
+        resourceAccess.detach();
         entries.values().forEach(bytes -> Arrays.fill(bytes, (byte) 0));
         entries.clear();
     }

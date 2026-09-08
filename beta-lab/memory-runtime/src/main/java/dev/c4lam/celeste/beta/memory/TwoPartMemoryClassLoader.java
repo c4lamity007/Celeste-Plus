@@ -95,6 +95,7 @@ public final class TwoPartMemoryClassLoader extends ClassLoader implements AutoC
     private final List<Map<String, byte[]>> partEntries;
     private final List<Map<String, byte[]>> partViews;
     private final String resourceId = UUID.randomUUID().toString();
+    private final ResourceAccess resourceAccess = new ResourceAccess(this);
     private boolean closed;
     private boolean visitingParts;
     private long retainedBytes;
@@ -419,30 +420,7 @@ public final class TwoPartMemoryClassLoader extends ClassLoader implements AutoC
         if (closed || !isCanonicalPath(name, false) || !namespaces.ownsResource(name) || !entries.containsKey(name)) return null;
         try {
             String path = new URI(null, null, "/" + resourceId + "/" + name, null).toASCIIString();
-            return URL.of(new URI("memoryjar:" + path), new URLStreamHandler() {
-                @Override
-                protected URLConnection openConnection(URL url) throws IOException {
-                    String requestedName = resourceNameFromUrl(url);
-                    return new URLConnection(url) {
-                        @Override
-                        public void connect() throws IOException {
-                            synchronized (TwoPartMemoryClassLoader.this) {
-                                requireResource(requestedName);
-                                connected = true;
-                            }
-                        }
-
-                        @Override
-                        public InputStream getInputStream() throws IOException {
-                            connect();
-                            synchronized (TwoPartMemoryClassLoader.this) {
-                                requireResource(requestedName);
-                                return new RevocableResourceStream(requestedName);
-                            }
-                        }
-                    };
-                }
-            });
+            return URL.of(new URI("memoryjar:" + path), new ResourceUrlHandler(resourceAccess));
         } catch (IOException | URISyntaxException invalidUrl) {
             throw new IllegalStateException("Cannot encode canonical in-memory resource name", invalidUrl);
         }
@@ -477,7 +455,7 @@ public final class TwoPartMemoryClassLoader extends ClassLoader implements AutoC
     public synchronized InputStream getResourceAsStream(String name) {
         if (closed || !isCanonicalPath(name, false)) return null;
         if (!namespaces.ownsResource(name)) return super.getResourceAsStream(name);
-        return entries.containsKey(name) ? new RevocableResourceStream(name) : null;
+        return entries.containsKey(name) ? new RevocableResourceStream(resourceAccess, name) : null;
     }
 
     public synchronized boolean isClosed() { return closed; }
@@ -523,6 +501,7 @@ public final class TwoPartMemoryClassLoader extends ClassLoader implements AutoC
         if (closed) return;
         if (visitingParts) throw new IllegalStateException("Cannot close during a retained-part callback");
         closed = true;
+        resourceAccess.owner = null;
         wipeEntries(entries);
         partEntries.forEach(Map::clear);
         retainedBytes = 0;
@@ -540,22 +519,91 @@ public final class TwoPartMemoryClassLoader extends ClassLoader implements AutoC
         return bytes;
     }
 
-    private final class RevocableResourceStream extends InputStream {
+    /** All exported resource handles share this one revocable reference to the loader. */
+    private static final class ResourceAccess {
+        private volatile TwoPartMemoryClassLoader owner;
+
+        private ResourceAccess(TwoPartMemoryClassLoader owner) { this.owner = owner; }
+
+        private TwoPartMemoryClassLoader requireOwner() throws IOException {
+            TwoPartMemoryClassLoader current = owner;
+            if (current == null) throw new IOException("Memory loader is closed");
+            return current;
+        }
+    }
+
+    private static final class ResourceUrlHandler extends URLStreamHandler {
+        private final ResourceAccess access;
+
+        private ResourceUrlHandler(ResourceAccess access) { this.access = access; }
+
+        @Override
+        protected URLConnection openConnection(URL url) throws IOException {
+            TwoPartMemoryClassLoader owner = access.requireOwner();
+            synchronized (owner) {
+                if (owner.closed) throw new IOException("Memory loader is closed");
+                return new ResourceConnection(url, access, owner.resourceNameFromUrl(url));
+            }
+        }
+    }
+
+    private static final class ResourceConnection extends URLConnection {
+        private final ResourceAccess access;
+        private final String name;
+
+        private ResourceConnection(URL url, ResourceAccess access, String name) {
+            super(url);
+            this.access = access;
+            this.name = name;
+        }
+
+        @Override
+        public void connect() throws IOException {
+            TwoPartMemoryClassLoader owner = access.requireOwner();
+            synchronized (owner) {
+                owner.requireResource(name);
+                connected = true;
+            }
+        }
+
+        @Override
+        public InputStream getInputStream() throws IOException {
+            TwoPartMemoryClassLoader owner = access.requireOwner();
+            synchronized (owner) {
+                owner.requireResource(name);
+                connected = true;
+                return new RevocableResourceStream(access, name);
+            }
+        }
+    }
+
+    private static final class RevocableResourceStream extends InputStream {
+        private volatile ResourceAccess access;
         private final String name;
         private int position;
-        private boolean streamClosed;
 
-        private RevocableResourceStream(String name) { this.name = name; }
+        private RevocableResourceStream(ResourceAccess access, String name) {
+            this.access = access;
+            this.name = name;
+        }
 
-        private byte[] data() throws IOException {
-            if (streamClosed) throw new IOException("Resource stream is closed");
-            return requireResource(name);
+        private TwoPartMemoryClassLoader requireOwner() throws IOException {
+            ResourceAccess current = access;
+            if (current == null) throw new IOException("Resource stream is closed");
+            return current.requireOwner();
+        }
+
+        // Called with the owner's monitor held, which also serializes individual close and reads.
+        private byte[] data(TwoPartMemoryClassLoader owner) throws IOException {
+            if (access == null) throw new IOException("Resource stream is closed");
+            return owner.requireResource(name);
         }
 
         @Override
         public int read() throws IOException {
-            synchronized (TwoPartMemoryClassLoader.this) {
-                byte[] bytes = data();
+            TwoPartMemoryClassLoader owner = requireOwner();
+            synchronized (owner) {
+                byte[] bytes = data(owner);
                 return position < bytes.length ? bytes[position++] & 0xff : -1;
             }
         }
@@ -563,8 +611,9 @@ public final class TwoPartMemoryClassLoader extends ClassLoader implements AutoC
         @Override
         public int read(byte[] target, int offset, int length) throws IOException {
             Objects.checkFromIndexSize(offset, length, target.length);
-            synchronized (TwoPartMemoryClassLoader.this) {
-                byte[] bytes = data();
+            TwoPartMemoryClassLoader owner = requireOwner();
+            synchronized (owner) {
+                byte[] bytes = data(owner);
                 if (length == 0) return 0;
                 if (position == bytes.length) return -1;
                 int count = Math.min(length, bytes.length - position);
@@ -576,12 +625,20 @@ public final class TwoPartMemoryClassLoader extends ClassLoader implements AutoC
 
         @Override
         public int available() throws IOException {
-            synchronized (TwoPartMemoryClassLoader.this) { return data().length - position; }
+            TwoPartMemoryClassLoader owner = requireOwner();
+            synchronized (owner) { return data(owner).length - position; }
         }
 
         @Override
         public void close() {
-            synchronized (TwoPartMemoryClassLoader.this) { streamClosed = true; }
+            ResourceAccess current = access;
+            if (current == null) return;
+            TwoPartMemoryClassLoader owner = current.owner;
+            if (owner == null) {
+                access = null;
+            } else {
+                synchronized (owner) { access = null; }
+            }
         }
     }
 

@@ -67,31 +67,42 @@ public final class BootstrapBCheck {
         }
         baseline.put(ASSET, new byte[] { 7, 8, 9 });
         baseline.put(LAYOUT, layoutBytes());
-        twoLifetimes();
+        repeatedLifetimes();
         stopBeforeReady();
         cleanupFailure();
         preflight();
         System.out.println("PASS bootstrap B: " + checks + " checks; signed offline MemoryRelease, real retained digest/loader/session integration");
     }
 
+    private record ResourceHandles(java.net.URL url, java.net.URLConnection connection,
+                                   InputStream openStream, InputStream closedStream) { }
     private record RetiredLifetime(MemoryPayloadBootstrap.Session session,
-                                   java.lang.ref.WeakReference<ClassLoader> loader, int identity) { }
+                                   java.lang.ref.WeakReference<ClassLoader> loader, int identity,
+                                   ResourceHandles resources) { }
 
-    private static void twoLifetimes() throws Exception {
-        RetiredLifetime first = normalStop(), second = normalStop();
-        check(first.session() != second.session() && first.identity() != second.identity(),
-            "repeated loads create distinct sessions/payload loaders with the same resident parent");
-        for (RetiredLifetime lifetime : List.of(first, second)) {
-            check(lifetime.session().status().get("phase").equals("stopped"), "old stopped handles remain usable after another lifetime");
+    private static void repeatedLifetimes() throws Exception {
+        var lifetimes = new java.util.ArrayList<RetiredLifetime>();
+        for (int cycle = 0; cycle < 32; cycle++) lifetimes.add(normalStop());
+        check(lifetimes.stream().map(RetiredLifetime::session).distinct().count() == lifetimes.size(),
+            "repeated loads create distinct sessions with the same resident parent");
+        for (RetiredLifetime lifetime : lifetimes) {
+            check(lifetime.session().status().get("phase").equals("stopped"), "old stopped handles remain usable after later lifetimes");
             lifetime.session().stop().toCompletableFuture().join();
+            expect(IOException.class, () -> lifetime.resources().url().openStream(), "cached URL remains revoked");
+            expect(IOException.class, () -> lifetime.resources().connection().getInputStream(), "cached connection remains revoked");
+            expect(IOException.class, lifetime.resources().openStream()::read, "unclosed stream remains revoked");
+            expect(IOException.class, lifetime.resources().closedStream()::read, "closed stream remains closed");
         }
-        // GC scheduling is advisory. Strong-reference retirement above is the gate;
-        // record actual collection evidence without promising forced JVM unloading.
-        for (int attempt = 0; attempt < 12 && (first.loader().get() != null || second.loader().get() != null); attempt++) {
+        // This isolated test JVM enables explicit GC only to detect ownership leaks.
+        // Production stop neither requests collection nor promises when classes unload.
+        for (int attempt = 0; attempt < 40 && lifetimes.stream().anyMatch(item -> item.loader().get() != null); attempt++) {
             System.gc(); Thread.sleep(25);
         }
-        int collected = (first.loader().get() == null ? 1 : 0) + (second.loader().get() == null ? 1 : 0);
-        System.out.println("Retired payload loader collection observed: " + collected + "/2; stopped B handles deliberately retained; GC is JVM-controlled");
+        long collected = lifetimes.stream().filter(item -> item.loader().get() == null).count();
+        java.lang.ref.Reference.reachabilityFence(lifetimes);
+        check(collected == lifetimes.size(), "retained stopped sessions, URLs, connections and streams do not pin retired payload loaders");
+        System.out.println("Retired payload loader collection observed: " + collected + "/" + lifetimes.size()
+            + "; stopped sessions and resource handles deliberately retained in an isolated GC-enabled fixture");
     }
 
     private static RetiredLifetime normalStop() throws Exception {
@@ -128,6 +139,12 @@ public final class BootstrapBCheck {
             expect(UnsupportedOperationException.class, () -> snapshot.put("phase", "forged"), "status snapshot is immutable");
             InputStream retainedStream = loader.getResourceAsStream(ASSET);
             check(retainedStream != null && retainedStream.read() == 7, "retained resources readable before stop");
+            java.net.URL retainedUrl = loader.getResource(ASSET);
+            java.net.URLConnection retainedConnection = retainedUrl.openConnection();
+            InputStream urlStream = retainedConnection.getInputStream();
+            check(urlStream.read() == 7, "URL connection reads the same retained resource before stop");
+            InputStream closedStream = loader.getResourceAsStream(ASSET); closedStream.close();
+            ResourceHandles handles = new ResourceHandles(retainedUrl, retainedConnection, urlStream, closedStream);
             CompletionStage<Void> stopped = session.stop(); pump();
             check(stopped == session.stopped() && !done(stopped) && !loader.isClosed(), "stop returns shared observation and waits for runtime cleanup");
             instanceFuture(runtime, "stopped").complete(null); pump();
@@ -146,7 +163,7 @@ public final class BootstrapBCheck {
                 Field retired = session.getClass().getDeclaredField(name); retired.setAccessible(true);
                 check(retired.get(session) == null, "clean B handle no longer retains payload ownership: " + name);
             }
-            return new RetiredLifetime(session, new java.lang.ref.WeakReference<>(loader), System.identityHashCode(loader));
+            return new RetiredLifetime(session, new java.lang.ref.WeakReference<>(loader), System.identityHashCode(loader), handles);
         }
     }
 

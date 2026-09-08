@@ -29,7 +29,7 @@ final class ResidentControl implements AutoCloseable {
     private final String digest;
     private final ServerSocket server;
     private final ThreadPoolExecutor workers;
-    private final java.util.concurrent.ScheduledExecutorService deadlines;
+    private final java.util.concurrent.ScheduledThreadPoolExecutor deadlines;
     private final Function<String,String> command;
     private final java.util.Set<Socket> sockets=java.util.concurrent.ConcurrentHashMap.newKeySet();
 
@@ -40,7 +40,8 @@ final class ResidentControl implements AutoCloseable {
         RANDOM.nextBytes(key);
         server=new ServerSocket(0,4,InetAddress.getByName("127.0.0.1"));
         workers=new ThreadPoolExecutor(2,2,0,TimeUnit.SECONDS,new ArrayBlockingQueue<>(2),action -> daemon(action,"Celeste local control"));
-        deadlines=java.util.concurrent.Executors.newSingleThreadScheduledExecutor(action -> daemon(action,"Celeste local control deadline"));
+        deadlines=new java.util.concurrent.ScheduledThreadPoolExecutor(1,action -> daemon(action,"Celeste local control deadline"));
+        deadlines.setRemoveOnCancelPolicy(true);
         daemon(this::accept,"Celeste local control accept").start();
     }
     private static Thread daemon(Runnable action,String name) {

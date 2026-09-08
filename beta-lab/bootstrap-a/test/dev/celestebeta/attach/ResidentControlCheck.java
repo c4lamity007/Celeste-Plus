@@ -65,6 +65,12 @@ public final class ResidentControlCheck {
                 output.write(replay);output.flush();check(input.read()==-1,"captured prior request rejected on new connection");
             }
             check(calls.get()==4,"replay never reaches command handler");
+            for(int cycle=0;cycle<64;cycle++) request(endpoint,"{\"action\":\"status\"}");
+            var deadlineField=ResidentControl.class.getDeclaredField("deadlines");deadlineField.setAccessible(true);
+            var deadlines=(java.util.concurrent.ScheduledThreadPoolExecutor)deadlineField.get(server);
+            long drainUntil=System.nanoTime()+java.util.concurrent.TimeUnit.SECONDS.toNanos(2);
+            while(!deadlines.getQueue().isEmpty()&&System.nanoTime()<drainUntil) Thread.sleep(5);
+            check(deadlines.getQueue().isEmpty(),"completed control requests leave no cancelled deadlines queued");
         }
         System.out.println("PASS resident control: "+checks+" checks; synthetic loopback only");
     }

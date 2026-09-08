@@ -1,6 +1,6 @@
 {
   "schema": "celeste-plus-core-lock-1",
   "repository": "https://github.com/c4lamity007/Celeste.git",
-  "commit": "af90992e0ab7728d7f850586866bf65e8ea0b570",
-  "overlayManifestSha256": "71e58c382a60de2869a98f3db7ea50cd35f5f270f621a9ac8d46d1fbc0c346a7"
+  "commit": "e1e140f1b8dcfdf4e91f530a8a7d98634bd9e683",
+  "overlayManifestSha256": "ddb801fa3b797c8d4cb03889a6381935b9b20236dc3bb5c963f17b9b6d38f663"
 }

@@ -29,6 +29,7 @@ final class ResidentSupport {
     private static final Set<String> CLASSES = Set.of("com.sun.jna.", "oshi.", "dev.redstones.mediaplayerinfo.");
     private static final Set<String> RESOURCES = Set.of("com/sun/jna/", "oshi/", "mediaplayerinfo/", "dev/redstones/mediaplayerinfo/");
     private final Path directory;
+    private final PreparedDirectory preparedDirectory;
     private final Map<String, Path> libraries;
     private final List<String> bridgeNames;
     private final Map<String, String> libraryHashes;
@@ -36,8 +37,9 @@ final class ResidentSupport {
     private JarFile retainedBridge;
     private SupportLoader loader;
 
-    private ResidentSupport(Path directory, Map<String, Path> libraries, List<String> bridgeNames, Map<String, String> libraryHashes) {
-        this.directory = directory;
+    private ResidentSupport(PreparedDirectory preparedDirectory, Map<String, Path> libraries, List<String> bridgeNames, Map<String, String> libraryHashes) {
+        this.preparedDirectory = preparedDirectory;
+        this.directory = preparedDirectory.directory;
         this.libraries = Map.copyOf(libraries);
         this.bridgeNames = List.copyOf(bridgeNames);
         this.libraryHashes = Map.copyOf(libraryHashes);
@@ -129,17 +131,22 @@ final class ResidentSupport {
             }
             Path root = supportRoot.toRealPath();
             if (!Files.isDirectory(root, LinkOption.NOFOLLOW_LINKS)) throw new IOException("Support root must already be a directory");
-            Path directory = Files.createTempDirectory(root, "celeste-beta-support-");
-            Map<String, Path> paths = new HashMap<>();
-            for (var entry : wanted.entrySet()) {
-                Path file = directory.resolve(entry.getKey());
-                Files.write(file, entry.getValue(), StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
-                if (!VerifiedBootstrapLoader.hash(Files.readAllBytes(file)).equals(descriptors.get(entry.getKey()).get("sha256").getAsString())) {
-                    throw new IOException("Materialized support library digest differs");
+            PreparedDirectory prepared = new PreparedDirectory(root);
+            try {
+                Map<String, Path> paths = new HashMap<>();
+                for (var entry : wanted.entrySet()) {
+                    Path file = prepared.write(entry.getKey(), entry.getValue());
+                    if (!VerifiedBootstrapLoader.hash(Files.readAllBytes(file)).equals(descriptors.get(entry.getKey()).get("sha256").getAsString())) {
+                        throw new IOException("Materialized support library digest differs");
+                    }
+                    paths.put(entry.getKey(), file);
                 }
-                paths.put(entry.getKey(), file);
+                return new ResidentSupport(prepared, paths, bridges, hashes);
+            } catch (IOException | RuntimeException | Error failure) {
+                try { prepared.discard(); }
+                catch (IOException | RuntimeException cleanupFailure) { failure.addSuppressed(cleanupFailure); }
+                throw failure;
             }
-            return new ResidentSupport(directory, paths, bridges, hashes);
         } catch (IllegalStateException | IllegalArgumentException error) {
             throw new IOException("Invalid resident support metadata", error);
         } finally {
@@ -171,6 +178,94 @@ final class ResidentSupport {
             if (Class.forName(name, false, loader).getClassLoader() != loader) throw new IOException("Resident dependency resolved outside the signed support loader");
         }
         installed = true;
+    }
+
+    synchronized void discardIfUninstalled() throws IOException {
+        // Appended bridges and a JNI-owning loader are intentionally JVM-resident.
+        // Even a partially completed irreversible installation must retain these files.
+        if (installed || retainedBridge != null || loader != null) return;
+        preparedDirectory.discard();
+    }
+
+    /** Owns only freshly created preparation files; never traverses or recursively sweeps. */
+    private static final class PreparedDirectory {
+        private final Path directory;
+        private final FileIdentity directoryKey;
+        private final Map<Path, FileIdentity> files = new HashMap<>();
+        private final Map<Path, String> fileHashes = new HashMap<>();
+        private boolean discarded;
+
+        PreparedDirectory(Path root) throws IOException {
+            directory = Files.createTempDirectory(root, "celeste-beta-support-").toAbsolutePath().normalize();
+            directoryKey = identity(directory, true);
+        }
+
+        Path write(String name, byte[] bytes) throws IOException {
+            verifyDirectory();
+            Path file = directory.resolve(name).normalize();
+            if (!file.getParent().equals(directory)) throw new IOException("Support filename escapes its owned directory");
+            try (var output = Files.newByteChannel(file, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)) {
+                files.put(file, identity(file, false));
+                var buffer = java.nio.ByteBuffer.wrap(bytes);
+                while (buffer.hasRemaining()) output.write(buffer);
+            }
+            fileHashes.put(file, VerifiedBootstrapLoader.hash(Files.readAllBytes(file)));
+            return file;
+        }
+
+        private record FileIdentity(Object key, java.nio.file.attribute.FileTime created) {
+            boolean stable() { return key != null || created.toMillis() != 0; }
+        }
+
+        private static FileIdentity identity(Path path, boolean directory) throws IOException {
+            var attributes = Files.readAttributes(path, java.nio.file.attribute.BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+            if (attributes.isSymbolicLink() || attributes.isOther()
+                || (directory ? !attributes.isDirectory() : !attributes.isRegularFile())
+                || !path.toRealPath().equals(path.toAbsolutePath().normalize())) {
+                throw new IOException("Prepared support path identity is unsafe or unavailable");
+            }
+            // Windows providers may omit fileKey. Creation identity plus exact
+            // content receipts still detect replacement; absent identity permits
+            // preparation but refuses optional cleanup instead of guessing.
+            return new FileIdentity(attributes.fileKey(), attributes.creationTime());
+        }
+
+        private void verifyDirectory() throws IOException {
+            if (discarded || !directoryKey.equals(identity(directory, true))) {
+                throw new IOException("Prepared support directory identity changed");
+            }
+        }
+
+        void discard() throws IOException {
+            if (discarded) return;
+            if (!directoryKey.stable()) throw new IOException("Prepared support cleanup identity is unavailable");
+            verifyDirectory();
+            // Validate the entire direct directory before deleting anything. Unknown
+            // names and replaced/reparse entries are preserved and fail cleanup.
+            try (var children = Files.list(directory)) {
+                for (Path file : children.toList()) {
+                    FileIdentity key = files.get(file);
+                    if (key == null || !key.stable() || !key.equals(identity(file, false))
+                        || (fileHashes.containsKey(file) && !fileHashes.get(file).equals(VerifiedBootstrapLoader.hash(Files.readAllBytes(file))))) {
+                        throw new IOException("Prepared support directory contains an unowned or changed entry");
+                    }
+                }
+            }
+            for (var entry : files.entrySet()) {
+                if (!Files.exists(entry.getKey(), LinkOption.NOFOLLOW_LINKS)) continue;
+                verifyDirectory();
+                if (!entry.getValue().stable() || !entry.getValue().equals(identity(entry.getKey(), false))
+                    || (fileHashes.containsKey(entry.getKey()) && !fileHashes.get(entry.getKey()).equals(VerifiedBootstrapLoader.hash(Files.readAllBytes(entry.getKey()))))) {
+                    throw new IOException("Prepared support file identity changed");
+                }
+                Files.delete(entry.getKey());
+            }
+            verifyDirectory();
+            Files.delete(directory);
+            discarded = true;
+            files.clear();
+            fileHashes.clear();
+        }
     }
 
     private synchronized void requireCompatible(Map<String, String> hashes, List<String> bridges) throws IOException {

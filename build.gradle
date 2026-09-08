@@ -46,7 +46,7 @@ def aCheck = tasks.register('betaBootstrapACheck', JavaExec) {
     mainClass = 'dev.celestebeta.bootstrap.external.BootstrapACheck'
     args layout.buildDirectory.dir('module-qa/bootstrap-a/fixtures').get().asFile.absolutePath
     enableAssertions = true
-    jvmArgs '-Xverify:all'
+    jvmArgs '-Xverify:all', '-XX:-DisableExplicitGC', '-XX:+ClassUnloading'
 }
 def deliveryCheck = tasks.register('betaDeliveryClientCheck', JavaExec) {
     dependsOn tasks.named('testClasses')
@@ -62,7 +62,7 @@ def bCheck = tasks.register('betaBootstrapBCheck', JavaExec) {
     mainClass = 'dev.c4lam.celeste.beta.delivery.BootstrapBCheck'
     args sourceSets.payloadFixture.output.classesDirs.singleFile.absolutePath
     enableAssertions = true
-    jvmArgs '-Xverify:all'
+    jvmArgs '-Xverify:all', '-XX:-DisableExplicitGC', '-XX:+ClassUnloading'
 }
 def bootstrapA = tasks.register('betaBootstrapAJar', Jar) {
     dependsOn tasks.named('classes')

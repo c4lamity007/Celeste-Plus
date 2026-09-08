@@ -82,6 +82,7 @@ public final class BootstrapHost {
         HookInstallation hooks = null;
         ResidentSupport support = null;
         boolean enteredPayload = false;
+        Throwable startupFailure = null;
         try (BetaDeliveryClient.MemoryRelease release = delivery.download(catalog)) {
             byte[] b = copy(release.artifact("bootstrap-b"));
             try { internal = new VerifiedBootstrapLoader(b, artifact(catalog, "bootstrap-b").sha256(), BootstrapHost.class.getClassLoader()); }
@@ -135,11 +136,26 @@ public final class BootstrapHost {
             Session session = new Session(payload, internal, hooks, retirementQueue, catalog.releaseId());
             hooks.onFailure(error -> session.stop());
             return session;
+        } catch (Exception | Error failure) {
+            startupFailure = failure;
+            throw failure;
         } finally {
-            if (!enteredPayload) {
-                try { if (hooks != null) hooks.close(); }
-                finally { if (internal != null) internal.close(); }
-            }
+            if (!enteredPayload) rollbackPreparation(hooks, internal, support, startupFailure);
+        }
+    }
+
+    private static void rollbackPreparation(HookInstallation hooks, VerifiedBootstrapLoader internal,
+                                            ResidentSupport support, Throwable startupFailure) throws Exception {
+        Throwable failure = startupFailure;
+        try { if (hooks != null) hooks.close(); }
+        catch (Exception | Error cleanup) { if (failure == null) failure = cleanup; else failure.addSuppressed(cleanup); }
+        try { if (internal != null) internal.close(); }
+        catch (Exception | Error cleanup) { if (failure == null) failure = cleanup; else failure.addSuppressed(cleanup); }
+        try { if (support != null) support.discardIfUninstalled(); }
+        catch (Exception | Error cleanup) { if (failure == null) failure = cleanup; else failure.addSuppressed(cleanup); }
+        if (startupFailure == null) {
+            if (failure instanceof Exception exception) throw exception;
+            if (failure instanceof Error error) throw error;
         }
     }
 

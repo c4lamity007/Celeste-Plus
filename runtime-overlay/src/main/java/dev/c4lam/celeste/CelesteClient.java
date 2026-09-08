@@ -264,7 +264,20 @@ public final class CelesteClient implements ClientModInitializer {
         }
         try {
             net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
-            if (client.currentScreen instanceof CelesteScreen || client.currentScreen instanceof HudEditorScreen) client.setScreen(null);
+            if (client.currentScreen instanceof CelesteScreen || client.currentScreen instanceof HudEditorScreen
+                || client.currentScreen instanceof dev.c4lam.celeste.gui.ModelImportScreen) client.setScreen(null);
+            else if (lateMode && client.currentScreen instanceof dev.c4lam.celeste.module.expansion.inventory.SilentInventoryScreen) {
+                // Finish the ordinary inventory close lifecycle if module cleanup
+                // could not return the carried stack. Do not synthesize another click.
+                if (client.player != null) client.currentScreen.close();
+                else client.setScreen(null);
+            }
+            // Normal Fabric shares a loader with other code; this ownership check
+            // is valid only for the disposable late runtime.
+            if (lateMode && client.currentScreen != null
+                && client.currentScreen.getClass().getClassLoader() == CelesteClient.class.getClassLoader()) {
+                throw new IllegalStateException("A Celeste screen is still active after cleanup");
+            }
         } catch (RuntimeException | LinkageError failure) {
             if (!lateMode) throw failure;
             lateLifecycle.fail(failure);
