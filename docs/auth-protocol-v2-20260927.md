@@ -6,12 +6,14 @@ This is the implementation record for the published Celeste+ protocol 2 release.
 The current release and client verification scope is Windows x64, per the user's
 request. Candidate and service-test CI now use Windows; Linux and macOS client
 work is deferred. The existing Fly backend remains part of the matched release.
-The matched release `celeste-plus-20260927-auth-v2-01` is live at Fly version
+The matched release `celeste-plus-20260927-auth-v2-01` was deployed at Fly version
 **132**, with native policy sequence **2** and verified GitHub asset downloads.
 See the [production release record](releases/20260927-auth-v2.md) for exact hashes
 and live verification. The preceding loader cannot use protocol 2 delivery.
-Use the matching new protected loader and fully restart Minecraft. The user is
-performing the Minecraft loading check; no new game result is claimed.
+Use the matching protected loader and fully restart Minecraft. The user confirmed
+injection and both media HUDs working after closing an older stuck Fabric instance.
+The subsequent [media cleanup repair](releases/20260927-media-cleanup.md) keeps
+this loader and protocol unchanged.
 
 The shared service still supports Standard Celeste. New Plus session conflicts,
 hardware migration and encrypted delivery are product-scoped; a Both license

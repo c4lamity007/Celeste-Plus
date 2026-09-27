@@ -83,16 +83,21 @@ The five-file output contains A, B, two payload parts, and `beta-release.json`. 
 
 ## Authentication and publication
 
-The current Windows release is
-[`celeste-plus-20260927-auth-v2-01`](https://github.com/c4lamity007/Celeste-Plus/releases/tag/celeste-plus-20260927-auth-v2-01),
-deployed and verified at Fly version **132** with native policy sequence **2**.
-It adds pinned transport policies, encrypted delivery, hardware/process session
-binding and grant rotation. **Use the new loader and fully restart Minecraft.**
+The current Windows payload is `celeste-plus-20260927-media-cleanup-01`,
+deployed and verified at Fly version **133** with native policy sequence **2**.
+Use the existing
+[`protocol 2 loader`](https://github.com/c4lamity007/Celeste-Plus/releases/tag/celeste-plus-20260927-auth-v2-01).
+It provides pinned transport policies, encrypted delivery, hardware/process session
+binding and grant rotation. **Fully restart Minecraft to load the media cleanup
+repair; no new loader is needed.**
 The executable remains Authenticode unsigned under the user's accepted
 **Unknown publisher** preference. All 14 selected VMProtect paths and all three
-published asset downloads passed verification. The user is handling the new
-Minecraft loading check; it is not yet recorded as passed. See the
-[release record](docs/releases/20260927-auth-v2.md) and
+published asset downloads passed verification. The user confirmed injection and
+both HUDs on the preceding payload after closing an older stuck Fabric instance.
+The new cleanup helper passed isolated exit and reload checks; final-payload
+Minecraft Stop/Load remains a separate game check. See the
+[media cleanup release record](docs/releases/20260927-media-cleanup.md),
+[protocol 2 release record](docs/releases/20260927-auth-v2.md) and
 [protocol 2 implementation and rollback record](docs/auth-protocol-v2-20260927.md).
 
 The complete [authentication, Java obfuscation and VMProtect runbook](tools/packaging/README.md)

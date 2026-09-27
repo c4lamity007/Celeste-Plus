@@ -8,11 +8,15 @@ certificate rotation, release prerequisites and rollback steps, read the
 [protocol 2 record](../../docs/auth-protocol-v2-20260927.md). The historical
 seven-target native approval below applies only to its exact old bytes.
 
-The Windows protocol 2 release is [published and verified](../../docs/releases/20260927-auth-v2.md)
-at Fly version 132 and native policy sequence 2. Its new loader is required.
-All 14 selected native paths and downloaded assets passed verification; the user
-is handling Minecraft loading. Authenticode remains unsigned under the accepted
-manual release preference, with no automatic CI exception.
+The Windows protocol 2 release was [published and verified](../../docs/releases/20260927-auth-v2.md)
+at Fly version 132 and native policy sequence 2. The subsequent
+[media cleanup payload](../../docs/releases/20260927-media-cleanup.md) is live at
+version 133 and uses the same protocol 2 loader. Fully restart Minecraft for the
+updated resident support archive. All 14 selected native paths and downloaded
+assets passed verification, and the user confirmed injection and both media HUDs
+on the preceding payload. Final-payload Minecraft Stop/Load remains a separate
+game check. Authenticode remains unsigned under the accepted manual release
+preference, with no automatic CI exception.
 
 The goal is strong protection at authorization boundaries while keeping rendering,
 input, cryptography and bulk processing fast. There is no universal “maximum”

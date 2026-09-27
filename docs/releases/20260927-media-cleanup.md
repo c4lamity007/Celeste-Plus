@@ -2,9 +2,10 @@
 
 ## Status
 
-`celeste-plus-20260927-media-cleanup-01` is prepared for a Java payload update.
-Live publication is recorded below after deployment verification. The existing
-protocol 2 Windows loader remains compatible; no launcher rebuild is required.
+`celeste-plus-20260927-media-cleanup-01` is deployed and verified at Fly version
+**133**. The existing protocol 2 Windows loader remains compatible; no launcher
+rebuild is required. Fully restart Minecraft before loading the updated resident
+media support archive.
 
 ## Diagnosis
 
@@ -62,7 +63,26 @@ remains a separate game check.
 
 ## Publication
 
-Pending the Java-only rollout. The new image must inherit the exact Fly version
-132 image, retain all 33 previous artifacts, add only the five new Plus catalog
-files and change only the Plus release directory. Backend code, Standard's
-release, TLS pins and native policy sequence 2 remain unchanged.
+Fly release **133** completed on September 27, 2026 with image
+`registry.fly.io/qb0f90cf11f4d1d52@sha256:461979d028c046ea7877b33f228bf3093a17ba0b8891a0138e2b9fbb8f2f1a92`.
+The machine reached started state and deployment health checks passed. The image
+inherits the exact version 132 image, retains all 33 previous artifacts and adds
+only five new Plus catalog files. Only the Plus release directory changed in the
+service configuration.
+
+Independent live readback verified all 26 backend files and all 38 artifacts.
+Fourteen public endpoint checks passed, including signed policy freshness and
+unauthorized artifact rejection. Backend code, Standard's release, TLS pins and
+native policy sequence 2 are unchanged. The verified loader remains SHA-256
+`33c0207d8263b0b24640436055832cad9edddf3d99062be822997a41624e434f`.
+
+Source changes were pushed to `c4lamity007/Celeste-Plus` as `6be0168`. All 298
+Java receipt source inputs matched the built working bytes; Git source content
+matched with documented CRLF-to-LF normalization for 19 existing text files.
+No new native loader asset or GitHub native release was required.
+
+Private generated live evidence is retained at
+`build/fly-rollout-20260927/media-cleanup-live-verification.json`, SHA-256
+`88ff517aae585cec6c22f4bbe4fd75130427c8df43688fff04a7787d3c03cb37`.
+Live checks did not use a real license or launch Minecraft; the final-payload
+game check remains distinct from the completed JNI and deployment checks.
