@@ -45,6 +45,26 @@ Only `auth-service/app/main.py` and `auth-service/app/database.py` change produc
 behavior. No client protocol, database schema, native loader or Java payload
 change is required.
 
+## Publication
+
+The repair was pushed to **Celeste-Plus/main** in commit `c31df9b` and deployed
+successfully at Fly version **135**. The exact new image is
+`sha256:2f8e92b22a96dfd8c8d0a5725e057e23b33713dfa4894871d7a3e9b0e0b74e18`.
+Post-deployment checks verified all 26 backend files, all 43 unchanged artifact
+files, the unchanged public configuration/database schema, signed TLS policy,
+native policy sequence 3 and unauthenticated artifact rejection. Evidence:
+`build/fly-rollout-rate-limit-20260927/live-after.json`.
+
+**Keep using the current auth-recovery loader.** Its executable and the Java
+release were not rebuilt or replaced for this backend repair. Trusted Windows
+signing remains pending the user's signing identity/service information.
+
+A fresh private online SQLite backup passed its integrity check before
+deployment. Code rollback is the previous exact image
+`sha256:ec8ea205a2fd2a0d81bd7a1126e717d2c070cc96d8d94230a4ed6640ecb13fea`
+with the same configuration. Do not restore an old customer database for a code
+rollback or replay an older native policy sequence.
+
 ## Trusted Windows signing
 
 The existing signing pipeline supports a provisioned Windows certificate-store

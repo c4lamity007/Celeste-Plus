@@ -86,7 +86,9 @@ The five-file output contains A, B, two payload parts, and `beta-release.json`. 
 The [current authentication audit](docs/auth-short-list-audit-20260927.md)
 checks VM detection, runtime renewal, pinned TLS, integrity, copied-cache claims,
 server authorization and request limits. It distinguishes verified protections
-from the remaining trusted Windows signing requirement.
+from the remaining trusted Windows signing requirement. Its two rate-limit race
+repairs are deployed at Fly version **135**; the loader and Java payload are
+unchanged from the release below.
 
 The Windows [download-binding and recovery release](docs/releases/20260927-auth-recovery.md)
 is published as `celeste-plus-20260927-auth-recovery-01`, deployed and verified at
