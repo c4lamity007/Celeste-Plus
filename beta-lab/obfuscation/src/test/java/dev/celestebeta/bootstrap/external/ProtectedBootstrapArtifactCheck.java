@@ -7,11 +7,18 @@ import java.lang.reflect.Modifier;
 import java.net.URLClassLoader;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.GeneralSecurityException;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletionStage;
 import java.util.jar.JarFile;
+import org.objectweb.asm.ClassReader;
+import org.objectweb.asm.ClassVisitor;
+import org.objectweb.asm.MethodVisitor;
+import org.objectweb.asm.Opcodes;
 
-/** Actual protected archives: inactive A status and pre-activation B validation only. */
+/** Actual protected archives: A linkage/missing-install rejection and pre-activation B only. */
 public final class ProtectedBootstrapArtifactCheck {
     private static int checks;
     private ProtectedBootstrapArtifactCheck() { }
@@ -20,6 +27,7 @@ public final class ProtectedBootstrapArtifactCheck {
         if (args.length != 2) throw new IllegalArgumentException("Expected merged A and protected B paths");
         Path a = Path.of(args[0]).toRealPath(), b = Path.of(args[1]).toRealPath();
         try (URLClassLoader host = new URLClassLoader("celeste-protected-host-check", new java.net.URL[] {a.toUri().toURL()}, ClassLoader.getPlatformClassLoader())) {
+            verifyAuthenticationBoundary(a, host);
             Class<?> entry = Class.forName("dev.celestebeta.bootstrap.external.BootstrapHost", true, host);
             check(entry.getClassLoader() == host, "A Host is owned by its isolated archive loader");
             check(Files.isSameFile(a, Path.of(entry.getProtectionDomain().getCodeSource().getLocation().toURI())), "A CodeSource remains its exact merged archive");
@@ -70,7 +78,82 @@ public final class ProtectedBootstrapArtifactCheck {
             } finally { java.util.Arrays.fill(bytes, (byte) 0); }
         }
         System.out.println("PASS protected bootstrap artifacts: " + checks
-            + " checks; inactive A and pre-activation B only, no game attachment, authentication or payload start");
+            + " checks; A linkage/missing-install rejection and pre-activation B only, no game attachment, authentication or payload start");
+    }
+
+    private static void verifyAuthenticationBoundary(Path a, ClassLoader host) throws Exception {
+        String signer = "dev/c4lam/celeste/beta/delivery/RuntimeInstallationSigner";
+        String delivery = "dev/c4lam/celeste/beta/delivery/BetaDeliveryClient";
+        try (JarFile archive = new JarFile(a.toFile())) {
+            Map<String, Set<String>> declarations = Map.of(signer, methodDeclarations(archive, signer),
+                delivery, methodDeclarations(archive, delivery));
+            int[] calls = {0, 0};
+            new ClassReader(classBytes(archive, "dev/celestebeta/bootstrap/external/BootstrapHost"))
+                .accept(new ClassVisitor(Opcodes.ASM9) {
+                    @Override public MethodVisitor visitMethod(int access, String name, String descriptor,
+                                                               String signature, String[] exceptions) {
+                        return new MethodVisitor(Opcodes.ASM9) {
+                            @Override public void visitMethodInsn(int opcode, String owner, String member,
+                                                                  String desc, boolean isInterface) {
+                                if ((owner.equals(signer) && member.equals("load"))
+                                    || (owner.equals(delivery) && member.equals("<init>"))) {
+                                    check(declarations.get(owner).contains(member + desc),
+                                        "Actual A call descriptor must match its stable declaration: " + owner + "." + member + desc);
+                                    calls[owner.equals(signer) ? 0 : 1]++;
+                                }
+                            }
+                        };
+                    }
+                }, ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
+            check(calls[0] > 0 && calls[1] > 0, "Actual Host retains both production installation/delivery calls");
+            // Resolving declarations catches renamed types crossing untouched class boundaries,
+            // without initializing classes or reaching a real account, game or network endpoint.
+            var members = archive.entries();
+            while (members.hasMoreElements()) {
+                String name = members.nextElement().getName();
+                if (!name.endsWith(".class") || name.equals("module-info.class") || name.startsWith("META-INF/")) continue;
+                Class<?> type = Class.forName(name.substring(0, name.length() - 6).replace('/', '.'), false, host);
+                check(type.getClassLoader() == host, "Every actual A class/helper is archive-owned");
+                type.getDeclaredMethods(); type.getDeclaredFields(); type.getDeclaredConstructors();
+            }
+        }
+        for (String canonical : new String[] {"DpopProofSigner", "PortableCredentialProtection", "EnvironmentGate", "EnvironmentGate$Command"}) {
+            Class<?> type = Class.forName("dev.c4lam.celeste.auth." + canonical, false, host);
+            check(type.getClassLoader() == host, "Shared authentication class retains its canonical ABI: " + canonical);
+        }
+        Class<?> bridge = Class.forName(signer.replace('/', '.'), false, host);
+        var load = bridge.getMethod("load", Path.class, ClassLoader.class, byte[].class, String.class, long.class);
+        check(load.getReturnType() == Class.forName("dev.c4lam.celeste.auth.DpopProofSigner", false, host),
+            "Installation bridge exposes the canonical signer capability");
+        Path emptyGame = Files.createTempDirectory("celeste-protected-missing-install-");
+        try {
+            try {
+                load.invoke(null, emptyGame, host, new byte[32], "synthetic-missing-install", 1L);
+                throw new AssertionError("Installation bridge accepted an empty synthetic game directory");
+            } catch (InvocationTargetException failure) {
+                check(failure.getCause() instanceof GeneralSecurityException
+                    && "The selected instance has no protected Celeste+ installation".equals(failure.getCause().getMessage()),
+                    "Actual installation bridge executes and intentionally rejects a missing installation");
+            }
+        } finally { Files.delete(emptyGame); }
+    }
+
+    private static byte[] classBytes(JarFile archive, String name) throws Exception {
+        var member = archive.getJarEntry(name + ".class");
+        check(member != null, "Required A class remains present: " + name);
+        try (var input = archive.getInputStream(member)) { return input.readAllBytes(); }
+    }
+
+    private static Set<String> methodDeclarations(JarFile archive, String owner) throws Exception {
+        Set<String> methods = new HashSet<>();
+        new ClassReader(classBytes(archive, owner)).accept(new ClassVisitor(Opcodes.ASM9) {
+            @Override public MethodVisitor visitMethod(int access, String name, String descriptor,
+                                                       String signature, String[] exceptions) {
+                methods.add(name + descriptor);
+                return null;
+            }
+        }, ClassReader.SKIP_CODE | ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
+        return methods;
     }
 
     private static void check(boolean condition, String message) {

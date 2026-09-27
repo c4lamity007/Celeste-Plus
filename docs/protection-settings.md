@@ -46,9 +46,11 @@ the enum ordering. Change options through the supported GUI and retain its saved
 project plus actual compiler evidence.
 
 The emitted output passed the static metadata check and rendered the activation
-screen in a controlled startup smoke. It failed closed because native approval
-could not be obtained. No account activation or game Load was performed; native
-performance and independent transformed-function coverage remain unverified.
+screen in an initial controlled startup smoke. It failed closed because native
+approval could not yet be obtained. Seven transformed-function paths later
+passed the exact-artifact verifier and the executable was registered. After the
+coordinated Java repair and a full Minecraft restart, the user confirmed “Loads
+successfully.” No native performance or broad gameplay result is inferred.
 See [the exact run record](protection-run-20260927.md).
 
 ## Proposed comparison profile
@@ -144,8 +146,10 @@ offline failures and corrupted artifacts. Record raw timings and a stated
 acceptance budget; no FPS or latency improvement is claimed here.
 
 Protect the unsigned candidate, verify the selected ranges and functional
-checks, then sign and verify the final bytes. Register the hash of the final
-signed file. Keep the project, protector/configuration hashes, compiler/map
+checks, then normally sign and verify the final bytes. The user explicitly
+accepted Unknown publisher for the exact September 27 reviewed release; that
+documented exception remains Authenticode unsigned. Register the hash of the
+actual final file. Keep the project, protector/configuration hashes, compiler/map
 identity and independent verification report together. A successful VMProtect
 compilation, renamed section or missing strings alone does not establish which
 authorization code was virtualized. Follow [the native publication contract](../tools/packaging/NATIVE-RELEASE.md).
@@ -154,6 +158,8 @@ authorization code was virtualized. Follow [the native publication contract](../
 output into the existing Sign layout. It checks the original and derived MAPs,
 alias record, project selection, compiler evidence, source inventory and an
 approved protection receipt before creating its completion marker. It does not
-create missing verifier evidence or approve a tool. Sign then requires a fresh
-verification receipt over the final Authenticode-signed bytes. The empty
-approved-protector policy continues to block production import/publication.
+create missing verifier evidence or approve a tool. The normal Sign path requires
+a fresh verification receipt over the final Authenticode-signed bytes. The
+release-specific unsigned exception instead uses the approved exact-artifact
+receipt and direct registration. Every path still requires the reviewed
+protector/configuration/verifier tuple; no arbitrary unsigned fallback is added.

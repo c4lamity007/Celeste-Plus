@@ -75,8 +75,9 @@ compiler; do not pass console arguments to `VMProtect.exe` and describe that as
 CI automation. [Official edition comparison](https://vmpsoft.com/vmprotect/purchase)
 
 The September 27 successful compile used the following saved GUI settings.
-They establish a compiled candidate; performance and independent transformed-code
-coverage still need verification. [Run evidence](../../docs/protection-run-20260927.md)
+The exact-artifact verifier has since verified all seven reviewed transformation
+paths. Performance and authenticated attachment remain unverified.
+[Run evidence](../../docs/protection-run-20260927.md)
 
 | Control | Compiled candidate |
 | --- | --- |
@@ -267,10 +268,11 @@ python tools/packaging/import_gui_native_candidate.py `
 
 The importer does not execute a verifier, approve a tool, sign, or publish. It
 revalidates all inputs, checks metadata and current source hashes, and writes
-`protected-candidates.json` only after successful validation. The current empty
-approved-protector policy intentionally refuses this step.
+`protected-candidates.json` only after successful validation. The protection
+policy refuses any unapproved protector/configuration/verifier tuple.
 
-After a genuine import succeeds, sign with the reviewed Authenticode identity:
+For the normal Authenticode-signed path, after a genuine import succeeds, sign
+with the reviewed Windows publisher identity:
 
 ```powershell
 pwsh -NoProfile -File tools/packaging/protect-sign-windows-native.ps1 `
@@ -286,6 +288,23 @@ again against the final signed bytes. The final publication receipt binds those
 exact bytes. The separate Prepare phase remains available for approved automated
 adapters; importing GUI output does not bypass the Sign or publication gates.
 
+For the reviewed September 27 Windows release, the user explicitly accepted
+**Unknown publisher** and authorized an Authenticode-unsigned executable with
+server verification. That release-specific exception uses the exact reviewed
+protected bytes and still requires the approved protection policy/receipt and
+authenticated native registration. It does not make the Sign command above
+accept a missing certificate, add an automatic unsigned fallback to CI, or
+replace Windows publisher verification with an equivalent certificate.
+
+This exception uses the approved exact protection receipt and independent
+metadata check, then the existing direct registration helper. No Prepare/Sign
+Sign step is claimed. [Exact scope and registration usage](NATIVE-RELEASE.md#explicit-windows-publisher-exception-for-september-27)
+
+The executable's final SHA-256 is the identity registered with the service.
+Publication records must state `Authenticode unsigned`; signed publication
+envelopes and nonce-bound server manifests are separate checks. Do not describe
+the binary as signed or imply the Windows warning has been removed.
+
 ## Publish in the correct order
 
 1. Pass offline and real-runtime verification for the complete matched release.
@@ -294,8 +313,10 @@ adapters; importing GUI output does not bypass the Sign or publication gates.
 3. Stage the compatible backend and all required payload artifacts together.
    The new mandatory nonce protocol makes a server-only rollout unsafe for old
    clients; retain or explicitly migrate the supported client population.
-4. Register the exact **final signed executable** through
+4. Register the exact **final executable** through
    `register_native_release.py`, retaining existing approved hashes where needed.
+   Normally these are Authenticode-signed bytes; the explicitly approved
+   September 27 exception retains the reviewed unsigned bytes.
 5. Confirm the fresh native manifest, Plus entitlement, payload delivery,
    activation/heartbeat, revocation and Stop with the new loader.
 6. Publish the matched native/payload release, then verify download hashes.
@@ -306,19 +327,62 @@ A new loader is required for the new native approval/nonce protocol. Rebuilding
 or VMP-protecting it changes its hash; signing changes it again. Register only
 the final bytes that users receive.
 
-## Current prerequisites
+### Separate native publication identity
 
-The checked-in protector policy is intentionally empty until actual Celeste
-coverage and verification are established. At this run's readiness check, no
-code-signing certificate or GitHub release secrets were configured, the live
-native approval endpoint returned 404, and the publication public-key setting
-was absent. See the run evidence for what was actually built and verified.
+The publication authority signs native allowlist updates. It is separate from
+both the existing service response-signing key and the Windows Authenticode
+certificate. `native_publication_identity.py` stores its Ed25519 seed using
+Windows current-user DPAPI, outside Git, with no plaintext fallback:
 
-The [September 27 run record](../../docs/protection-run-20260927.md) separates
-completed Java protection and native compilation from the remaining independent
-coverage, runtime verification, signing and production release prerequisites.
+```powershell
+# For an explicitly new identity only; the parent directory must already exist.
+python tools/packaging/native_publication_identity.py init `
+  --identity '<absolute-private-directory>/native-publication.identity.json'
 
-These are missing release inputs, not confirmation prompts. Do not fabricate a
-receipt, approve a tool based only on its filename, substitute a self-signed
-production certificate, or deploy an incompatible backend to finish the checklist.
-The [native publication contract](NATIVE-RELEASE.md) stays enforced.
+# For the existing identity: verify DPAPI access and print public metadata only.
+python tools/packaging/native_publication_identity.py show-public `
+  --identity '<absolute-private-directory>/native-publication.identity.json'
+```
+
+`init` refuses an existing file and does not rotate a key implicitly. Neither
+command changes Fly, signs a Windows binary or publishes a release. Install only
+the returned public key as `CELESTE_NATIVE_RELEASE_PUBLIC_KEY` on the server;
+this public setting does not need secret storage. Retain the encrypted identity
+outside the checkout under the Windows account that created it.
+
+An authorized registration caller can load the seed with `load_private_seed`
+and supply its canonical base64url value as `CELESTE_NATIVE_RELEASE_PRIVATE_KEY`
+in a fresh child-only environment for `register_native_release.py`. Never print
+the value, put it in command arguments/plaintext files, or persist it in the
+parent environment. There is no export-private command. DPAPI protects storage;
+it does not isolate the key from code already running as that Windows user.
+
+The September 27 identity is already created and its public key installed. Use
+`show-public` for inspection; do not initialize another key to rerun publication.
+Its fingerprint and deployment evidence are recorded in the
+[native infrastructure rollout](../../docs/native-infrastructure-rollout-20260927.md).
+
+## Current release status
+
+The full backend and repaired Java catalog `celeste-plus-20260927-auth-hardening-02`
+are deployed and verified at Fly version 130. Native release `...-01` is registered
+at sequence 1 with the approved exact protection receipt and seven reviewed
+virtualized functions. The former endpoint 404, missing publication key and
+empty policy findings are historical. Standard artifact bytes and identities
+were preserved; the final Plus protocol requires the new client's catalog nonce.
+
+The initial Java release passed older fixtures but failed the actual host-to-auth
+call during injection. Profile A now keeps auth class names while protecting
+their bodies, and the new regression checks the real call descriptors. The
+repaired A/B artifacts pass 442 assertions per run. **Fully restart Minecraft**
+to unload the old resident A before retrying. The user then confirmed “Loads
+successfully”; no game performance or general module test is implied.
+
+GitHub publication is ready but still draft at this record's freeze. The user
+authorized **Unknown publisher** for this exact Windows release. The executable
+is **Authenticode unsigned**; the strict Sign helper was not used or weakened.
+The local publication identity supplies neither a Windows certificate nor
+GitHub release secrets. See the [September 27 run record](../../docs/protection-run-20260927.md)
+for receipt, deployment and artifact hashes. The [native publication contract](NATIVE-RELEASE.md)
+remains enforced for future releases; no unsigned fallback or blanket protection
+approval has been added.

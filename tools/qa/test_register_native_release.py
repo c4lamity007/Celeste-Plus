@@ -67,7 +67,7 @@ class NativeRegistrationTest(unittest.TestCase):
                 self.prepare()
 
     def test_wrong_final_hash_changed_signature_bytes_and_stale_receipt_fail(self):
-        with self.assertRaisesRegex(ValueError, "final signed bytes"):
+        with self.assertRaisesRegex(ValueError, "final distributed bytes"):
             self.prepare(expected_sha256="f" * 64)
         self.fixture.binary.write_bytes(self.fixture.binary.read_bytes() + b"new Authenticode signature")
         with self.assertRaisesRegex(ValueError, "differs from"):

@@ -6,7 +6,8 @@
     "../../../build/module-qa/obfuscation/a-stage/bootstrap-a-stable.jar"
   ],
   "keepPatterns": [
-    "dev.celestebeta.bootstrap.external.BootstrapHost"
+    "dev.celestebeta.bootstrap.external.BootstrapHost",
+    "dev.c4lam.celeste.auth.**"
   ],
   "renameClasses": true,
   "renamePrivateMembers": true,

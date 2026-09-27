@@ -2,16 +2,26 @@
 
 ## Result
 
-The actual Java protection pipeline passed all 18 stages for `celeste-plus-20260927-auth-hardening-01`. The receipt status is `protected-verified-candidate-not-published`, with `deployed: false`. This record covers Bootstrap A, Bootstrap B, and both Java payload parts. Native protection and production publication have separate requirements; see [the overall run record](protection-run-20260927.md).
+The repaired pipeline passed all 18 stages for `celeste-plus-20260927-auth-hardening-02`. It supersedes Java release `...-01`, which passed the earlier fixtures and was deployed, but then failed a real injection at the `RuntimeInstallationSigner.load` call boundary. The earlier checks did not cover that boundary. See [the overall run record](protection-run-20260927.md) for deployment/publication status.
 
-Local evidence is under `build/module-qa/java-protected-candidate-20260927-03/`:
+**Fully restart Minecraft before retrying the repaired release.** Bootstrap A remains resident in the game JVM. Stopping modules, reopening the GUI, or restarting only the native launcher does not remove the old resident classes.
+
+Current local evidence is under `build/module-qa/java-protected-candidate-20260927-04/`:
 
 - `receipt.json`: input, producer, dependency, source, profile, output hashes, stage exit codes, and timings.
-- `logs/`: individual build, protection, merge, and verification logs.
+- `*.log`: individual build, protection, merge, and verification logs.
 - `release/`: the five final candidate files listed below.
 - `toolchain/`: the captured producer and its six dependencies.
 
-These generated files are ignored build evidence, not committed release assets. Receipt SHA-256: `c1f42d2f1577c7c0e4363f36e6e24ffa890d0212e0494bb145d01be74be43402`.
+These generated files are ignored build evidence, not committed release assets. Current receipt SHA-256: `f1ba5bd78a2e6e9a8ff9cb30558b82cd23cb5122c975b2e730be6e35d3ccf2ee`.
+
+## Injection regression and repair
+
+In run `...-03`, A's transformed host referred to an obfuscated return type in the `RuntimeInstallationSigner.load(Path, ClassLoader, byte[], String, long)` descriptor, while the stable delivery bridge retained its canonical declaration. The user hit the resulting missing-method error during injection. The original receipt remains historical build evidence; its passing fixture result did not establish working injection.
+
+Profile A now keeps `dev.c4lam.celeste.auth.**` names. Their method bodies remain protected. The new artifact regression checks the actual host call descriptors against the stable `load` and delivery-constructor declarations, resolves all A class declarations and canonical auth classes, and invokes `load` against an empty temporary game directory. That invocation must reach the intentional missing-installation rejection rather than a linkage error.
+
+The strengthened test fails against the broken protected `...-03` artifact with the user's exact descriptor mismatch. The raw artifact passes 398 checks. The repaired protected artifact passes 442 checks in each of three fresh JVM runs. After the repaired release was deployed at Fly version 130, the user fully restarted Minecraft, retried, and confirmed “Loads successfully.” This user confirmation is separate from the automated fixture checks and is not a broad gameplay or performance result.
 
 ## Producer and settings
 
@@ -32,9 +42,9 @@ Its entry point is `dev.local.obfuscator.App`; its supported command is `java -j
 
 The bundle pin covers the canonical filename/hash map of the JAR and all six declared libraries. The producer's existing `build/auth-instruction-evidence-final-v2-20260926.json` listed 286 source hashes; all matched the inspected source. No foreign obfuscator source was changed.
 
-The runner used the existing profiles `02-bootstrap-a-implementation.json`, `03-bootstrap-b-compatible.json`, and `04-payload-protected-v2.json`. They apply double composite string protection and strip debug information. A/B enable eligible implementation renaming; payload class and member names remain fixed. Native extraction/virtualization, targeted auth native protection, bundled native virtualization, Crazy mode, resource relocation, and metadata relocation remain disabled in these Java profiles.
+The runner used profiles `02-bootstrap-a-implementation.json`, `03-bootstrap-b-compatible.json`, and `04-payload-protected-v2.json`, with the repaired auth-name boundary in profile A. They apply double composite string protection and strip debug information. A/B enable eligible implementation renaming; the auth interface names and payload class/member names remain fixed. A transformed 53 classes, renamed 48 class names, kept nine class names and protected 1,117 unique strings. Native extraction/virtualization, targeted auth native protection, bundled native virtualization, Crazy mode, resource relocation, and metadata relocation remain disabled in these Java profiles.
 
-Stable host, delivery, memory, JNI wrapper, mixin, reflective serialization, and resource boundaries are retained by the existing staging/merge rules. All 258 stable payload entries were byte-exact. The payload transformed 705 of 705 eligible implementation classes and protected 2,951 unique strings. It added 22 helpers and one vault. These are the tested compatible settings; this run does not establish that they are globally optimal or that all literals are hidden.
+Stable host, delivery, memory, JNI wrapper, mixin, reflective serialization, and resource boundaries are retained by staging/merge rules and the repaired A auth-name keep. All 258 stable payload entries were byte-exact. The payload transformed 705 of 705 eligible implementation classes and protected 2,951 unique strings. It added 22 helpers and one vault. This run does not establish globally optimal settings or that all literals are hidden.
 
 ## Actual commands
 
@@ -66,8 +76,8 @@ $javaProtectionProducer = 'C:\Users\c4lam\.codex\worktrees\20bc\Obfuscator\build
     --tool-sha256 4424dca45dab369f27b28f4cc2f22e5ff13d3e11884494f058c6e1718703a644 `
     --parent-classpath build/module-qa/java-release-inputs/parent-classpath.txt `
     --java-home 'C:\Program Files\Eclipse Adoptium\jdk-21.0.11.10-hotspot' `
-    --output build/module-qa/java-protected-candidate-20260927-03 `
-    --release-id celeste-plus-20260927-auth-hardening-01 `
+    --output build/module-qa/java-protected-candidate-20260927-04 `
+    --release-id celeste-plus-20260927-auth-hardening-02 `
     --client-version 1.0.0-plus.2 `
     --base-url https://qb0f90cf11f4d1d52.fly.dev `
     --server-key rhLhkicLy3laX7_Q7rSv9OGVyrSHr1OyEZW8_hJfoKY `
@@ -80,11 +90,11 @@ The origin and Ed25519 key above are existing public trust values; this operatio
 
 ## Verification and timing
 
-All 18 external stages exited successfully; their recorded durations total 19.37 seconds, excluding the earlier runtime remap. Checks included:
+All 18 external stages exited successfully; their recorded durations total 23.87 seconds, excluding the earlier runtime remap. Checks included:
 
 - Exact stable-byte preservation, package integrity, six resident support libraries, and parent linkage.
 - 111 bootstrap helper compatibility assertions.
-- Real Bootstrap A/B artifact loading, fixed entry points and lifecycle ABI, inactive status, and rejection before activation when a release is absent. Baseline checks passed 16 assertions per run; protected checks passed 38.
+- Real Bootstrap A/B artifact loading, actual host-to-delivery call descriptors, canonical auth types, the missing-installation execution path, lifecycle ABI, inactive status, and rejection before activation when a release is absent. Baseline checks passed 398 assertions per run; protected checks passed 442.
 - All 783 packaged payload classes loaded through the real retained two-part class loader with `-Xverify:all`; their declared methods, constructors, and fields resolved without static initialization.
 - Revalidation of the producer bundle, input, 82 source inputs, generated profiles, parent dependencies, and final artifacts.
 
@@ -100,21 +110,21 @@ Three fresh JVM processes were measured for each bootstrap fixture, using `-Xver
 
 | Fixture | Runs (seconds) | Median |
 | --- | --- | --- |
-| Baseline A/B | 0.2311, 0.2321, 0.2334 | 0.2321 s |
-| Protected A/B | 0.2950, 0.2926, 0.3033 | 0.2950 s |
+| Baseline A/B | 0.3518, 0.3503, 0.3570 | 0.3518 s |
+| Protected A/B | 0.4012, 0.4615, 0.4464 | 0.4464 s |
 
-The measured median difference was about **62.9 ms**. These timings include JVM startup and execute a cold verification fixture. They do not measure Minecraft startup, gameplay, FPS, or steady-state performance.
+The measured median difference was about **94.6 ms**. These timings include JVM startup and the expanded cold verification fixture. They do not measure Minecraft startup, gameplay, FPS, or steady-state performance. They should not be compared directly with run `...-03`'s smaller test workload.
 
 ## Final candidate bytes
 
-All files are beneath `build/module-qa/java-protected-candidate-20260927-03/release/`.
+All repaired files are beneath `build/module-qa/java-protected-candidate-20260927-04/release/`. Native executable identity and registration are unchanged by this Java repair.
 
 | File | Bytes | SHA-256 |
 | --- | ---: | --- |
-| `beta-release.json` | 847 | `5de7072ab0ee3964b4cd7d4b9b1e4b3b2db635926ea6542c32be90b77569f817` |
-| `bootstrap-a.jar` | 5,878,022 | `f123365d475499dc9fa1e26fb0fbd2973afc81fb89abfecfc10f3c566164e366` |
-| `bootstrap-b.bin` | 70,170 | `5b45a9136a52d5885d8865dd4268bfc20d191ef935e1c72357ab927149a33e87` |
-| `payload-a.bin` | 7,788,844 | `038b3431a8fc7a2ba2a78a8ff16333e1b976bc7373ad377cd4336b149f771e67` |
-| `payload-b.bin` | 9,731,851 | `8cb77f6d6876d8e81e1bf74c8b0851d99edf4256e445de0f59d963bc2e56fcb1` |
+| `beta-release.json` | 847 | `f68c3d94840bf88053aee2eb975bfd9d5b1eec142c2837e01ee0eb7584e714ab` |
+| `bootstrap-a.jar` | 5,880,351 | `ad15884631b42026bab117b35b4edd355e6a6379a395ea377e2783778c135db7` |
+| `bootstrap-b.bin` | 70,939 | `442b6183bddc94fa6392d0379809f6b331e29b0779324ffad0f5fb4776be3a2f` |
+| `payload-a.bin` | 7,795,444 | `f4c274bc78c1589d729b83c7e978f26601a56c2c3021e4251de24e259dbbe29e` |
+| `payload-b.bin` | 9,740,161 | `3eef1939b1888e6be83e1c5c8777ec1c357f343ac785dcdc9363a48a3fdee709` |
 
-Private mapping sidecars remain outside the final release directory. No Minecraft process was launched or attached, no live authentication was attempted, and this run did not sign native binaries, register a release, upload artifacts, or deploy production. Native protection evidence and protected/signature gates remain required for the complete product release.
+Private mapping sidecars remain outside the final release directory. The automated Java pipeline itself did not launch Minecraft, authenticate, register or deploy a release. The subsequent coordinated deployment and user-confirmed successful Load are recorded separately in the [overall release record](protection-run-20260927.md). Native identity and the explicitly authorized Windows unsigned status remain unchanged.

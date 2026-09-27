@@ -72,11 +72,21 @@ class NativeReleaseBundleTest(unittest.TestCase):
         self.assertNotEqual(expected, gate.sha(archive))
         self.assertEqual(self.files["adapter.ps1"], Path(result["adapter"]).read_bytes())
 
-    def test_empty_real_policy_blocks_before_extracting(self):
-        with patch.object(gate, "POLICY_FILE", ROOT / "tools/packaging/native-protection-policy.json"):
-            with self.assertRaisesRegex(ValueError, "No native protector"):
-                self.verify(self.archive())
+    def test_empty_policy_blocks_before_extracting(self):
+        policy = gate.read(self.policy)
+        policy["approved_protectors"] = []
+        self.policy.write_text(json.dumps(policy))
+        with self.assertRaisesRegex(ValueError, "No native protector"):
+            self.verify(self.archive())
         self.assertFalse((self.root / "extracted").exists())
+
+    def test_real_policy_rejects_unapproved_bundle(self):
+        actual = ROOT / "tools/packaging/native-protection-policy.json"
+        synthetic_tuple = gate.read(self.policy)["approved_protectors"][0]
+        self.assertNotIn(synthetic_tuple, gate.read(actual)["approved_protectors"])
+        with patch.object(gate, "POLICY_FILE", actual):
+            with self.assertRaisesRegex(ValueError, "No native protector|absent from the reviewed policy"):
+                self.verify(self.archive())
 
     def test_path_escape_absolute_ads_and_backslashes_are_rejected(self):
         # Python's ZIP writer normalizes Windows backslashes; exercise the

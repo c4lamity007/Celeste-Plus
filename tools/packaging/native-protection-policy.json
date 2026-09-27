@@ -2,6 +2,13 @@
   "schema": "celeste-native-protection-policy-1",
   "environment_policy": "deny-vm-and-sandbox-v1",
   "required_protection": "native-virtualization",
-  "approved_protectors": [],
-  "note": "Publication is blocked until the licensed protector, configuration and verification tool are reviewed and pinned. String obfuscation is not native virtualization."
+  "approved_protectors": [
+    {
+      "protector_sha256": "138d140584e3d703c3592cc3cd15124b428daee75629e25710b65228103ff817",
+      "configuration_sha256": "9e069392d6017f2e414bee236a75eec02867a965ed9ce2611550fbb7eef40f35",
+      "verifier_sha256": "5dff22d807a49735c2febfddc62e541770f31c456fa78ef2feb5bf66d9a72c3e",
+      "platform": "windows-x64"
+    }
+  ],
+  "note": "This tuple approves only the exact September 27 artifact and private review pinned by verify_reviewed_vmprotect.py. Seven selected functions were independently reviewed in loaded code and mechanically rebound to their input, source and compiler evidence. Rebuilds require a fresh review; source-fixture environment tests do not establish protected game runtime correctness. See docs/protection-run-20260927.md for scope and the explicitly authorized Windows Unknown publisher release."
 }

@@ -9,6 +9,8 @@ primary_region = "lax"
   CELESTE_ARTIFACT_DIR = "/srv/auth/releases"
   CELESTE_CLOUD_CONFIG_DIR = "/data/cloud-configs"
   CELESTE_ALLOWED_HOSTS = "qb0f90cf11f4d1d52.fly.dev,localhost,127.0.0.1,*.internal"
+  # Public verification key only; the separate publication seed stays off-server.
+  CELESTE_NATIVE_RELEASE_PUBLIC_KEY = "k-1MUgu_UW4jbwwY98vlmjTMfBaBTEIyTXOcHMZscfc"
 
 [[mounts]]
   source = "auth_data"

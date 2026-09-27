@@ -95,9 +95,10 @@ class NativeProtectionGateTest(unittest.TestCase):
             "protection": "native-virtualization", "environment_policy": "deny-vm-and-sandbox-v1",
         })
 
-    def test_default_policy_has_no_approved_protector_and_rejects_synthetic_evidence(self):
+    def test_default_policy_rejects_unapproved_synthetic_evidence(self):
         actual = gate.ROOT / "tools/packaging/native-protection-policy.json"
-        self.assertEqual(gate.read(actual)["approved_protectors"], [])
+        synthetic_tuple = self.fixture.policy_record["approved_protectors"][0]
+        self.assertNotIn(synthetic_tuple, gate.read(actual)["approved_protectors"])
         with patch.object(gate, "POLICY_FILE", actual):
             with self.assertRaisesRegex(ValueError, "No reviewed protector"):
                 self.fixture.validate()

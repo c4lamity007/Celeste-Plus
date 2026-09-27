@@ -2,7 +2,10 @@
 
 No server runtime signing key is used. The separate CI publication seed is read
 only from CELESTE_NATIVE_RELEASE_PRIVATE_KEY (canonical base64url, 32 bytes).
-Protection receipts must bind the FINAL signed executable. Preparation performs
+Protection receipts must bind the FINAL distributed executable. Authenticode is
+checked separately by the Sign workflow; this tool does not perform that check.
+An explicitly authorized unsigned release must record that exception separately.
+Preparation performs
 no network access; --publish is an explicit, coordinated deployment operation.
 """
 from __future__ import annotations
@@ -137,7 +140,7 @@ def protected_binary(binary: Path, receipt: Path, release_id: str, product: str,
     if product not in PRODUCTS or platform not in PLATFORMS or not IDENTIFIER.fullmatch(release_id):
         raise ValueError("Invalid release identity")
     if not HEX.fullmatch(expected_sha256) or protection.sha(binary) != expected_sha256:
-        raise ValueError("Packaged executable differs from the expected final signed bytes")
+        raise ValueError("Packaged executable differs from the expected final distributed bytes")
     evidence = protection.validate(binary, receipt, release_id=release_id, product=product, platform=platform)
     if evidence["binary_sha256"] != expected_sha256:
         raise ValueError("Protected executable changed during verification")
