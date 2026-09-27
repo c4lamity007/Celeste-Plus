@@ -311,7 +311,9 @@ class Database:
         if row is None:
             return 0
         if int(row["window_started_at"]) + window <= now:
-            connection.execute("DELETE FROM rate_limits WHERE bucket = ?", (bucket,))
+            # Another connection may have reset this bucket since the read.
+            connection.execute("DELETE FROM rate_limits WHERE bucket = ? AND window_started_at = ?",
+                               (bucket, int(row["window_started_at"])))
             return 0
         return max(0, int(row["blocked_until"]) - now)
 

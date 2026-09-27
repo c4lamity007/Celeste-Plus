@@ -334,6 +334,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def apply_limit(request: Request, domain: str, limit: int, window: int) -> None:
         bucket = keyed_digest(settings.key_pepper, f"rate:{domain}", client_ip(request))
         with database.connect() as connection:
+            # Serialize the read/update across workers before reading the count.
+            connection.execute("BEGIN IMMEDIATE")
             retry = database.rate_limit(connection, bucket, limit, window)
         if retry:
             raise HTTPException(429, "temporarily rate limited", headers={"Retry-After": str(retry)})
