@@ -83,6 +83,10 @@ The five-file output contains A, B, two payload parts, and `beta-release.json`. 
 
 ## Authentication and publication
 
+The complete [authentication, Java obfuscation and VMProtect runbook](tools/packaging/README.md)
+documents the build order, selective protection settings, tool usage, verification,
+new-loader requirements and coordinated publication flow.
+
 `auth-service/` contains the coordinated shared backend source required by this Plus revision, including live entitlement/device validation, request proof binding, nonce-bound delivery, token revocation, and native publication manifests. It still serves both product identities; changing the source repository does not create a second service or change its live configuration. The Plus launcher, host, and runtime require the `celeste_plus` entitlement. See [the auth implementation record](docs/auth-hardening-20260927.md).
 
 The service and new clients must ship together. Pushing source does not deploy the service or make an existing launcher use these fixes. The native protection policy deliberately has no approved protector yet; protected/signed publication remains blocked until the reviewed toolchain and signing credentials are supplied. The Plus-only workflow uploads unsigned test candidates and runs offline checks. See [native release requirements](tools/packaging/NATIVE-RELEASE.md).

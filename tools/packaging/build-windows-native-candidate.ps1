@@ -1,7 +1,8 @@
 param(
     [Parameter(Mandatory = $true)][ValidateSet('celeste_plus')][string]$Product,
     [Parameter(Mandatory = $true)][string]$OutputDirectory,
-    [string]$Python = 'python'
+    [string]$Python = 'python',
+    [switch]$MapForProtection
 )
 
 $ErrorActionPreference = 'Stop'
@@ -27,6 +28,7 @@ foreach ($taskName in $taskEnvironmentNames) { $taskOldEnvironment[$taskName] = 
 New-Item -ItemType Directory -Path $taskOutput | Out-Null
 $taskTarget = Join-Path $taskOutput 'cargo-target'
 $taskBinary = Join-Path $taskOutput $taskPublicName
+$taskLinkerMap = Join-Path $taskOutput 'Celeste+.map'
 function Get-CandidateSourceHashes {
     $taskSourceFiles = @(Get-ChildItem -LiteralPath (Join-Path $taskRoot 'shared-auth'),(Join-Path $taskRoot 'beta-lab/native-shared/src') -Recurse -File -Filter '*.rs')
     if ($Product -eq 'celeste_plus') { $taskSourceFiles += @(Get-ChildItem -LiteralPath (Join-Path $taskRoot 'beta-lab/native-launcher/src') -Recurse -File -Filter '*.rs') }
@@ -42,8 +44,15 @@ try {
     $env:CARGO_ENCODED_RUSTFLAGS = $taskFlags -join [char]31
     $env:CARGO_PROFILE_RELEASE_DEBUG = 'false'
     $env:CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS = 'false'
-    & cargo build --locked --release --target x86_64-pc-windows-msvc --target-dir $taskTarget --manifest-path $taskManifest *> (Join-Path $taskOutput 'build.log')
+    if ($MapForProtection) {
+        # Apply MAP arguments only to the final launcher link, never dependency
+        # build scripts. Keep this address/name file private; it is not a release asset.
+        & cargo rustc --locked --release --target x86_64-pc-windows-msvc --target-dir $taskTarget --manifest-path $taskManifest --bin CelestePlus -- -C "link-arg=/MAP:$taskLinkerMap" -C 'link-arg=/MAPINFO:EXPORTS' *> (Join-Path $taskOutput 'build.log')
+    } else {
+        & cargo build --locked --release --target x86_64-pc-windows-msvc --target-dir $taskTarget --manifest-path $taskManifest *> (Join-Path $taskOutput 'build.log')
+    }
     if ($LASTEXITCODE -ne 0) { throw 'Cargo build failed; see the candidate build.log.' }
+    if ($MapForProtection -and (-not (Test-Path -LiteralPath $taskLinkerMap -PathType Leaf) -or (Get-Item -LiteralPath $taskLinkerMap).Length -eq 0)) { throw 'The final linker did not emit a protection MAP.' }
     $taskCompiled = Join-Path $taskTarget "x86_64-pc-windows-msvc/release/$taskExecutable"
     Copy-Item -LiteralPath $taskCompiled -Destination $taskBinary
     $taskBefore = (Get-FileHash -LiteralPath $taskBinary -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -70,6 +79,7 @@ try {
         size=(Get-Item -LiteralPath $taskBinary).Length
         llvmStripSha256=(Get-FileHash -LiteralPath $taskStrip).Hash.ToLowerInvariant()
         sourceFiles=$taskInputs
+        privateMapSha256=$(if ($MapForProtection) { (Get-FileHash -LiteralPath $taskLinkerMap -Algorithm SHA256).Hash.ToLowerInvariant() } else { $null })
         status='unsigned-local-candidate'
         metadataCheck='passed'
         limitations=@('not Authenticode-signed','not native-virtualization evidence','not executed or game-tested','not approved for publication')

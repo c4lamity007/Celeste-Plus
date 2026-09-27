@@ -226,6 +226,7 @@ jobs:
         run: python -m pip install -r auth-service/requirements.txt
       - name: Check authentication and native publication gates
         run: |
+          python -m unittest discover -s tests -p test_protect_java_release.py
           python -m unittest discover -s tools/qa -p 'test_*.py'
           python -m unittest discover -s beta-lab/release-package -p 'test_*.py'
           cd auth-service

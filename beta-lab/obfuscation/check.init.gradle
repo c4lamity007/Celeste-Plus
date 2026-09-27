@@ -1,0 +1,33 @@
+allprojects { project ->
+    project.afterEvaluate {
+        if (project == project.rootProject) {
+            def output = project.layout.buildDirectory.dir('module-qa/obfuscation/checks')
+            def compileCheck = project.tasks.register('compileBetaObfuscationCompatibilityCheck', JavaCompile) {
+                dependsOn project.tasks.named('classes')
+                source project.fileTree('beta-lab/obfuscation/src/test/java') { include '**/*.java' }
+                classpath = project.sourceSets.main.runtimeClasspath
+                destinationDirectory = output
+                options.release = 21
+                options.encoding = 'UTF-8'
+                options.compilerArgs += ['-Xlint:all', '-Werror']
+            }
+            project.tasks.register('betaObfuscationCompatibilityCheck', JavaExec) {
+                dependsOn compileCheck
+                classpath = project.files(output) + project.sourceSets.main.runtimeClasspath
+                mainClass = 'dev.celestebeta.bootstrap.external.BootstrapHelperCompatibilityCheck'
+                enableAssertions = true
+                jvmArgs '-Xverify:all'
+            }
+            project.tasks.register('writeObfuscationCheckClasspath') {
+                dependsOn compileCheck
+                doLast {
+                    def target = project.providers.gradleProperty('obfuscationCheckClasspath').orNull
+                    if (!target) throw new GradleException('Supply -PobfuscationCheckClasspath=<fresh output file>')
+                    def file = project.file(target)
+                    if (file.exists()) throw new GradleException('Use a fresh verification classpath output')
+                    file.text = (project.files(output) + project.sourceSets.main.runtimeClasspath).asPath
+                }
+            }
+        }
+    }
+}
