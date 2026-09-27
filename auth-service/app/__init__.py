@@ -1,0 +1,2 @@
+"""Celeste license service."""
+

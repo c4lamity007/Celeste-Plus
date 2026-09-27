@@ -23,10 +23,15 @@ public final class BetaGameplayCallbacks {
                     case 2 -> GameplayCallbacks.blocks((ChunkDeltaUpdateS2CPacket) packet);
                     case 3 -> GameplayCallbacks.spawn((EntitySpawnS2CPacket) packet);
                     case 4 -> GameplayCallbacks.destroy((EntitiesDestroyS2CPacket) packet);
+                    case 8 -> GameplayCallbacks.entityStatus((EntityStatusS2CPacket) packet);
                     default -> throw new IllegalArgumentException("Unknown server update callback");
                 }
             }
             public boolean attack(Object value) { return GameplayCallbacks.attack((MinecraftClient) value); }
+            public void useItem(Object value) { GameplayCallbacks.useItem((MinecraftClient) value); }
+            public void blockBreaking(Object value, boolean breaking) {
+                GameplayCallbacks.blockBreaking((MinecraftClient) value, breaking);
+            }
             public Object mainHand(Object vanilla, Object hand) { return GameplayCallbacks.mainHand((ItemStack) vanilla, (Hand) hand); }
             public void entityAttack(Object target) { GameplayCallbacks.entityAttack((Entity) target); }
         });

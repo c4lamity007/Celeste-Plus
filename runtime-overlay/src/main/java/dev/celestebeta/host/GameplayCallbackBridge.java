@@ -22,14 +22,18 @@ public final class GameplayCallbackBridge {
             } catch (ReflectiveOperationException failure) { throw new IllegalStateException("Original client attack is unavailable", failure); }
         }
     };
+    private static final ClassValue<MethodHandle> USE = clientMethod(void.class, "doItemUse", "method_1583");
+    private static final ClassValue<MethodHandle> BREAKING = clientMethod(void.class, "handleBlockBreaking", "method_1590", boolean.class);
     public interface Handler {
         void serverUpdate(int kind, Object packet);
         boolean attack(Object client);
+        void useItem(Object client);
+        void blockBreaking(Object client, boolean breaking);
         Object mainHand(Object vanilla, Object hand);
         void entityAttack(Object target);
     }
     private GameplayCallbackBridge() { }
-    public static void preflight(Class<?> clientClass) { ATTACK.get(clientClass); }
+    public static void preflight(Class<?> clientClass) { ATTACK.get(clientClass); USE.get(clientClass); BREAKING.get(clientClass); }
     public static synchronized Registration install(Handler handler) {
         if (current != null) throw new IllegalStateException("Gameplay callback runtime is already connected");
         return current = new Registration(Objects.requireNonNull(handler));
@@ -59,6 +63,20 @@ public final class GameplayCallbackBridge {
         try { return registered.handler.attack(client); }
         finally { registered.calls--; }
     }
+    public static synchronized void useItem(Object client) {
+        Registration registered = active();
+        if (registered == null) { invokeVoid(USE.get(client.getClass()), client); return; }
+        registered.calls++;
+        try { registered.handler.useItem(client); }
+        finally { registered.calls--; }
+    }
+    public static synchronized void blockBreaking(Object client, boolean breaking) {
+        Registration registered = active();
+        if (registered == null) { invokeVoid(BREAKING.get(client.getClass()), client, breaking); return; }
+        registered.calls++;
+        try { registered.handler.blockBreaking(client, breaking); }
+        finally { registered.calls--; }
+    }
     public static synchronized Object mainHand(Object vanilla, Object hand) {
         Registration registered = active();
         if (registered == null) return vanilla;
@@ -74,6 +92,30 @@ public final class GameplayCallbackBridge {
         finally { registered.calls--; }
     }
     private static Registration active() { return current != null && current.thread == Thread.currentThread() ? current : null; }
+    private static ClassValue<MethodHandle> clientMethod(Class<?> result, String named, String intermediary, Class<?>... arguments) {
+        return new ClassValue<>() {
+            @Override protected MethodHandle computeValue(Class<?> type) {
+                String name = switch (type.getName()) {
+                    case "net.minecraft.client.MinecraftClient" -> named;
+                    case "net.minecraft.class_310" -> intermediary;
+                    default -> throw new IllegalArgumentException("Expected the Minecraft client class");
+                };
+                try {
+                    return MethodHandles.privateLookupIn(type, MethodHandles.lookup())
+                        .findVirtual(type, name, MethodType.methodType(result, arguments));
+                } catch (ReflectiveOperationException failure) {
+                    throw new IllegalStateException("Original client input action is unavailable", failure);
+                }
+            }
+        };
+    }
+    private static void invokeVoid(MethodHandle handle, Object client, Object... arguments) {
+        try {
+            if (arguments.length == 0) handle.invoke(client);
+            else handle.invoke(client, arguments[0]);
+        } catch (RuntimeException | Error failure) { throw failure; }
+        catch (Throwable failure) { throw new IllegalStateException("Original client input action failed", failure); }
+    }
     public static final class Registration implements AutoCloseable {
         private final Thread thread = Thread.currentThread();
         private Handler handler;

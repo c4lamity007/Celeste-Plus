@@ -5,14 +5,21 @@ import dev.c4lam.celeste.compat.FakeGambleHooks;
 import dev.c4lam.celeste.module.impl.visual.expansion.FakeGambleFeature;
 import dev.celestebeta.host.FakeGambleHookBridge;
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.block.BlockState;
+import net.minecraft.client.network.ClientPlayerEntity;
+import net.minecraft.client.world.ClientWorld;
 import net.minecraft.client.gui.screen.ingame.Generic3x3ContainerScreen;
 import net.minecraft.client.world.WorldEventHandler;
 import net.minecraft.entity.ItemEntity;
 import net.minecraft.entity.player.PlayerEntity;
+import net.minecraft.network.packet.Packet;
+import net.minecraft.item.ItemStack;
 import net.minecraft.screen.ScreenHandler;
 import net.minecraft.screen.slot.SlotActionType;
 import net.minecraft.util.hit.BlockHitResult;
+import net.minecraft.util.Hand;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Direction;
 import net.minecraft.world.WorldEvents;
 
 /** Existing local-only feature guards remain authoritative; no server inventory action is introduced. */
@@ -47,5 +54,22 @@ public final class BetaFakeGambleHooks implements FakeGambleHookBridge.Handler, 
     public void noteDispenser(Object hit) { FakeGambleFeature.noteUsedDispenser((BlockHitResult) hit); }
     public boolean pick(Object client) { return FakeGambleFeature.onPickBlock((MinecraftClient) client); }
     public void screenRender(Object screen) { FakeGambleFeature.ensureScreenPrizes((Generic3x3ContainerScreen) screen); }
+    public Object interactBlock(Object player, Object hand, Object hit) {
+        return FakeGambleHooks.interactBlock((ClientPlayerEntity) player, (Hand) hand, (BlockHitResult) hit);
+    }
+    public Object interactItem(Object player, Object hand) { return FakeGambleHooks.interactItem((PlayerEntity) player, (Hand) hand); }
+    public Object interactEntity(Object player, Object hand) { return FakeGambleHooks.interactEntity((PlayerEntity) player, (Hand) hand); }
+    public Boolean attackBlock(Object pos, Object direction) { return FakeGambleHooks.attackBlock((BlockPos) pos, (Direction) direction); }
+    public Boolean updateBlockBreakingProgress(Object pos, Object direction) { return FakeGambleHooks.updateBlockBreakingProgress((BlockPos) pos, (Direction) direction); }
+    public Boolean breakBlock(Object pos) { return FakeGambleHooks.breakBlock((BlockPos) pos); }
+    public boolean cancelBlockBreaking() { return FakeGambleHooks.cancelBlockBreaking(); }
+    public Boolean dropSelected(Object player, boolean entireStack) { return FakeGambleHooks.dropSelected((PlayerEntity) player, entireStack); }
+    public void serverBlockUpdate(Object world, Object pos, Object state) { FakeGambleHooks.serverBlockUpdate((ClientWorld) world, (BlockPos) pos, (BlockState) state); }
+    public void chunkUnloaded(Object world, long packedChunk) { FakeGambleHooks.chunkUnloaded((ClientWorld) world, packedChunk); }
+    public boolean attackEntity(Object player) { return FakeGambleHooks.attackEntity((PlayerEntity) player); }
+    public boolean packet(Object packet) { return FakeGambleHooks.packet((Packet<?>) packet); }
+    public void beforeSetBlockState(Object world, Object pos) { FakeGambleHooks.beforeSetBlockState((ClientWorld) world, (BlockPos) pos); }
+    public boolean creativeStack(Object stack, int slot) { return FakeGambleHooks.creativeStack((ItemStack) stack, slot); }
+    public boolean creativeDrop(Object stack) { return FakeGambleHooks.creativeDrop((ItemStack) stack); }
     @Override public void close() { registration.close(); }
 }

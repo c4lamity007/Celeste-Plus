@@ -54,15 +54,26 @@ public final class MinecraftAccess {
     }
 
     public static boolean attack(MinecraftClient client) {
-        if ((Object) client instanceof MinecraftClientAttackInvoker accessor) return accessor.celeste$invokeDoAttack();
-        try { return (boolean) Client.ATTACK.invokeExact(client); }
-        catch (Throwable failure) { throw NamedOrIntermediaryMembers.propagate(failure); }
+        try (RealActionTarget.Scope ignored = RealActionTarget.begin(client)) {
+            if ((Object) client instanceof MinecraftClientAttackInvoker accessor) return accessor.celeste$invokeDoAttack();
+            try { return (boolean) Client.ATTACK.invokeExact(client); }
+            catch (Throwable failure) { throw NamedOrIntermediaryMembers.propagate(failure); }
+        }
     }
 
     public static void useItem(MinecraftClient client) {
-        if ((Object) client instanceof MinecraftClientUseInvoker accessor) { accessor.celeste$invokeDoItemUse(); return; }
-        try { Client.USE.invokeExact(client); }
-        catch (Throwable failure) { throw NamedOrIntermediaryMembers.propagate(failure); }
+        try (RealActionTarget.Scope ignored = RealActionTarget.begin(client)) {
+            if ((Object) client instanceof MinecraftClientUseInvoker accessor) { accessor.celeste$invokeDoItemUse(); return; }
+            try { Client.USE.invokeExact(client); }
+            catch (Throwable failure) { throw NamedOrIntermediaryMembers.propagate(failure); }
+        }
+    }
+
+    public static void handleBlockBreaking(MinecraftClient client, boolean breaking) {
+        try (RealActionTarget.Scope ignored = RealActionTarget.begin(client)) {
+            try { Client.BREAKING.invokeExact(client, breaking); }
+            catch (Throwable failure) { throw NamedOrIntermediaryMembers.propagate(failure); }
+        }
     }
 
     public static int ticksSinceAttack(LivingEntity entity) {
@@ -86,7 +97,8 @@ public final class MinecraftAccess {
     /** Beta host preflight: resolve every required member before activating modules. */
     public static void verifyLateMembers() {
         MethodHandle[] required = { Keys.BOUND, Keys.PRESSES, Interaction.LAST_SLOT, Interaction.SYNC_SLOT,
-            Client.COOLDOWN, Client.ATTACK, Client.USE, Entity.ATTACK_TICKS, Screen.FOCUSED, Hud.HOTBAR };
+            Client.COOLDOWN, Client.ATTACK, Client.USE, Client.BREAKING,
+            Entity.ATTACK_TICKS, Screen.FOCUSED, Hud.HOTBAR };
         for (MethodHandle handle : required) if (handle == null) throw new IllegalStateException("Missing Minecraft member handle");
     }
 
@@ -104,6 +116,8 @@ public final class MinecraftAccess {
         static final MethodHandle COOLDOWN = NamedOrIntermediaryMembers.getter(MinecraftClient.class, int.class, "attackCooldown", "field_1771");
         static final MethodHandle ATTACK = NamedOrIntermediaryMembers.method(MinecraftClient.class, boolean.class, "doAttack", "method_1536");
         static final MethodHandle USE = NamedOrIntermediaryMembers.method(MinecraftClient.class, void.class, "doItemUse", "method_1583");
+        static final MethodHandle BREAKING = NamedOrIntermediaryMembers.method(MinecraftClient.class, void.class,
+            "handleBlockBreaking", "method_1590", boolean.class);
     }
     private static final class Entity {
         static final MethodHandle ATTACK_TICKS = NamedOrIntermediaryMembers.getter(LivingEntity.class, int.class, "ticksSinceLastAttack", "field_6273");

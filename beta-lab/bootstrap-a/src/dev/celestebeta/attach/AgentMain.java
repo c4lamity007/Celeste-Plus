@@ -27,12 +27,13 @@ public final class AgentMain {
         }
         int port = Integer.parseInt(fields[0]);
         ProcessHandle self = ProcessHandle.current();
+        long started = self.info().startInstant().orElseThrow(() -> new IOException("The operating system did not expose this process start time")).toEpochMilli();
         if (port <= 0 || port > 65535 || Long.parseLong(fields[2]) != self.pid()
-            || Long.parseLong(fields[3]) != self.info().startInstant().orElseThrow().toEpochMilli()) {
+            || Long.parseLong(fields[3]) != started) {
             throw new IOException("Beta attachment target identity changed");
         }
         try (Socket socket = new Socket()) {
-            socket.connect(new InetSocketAddress(InetAddress.getLoopbackAddress(), port), 3000);
+            socket.connect(new InetSocketAddress(InetAddress.getByName("127.0.0.1"), port), 3000);
             socket.setSoTimeout(180_000);
             DataInputStream input = new DataInputStream(socket.getInputStream());
             DataOutputStream output = new DataOutputStream(socket.getOutputStream());
@@ -48,7 +49,7 @@ public final class AgentMain {
                     java.util.Arrays.fill(original, (byte) 0);
                     hostLoader = new URLClassLoader("celeste-beta-agent-host", new URL[] { own }, ClassLoader.getPlatformClassLoader());
                 }
-                if (control == null) control = new ResidentControl(self.pid(), self.info().startInstant().orElseThrow().toEpochMilli(),
+                if (control == null) control = new ResidentControl(self.pid(), started,
                     residentDigest, value -> dispatch(instrumentation, value));
                 response = dispatch(instrumentation, request);
             } catch (Exception | LinkageError failure) {

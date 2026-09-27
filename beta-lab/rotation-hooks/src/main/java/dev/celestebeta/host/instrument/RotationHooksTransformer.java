@@ -5,6 +5,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.BiPredicate;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.ClassWriter;
@@ -32,6 +33,10 @@ public final class RotationHooksTransformer {
     private RotationHooksTransformer() { }
 
     public static byte[] prepare(String owner, byte[] original) {
+        return prepare(owner, original, (method, returned) -> false);
+    }
+
+    public static byte[] prepare(String owner, byte[] original, BiPredicate<MethodNode, AbstractInsnNode> cancellationReturn) {
         Objects.requireNonNull(owner, "owner");
         Objects.requireNonNull(original, "original");
         List<Target> targets = targets(owner);
@@ -62,8 +67,14 @@ public final class RotationHooksTransformer {
         for (Target target : targets) {
             MethodNode method = edits.get(target.name + target.desc);
             for (Redirect redirect : target.redirects) replaceCalls(method, redirect);
-            if (target.kind == Kind.KEYBOARD) keyboardTail(method);
+            if (target.kind == Kind.KEYBOARD) keyboardTail(method, cancellationReturn);
             if (target.kind == Kind.GET_STACK || target.kind == Kind.SET_STACK) stackHead(owner, method, target.kind == Kind.SET_STACK);
+            if (target.kind == Kind.FREECAM_LOOK) freecamLookArguments(method);
+            if (target.kind == Kind.LOCAL_PLAYER_CONTROL) {
+                HookArgumentFrames.retain(owner, method, 0);
+                localPlayerControlReturn(method);
+            }
+            if (target.kind == Kind.FREECAM_RENDER_FOCUS) freecamRenderFocus(method, owner.startsWith("net/minecraft/class_"));
         }
         // Preserve the existing frames and untouched methods; never load target
         // classes to guess COMPUTE_FRAMES common superclasses during preparation.
@@ -123,9 +134,10 @@ public final class RotationHooksTransformer {
         }
     }
 
-    private static void keyboardTail(MethodNode method) {
+    private static void keyboardTail(MethodNode method, BiPredicate<MethodNode, AbstractInsnNode> cancellationReturn) {
         AbstractInsnNode lastReturn = null;
-        for (AbstractInsnNode instruction : method.instructions) if (instruction.getOpcode() == Opcodes.RETURN) lastReturn = instruction;
+        for (AbstractInsnNode instruction : method.instructions) if (instruction.getOpcode() == Opcodes.RETURN
+                && !cancellationReturn.test(method, instruction)) lastReturn = instruction;
         if (lastReturn == null) throw reject("missing input TAIL return");
         InsnList hook = new InsnList();
         hook.add(new VarInsnNode(Opcodes.ALOAD, 0));
@@ -158,6 +170,73 @@ public final class RotationHooksTransformer {
         method.maxStack = Math.max(method.maxStack, 3);
     }
 
+    private static void freecamLookArguments(MethodNode method) {
+        InsnList hook = new InsnList();
+        hook.add(new VarInsnNode(Opcodes.ALOAD, 0));
+        hook.add(new VarInsnNode(Opcodes.DLOAD, 1));
+        hook.add(new VarInsnNode(Opcodes.DLOAD, 3));
+        hook.add(new MethodInsnNode(Opcodes.INVOKESTATIC, BRIDGE, "lookDeltas", "(Ljava/lang/Object;DD)[D", false));
+        hook.add(new InsnNode(Opcodes.DUP));
+        hook.add(new InsnNode(Opcodes.ICONST_0));
+        hook.add(new InsnNode(Opcodes.DALOAD));
+        hook.add(new VarInsnNode(Opcodes.DSTORE, 1));
+        hook.add(new InsnNode(Opcodes.ICONST_1));
+        hook.add(new InsnNode(Opcodes.DALOAD));
+        hook.add(new VarInsnNode(Opcodes.DSTORE, 3));
+        method.instructions.insert(hook);
+        method.maxStack = Math.max(method.maxStack, 5);
+    }
+
+    private static void localPlayerControlReturn(MethodNode method) {
+        List<AbstractInsnNode> returns = new ArrayList<>();
+        for (AbstractInsnNode instruction : method.instructions) {
+            if (instruction.getOpcode() == Opcodes.IRETURN) returns.add(instruction);
+        }
+        if (returns.size() != 1) throw reject("expected one boolean return in " + method.name);
+        InsnList hook = new InsnList();
+        hook.add(new VarInsnNode(Opcodes.ALOAD, 0));
+        hook.add(new MethodInsnNode(Opcodes.INVOKESTATIC, BRIDGE, "keepLocalPlayerControl", "(Ljava/lang/Object;)Z", false));
+        hook.add(new InsnNode(Opcodes.IOR));
+        method.instructions.insertBefore(returns.getFirst(), hook);
+        method.maxStack = Math.max(method.maxStack, 2);
+    }
+
+    private static void freecamRenderFocus(MethodNode method, boolean intermediary) {
+        String camera = intermediary ? "net/minecraft/class_4184" : "net/minecraft/client/render/Camera";
+        String entity = intermediary ? "net/minecraft/class_1297" : "net/minecraft/entity/Entity";
+        List<MethodInsnNode> focusCalls = new ArrayList<>();
+        for (AbstractInsnNode instruction : method.instructions) {
+            if (instruction instanceof MethodInsnNode call && call.getOpcode() == Opcodes.INVOKEVIRTUAL
+                    && !call.itf && call.owner.equals(camera)
+                    && call.name.equals(intermediary ? "method_19331" : "getFocusedEntity")
+                    && call.desc.equals("()L" + entity + ";")) {
+                focusCalls.add(call);
+            }
+        }
+        if (focusCalls.size() < 4) throw reject("missing vanilla Camera.getFocusedEntity calls in " + method.name);
+        List<MethodInsnNode> bodyComparisons = new ArrayList<>();
+        for (MethodInsnNode call : focusCalls) {
+            AbstractInsnNode next = call.getNext();
+            while (next != null && next.getOpcode() < 0) next = next.getNext();
+            AbstractInsnNode comparison = next == null ? null : next.getNext();
+            while (comparison != null && comparison.getOpcode() < 0) comparison = comparison.getNext();
+            if (next instanceof VarInsnNode variable && next.getOpcode() == Opcodes.ALOAD
+                    && variable.var > 0 && comparison instanceof JumpInsnNode jump
+                    && jump.getOpcode() == Opcodes.IF_ACMPEQ) {
+                bodyComparisons.add(call);
+            }
+        }
+        if (bodyComparisons.size() != 1) throw reject("expected one local-player focus comparison in " + method.name
+            + " (focus calls=" + focusCalls.size() + ", matching comparisons=" + bodyComparisons.size() + ")");
+        MethodInsnNode selected = bodyComparisons.getFirst();
+        InsnList hook = new InsnList();
+        hook.add(new MethodInsnNode(Opcodes.INVOKESTATIC, BRIDGE, "renderedCameraFocus",
+            "(Ljava/lang/Object;)Ljava/lang/Object;", false));
+        hook.add(new TypeInsnNode(Opcodes.CHECKCAST, entity));
+        method.instructions.insert(selected, hook);
+        method.maxStack = Math.max(method.maxStack, 1);
+    }
+
     /** Fixed mapping pairs and invocation counts verified against this checkout's Yarn 1.21.11 build 6. */
     private static List<Target> targets(String owner) {
         boolean named = !owner.startsWith("net/minecraft/class_");
@@ -170,7 +249,8 @@ public final class RotationHooksTransformer {
                 new Target(named ? "tick" : "method_5773", "()V", Kind.REDIRECT,
                     List.of(new Redirect(owner, yaw, "()F", "outgoingYaw", 1), new Redirect(owner, pitch, "()F", "outgoingPitch", 1))),
                 new Target(named ? "sendMovementPackets" : "method_3136", "()V", Kind.REDIRECT,
-                    List.of(new Redirect(owner, yaw, "()F", "outgoingYaw", 4), new Redirect(owner, pitch, "()F", "outgoingPitch", 4))));
+                    List.of(new Redirect(owner, yaw, "()F", "outgoingYaw", 4), new Redirect(owner, pitch, "()F", "outgoingPitch", 4))),
+                new Target(named ? "isCamera" : "method_3134", "()Z", Kind.LOCAL_PLAYER_CONTROL, List.of()));
             case "net/minecraft/client/network/ClientPlayerInteractionManager", "net/minecraft/class_636" -> {
                 String player = named ? "net/minecraft/entity/player/PlayerEntity" : "net/minecraft/class_1657";
                 String hand = named ? "net/minecraft/util/Hand" : "net/minecraft/class_1268";
@@ -180,7 +260,8 @@ public final class RotationHooksTransformer {
             }
             case "net/minecraft/entity/Entity", "net/minecraft/class_1297" -> List.of(
                 new Target(named ? "updateVelocity" : "method_5724", "(FL" + vector + ";)V", Kind.REDIRECT,
-                    List.of(new Redirect(owner, yaw, "()F", "movementYaw", 1))));
+                    List.of(new Redirect(owner, yaw, "()F", "movementYaw", 1))),
+                new Target(named ? "changeLookDirection" : "method_5872", "(DD)V", Kind.FREECAM_LOOK, List.of()));
             case "net/minecraft/client/input/KeyboardInput", "net/minecraft/class_743" -> List.of(
                 new Target(named ? "tick" : "method_3129", "()V", Kind.KEYBOARD, List.of()));
             case "net/minecraft/entity/LivingEntity", "net/minecraft/class_1309" -> List.of(
@@ -192,11 +273,20 @@ public final class RotationHooksTransformer {
             case "net/minecraft/entity/player/PlayerInventory", "net/minecraft/class_1661" -> List.of(
                 new Target(named ? "getSelectedStack" : "method_7391", "()L" + stack + ";", Kind.GET_STACK, List.of()),
                 new Target(named ? "setSelectedStack" : "method_67531", "(L" + stack + ";)L" + stack + ";", Kind.SET_STACK, List.of()));
+            case "net/minecraft/client/render/WorldRenderer", "net/minecraft/class_761" -> {
+                String camera = named ? "net/minecraft/client/render/Camera" : "net/minecraft/class_4184";
+                String frustum = named ? "net/minecraft/client/render/Frustum" : "net/minecraft/class_4604";
+                String counter = named ? "net/minecraft/client/render/RenderTickCounter" : "net/minecraft/class_9779";
+                String state = named ? "net/minecraft/client/render/state/WorldRenderState" : "net/minecraft/class_11658";
+                yield List.of(new Target(named ? "fillEntityRenderStates" : "method_72917",
+                    "(L" + camera + ";L" + frustum + ";L" + counter + ";L" + state + ";)V",
+                    Kind.FREECAM_RENDER_FOCUS, List.of()));
+            }
             default -> throw reject("unsupported class: " + owner);
         };
     }
 
-    private enum Kind { REDIRECT, KEYBOARD, GET_STACK, SET_STACK }
+    private enum Kind { REDIRECT, KEYBOARD, GET_STACK, SET_STACK, FREECAM_LOOK, LOCAL_PLAYER_CONTROL, FREECAM_RENDER_FOCUS }
     private record Target(String name, String desc, Kind kind, List<Redirect> redirects) { }
     private record Redirect(String owner, String name, String desc, String hook, int count) { }
     private static IllegalArgumentException reject(String reason) { return new IllegalArgumentException("Rotation hook preparation rejected: " + reason); }

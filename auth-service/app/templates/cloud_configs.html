@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Cloud Configs</title>
+  <link rel="stylesheet" href="/assets/admin.css">
+</head>
+<body class="admin-page">
+  <header class="topbar">
+    <div class="page-title"><span class="brand-dot" aria-hidden="true"></span><div><span class="eyebrow">CELESTE AUTH</span><h1>Cloud Configs</h1></div></div>
+    <nav class="admin-nav" aria-label="Admin sections">
+      <a href="/admin">Licenses</a>
+      <a href="/admin/users">Users</a>
+      <a href="/admin/flags">Flags</a>
+      <a class="active" href="/admin/configs">Cloud Configs</a>
+    </nav>
+    <form method="post" action="/admin/logout"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="quiet">Log out</button></form>
+  </header>
+  <main>
+    <div class="stats">
+      <article><span>Published configs</span><strong>{{ stats.total or 0 }}</strong></article>
+      <article><span>Publishers</span><strong>{{ stats.publishers or 0 }}</strong></article>
+      <article><span>Total downloads</span><strong>{{ stats.downloads or 0 }}</strong></article>
+      <article><span>Stored data</span><strong>{{ '%.1f'|format((stats.storage_bytes or 0) / 1024) }}<small class="stat-unit"> KiB</small></strong></article>
+    </div>
+
+    <section>
+      <div class="section-head"><div><span class="eyebrow">VPS LIBRARY</span><h2>Uploaded cloud configs</h2></div><p>Images are stored on the private Fly volume and are available only through authenticated routes.</p></div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Config</th><th>Publisher</th><th>Modules</th><th>Updated</th><th>Downloads</th><th>Image</th></tr></thead>
+        <tbody>
+        {% for config in configs %}
+          <tr>
+            <td><strong>{{ config.name }}</strong><small>{{ config.config_id }} · {{ '%.1f'|format(config.image_kib) }} KiB</small></td>
+            <td><a class="uid" href="/admin/licenses/{{ config.owner_license_uid }}">#{{ config.owner_license_uid }}</a><small>{{ config.author_name or config.license_label or 'Unknown publisher' }}</small></td>
+            <td>{% if config.modules %}{{ config.modules[:3]|join(', ') }}{% if config.modules|length > 3 %}<small>+{{ config.modules|length - 3 }} more</small>{% endif %}{% else %}<span class="muted">None listed</span>{% endif %}</td>
+            <td>{{ config.updated_at|timestamp }}<small>Created {{ config.created_at|timestamp }}</small></td>
+            <td>{{ config.downloads }}</td>
+            <td>{% if config.image_available %}<a class="badge good" href="/admin/configs/{{ config.config_id }}/image" target="_blank" rel="noopener">View PNG</a>{% else %}<span class="badge danger-text">Missing</span>{% endif %}<small>{{ config.image_sha256[:12] }}…</small></td>
+          </tr>
+        {% else %}<tr><td colspan="6" class="empty">No cloud configs have been published yet.</td></tr>{% endfor %}
+        </tbody>
+      </table></div>
+    </section>
+  </main>
+</body>
+</html>

@@ -43,6 +43,7 @@ public final class ModuleManager implements AutoCloseable {
 
     private boolean initialized;
     private Object lastWorld;
+    private Object lastPlayer;
     private String lastSnapshot = "";
     private int persistenceTicks;
 
@@ -103,13 +104,11 @@ public final class ModuleManager implements AutoCloseable {
                 apply(setting, properties.getProperty(prefix + ".setting." + key(setting.label())));
             }
         }
-        lastSnapshot = snapshot();
-        save(lastSnapshot);
+        save(snapshot());
     }
 
     public synchronized void saveNow() {
-        lastSnapshot = snapshot();
-        save(lastSnapshot);
+        save(snapshot());
     }
 
     private void startTick(MinecraftClient client) {
@@ -118,9 +117,12 @@ public final class ModuleManager implements AutoCloseable {
         }
         GameplayFoundation.beginTick(client);
         handleKeybinds(client);
-        if (lastWorld != client.world) {
+        // A respawn may replace the player without replacing ClientWorld. Clear
+        // old targets, player-age timers and input leases before re-enabling.
+        if (lastWorld != client.world || lastPlayer != client.player) {
             deactivateAll(client);
             lastWorld = client.world;
+            lastPlayer = client.player;
             for (ModuleFeature feature : features.values()) {
                 GuiModule module = findModule(feature.name());
                 if (module != null) {
@@ -252,19 +254,24 @@ public final class ModuleManager implements AutoCloseable {
         if (client.getWindow() == null) {
             return;
         }
-        boolean accept = client.currentScreen == null && client.player != null;
+        boolean accept = client.currentScreen == null && client.getOverlay() == null
+            && client.isWindowFocused() && client.player != null && client.world != null;
         for (GuiModule module : GuiCatalog.modules()) {
             GuiSetting.Keybind bind = module.settings().stream()
                 .filter(GuiSetting.Keybind.class::isInstance)
                 .map(GuiSetting.Keybind.class::cast)
-                .filter(keybind -> keybind.label().equalsIgnoreCase("Bind"))
+                .filter(keybind -> keybind.label().equalsIgnoreCase("Bind")
+                    || keybind.label().equalsIgnoreCase("Keybind"))
                 .findFirst().orElse(null);
+            String id = key(module.name());
             if (bind == null || bind.keyCode() == GLFW.GLFW_KEY_UNKNOWN) {
+                keysDown.remove(id);
                 continue;
             }
-            String id = key(module.name());
-            boolean pressed = accept && InputUtil.isKeyPressed(client.getWindow(), bind.keyCode());
-            if (pressed && !keysDown.getOrDefault(id, false)) {
+            // Observe physical edges even while a GUI/overlay owns input. Closing it while
+            // a key is still held must not manufacture a second module toggle.
+            boolean pressed = InputUtil.isKeyPressed(client.getWindow(), bind.keyCode());
+            if (accept && pressed && !keysDown.getOrDefault(id, false)) {
                 module.toggle();
             }
             keysDown.put(id, pressed);
@@ -371,6 +378,8 @@ public final class ModuleManager implements AutoCloseable {
                 }
             } else if (setting instanceof GuiSetting.ItemPick pick) {
                 pick.setItemId(value);
+            } else if (setting instanceof GuiSetting.BlockList blocks) {
+                blocks.setSerialized(value);
             }
         } catch (NumberFormatException ignored) {
         }
@@ -384,6 +393,7 @@ public final class ModuleManager implements AutoCloseable {
         if (setting instanceof GuiSetting.Keybind bind) return Integer.toString(bind.keyCode());
         if (setting instanceof GuiSetting.ColorPick pick) return pick.serialized();
         if (setting instanceof GuiSetting.ItemPick pick) return pick.itemId();
+        if (setting instanceof GuiSetting.BlockList blocks) return blocks.serialized();
         return "";
     }
 

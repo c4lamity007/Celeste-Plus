@@ -1,6 +1,7 @@
 package dev.c4lam.celeste.module.impl.combat;
 
 import dev.c4lam.celeste.action.ActionScheduler;
+import dev.c4lam.celeste.action.GameplayFoundation;
 import dev.c4lam.celeste.friend.FriendManager;
 import dev.c4lam.celeste.compat.MinecraftAccess;
 import dev.c4lam.celeste.module.ModuleContext;
@@ -10,7 +11,6 @@ import dev.c4lam.celeste.rotation.MoveFixMode;
 import dev.c4lam.celeste.rotation.Rotation;
 import dev.c4lam.celeste.rotation.RotationManager;
 import dev.c4lam.celeste.rotation.RotationTask;
-import dev.c4lam.celeste.silent.SilentSlotManager;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.component.DataComponentTypes;
@@ -18,14 +18,12 @@ import net.minecraft.component.type.AttackRangeComponent;
 import net.minecraft.component.type.PiercingWeaponComponent;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.entity.projectile.ProjectileUtil;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
 import net.minecraft.registry.tag.ItemTags;
 import net.minecraft.util.hit.EntityHitResult;
 import net.minecraft.util.hit.HitResult;
 import net.minecraft.util.math.Box;
-import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.RaycastContext;
 
@@ -38,26 +36,19 @@ import java.util.Random;
  */
 public final class SwordAuraFeature implements ModuleFeature {
     private static final int PRIORITY = 120;
-    private static final double ATTACK_RANGE = 3.35D;
     private static final Random RANDOM = new Random();
 
     private final FriendManager friends = FriendManager.getInstance();
     private final HumanAim aim = new HumanAim();
+    private final ShieldBreakSupport shieldBreak = new ShieldBreakSupport();
     private Rotation silentLook;
     private int tickCounter;
     private int nextTick;
-    private double cooldownThreshold = 0.88D;
+    private double cooldownThreshold = Double.NaN;
     private int targetId = -1;
 
-    private ShieldState shieldState = ShieldState.IDLE;
-    private int shieldOriginalSlot = -1;
-    private int shieldAxeSlot = -1;
-    private int shieldTargetId = -1;
-    private int shieldNextTick;
-
-    private enum ShieldState {
-        IDLE, WAIT_SWAP, WAIT_CLICK, WAIT_BACK
-    }
+    private ClientPlayerEntity shieldPlayer;
+    private boolean shieldBreakReady;
 
     @Override
     public String name() {
@@ -67,54 +58,62 @@ public final class SwordAuraFeature implements ModuleFeature {
     @Override
     public void onStartTick(ModuleContext context) {
         tickCounter++;
+        shieldBreakReady = false;
         MinecraftClient client = context.client();
         if (client.player == null || client.world == null || client.interactionManager == null
             || client.currentScreen != null) {
-            clear(client, true);
+            clear();
             return;
         }
         SeeRotationsFeature.syncFromAura(true, context.toggle("See Rotations", false));
+        if (!Double.isFinite(cooldownThreshold)) {
+            cooldownThreshold = sample(context, "Swing Delay Min", 90.0D, "Swing Delay Max", 96.0D) / 100.0D;
+        }
         boolean flick = isFlick(context);
 
-        if (shieldState != ShieldState.IDLE) {
-            PlayerEntity shieldTarget = findPlayerById(client, shieldTargetId);
-            if (shieldTarget != null && (!flick || shieldState == ShieldState.WAIT_CLICK)) {
-                updateSilentLook(client, shieldTarget, context);
-                requestSilentAim();
-            } else if (flick) {
-                endFlick();
-            }
-            return;
+        if (shieldPlayer != client.player) {
+            shieldBreak.reset();
+            shieldPlayer = client.player;
         }
         if (isShielding(client.player)) {
+            shieldBreak.reset();
             endFlick();
             return;
         }
 
         PlayerEntity target = selectTarget(client, context);
         if (target == null) {
+            shieldBreak.reset();
             targetId = -1;
             aim.reset();
             endFlick();
             cooldownThreshold = sample(context, "Swing Delay Min", 90.0D, "Swing Delay Max", 96.0D) / 100.0D;
             return;
         }
+        if (targetId != target.getId()) {
+            shieldBreak.reset();
+        }
         targetId = target.getId();
+        // Observe the blocking episode once per tick, even while the ordinary
+        // sword cooldown is still charging. Flick may then aim for an axe hit.
+        if (client.player.getMainHandStack().isIn(ItemTags.SWORDS)) {
+            shieldBreakReady = shieldBreak.ready(context, target) && shieldCooldownReady(context);
+        } else {
+            shieldBreak.reset();
+        }
         if (flick) {
-            if (shouldFlickToTarget(client, target, context)) {
+            boolean shieldFlick = shieldBreakReady
+                && isSameAttackTarget(playerHitAt(client,
+                    Rotation.lookingAt(client.player, aimPoint(target))), target);
+            if (shieldFlick || shouldFlickToTarget(client, target, context)) {
                 updateSilentLook(client, target, context);
-                requestSilentAim();
+                requestSilentAim(context);
             } else {
                 endFlick();
             }
         } else {
             updateSilentLook(client, target, context);
-            requestSilentAim();
-        }
-
-        boolean noCooldownBreak = context.toggle("Shield Break No Cooldown", true);
-        if (isShielding(target) && noCooldownBreak && startShieldBreak(client, target)) {
-            scheduleAttack(context);
+            requestSilentAim(context);
         }
     }
 
@@ -125,11 +124,9 @@ public final class SwordAuraFeature implements ModuleFeature {
             || client.currentScreen != null) {
             return;
         }
-        if (shieldState != ShieldState.IDLE) {
-            tickShieldBreak(context);
-            return;
-        }
-        if (isShielding(client.player) || tickCounter < nextTick) {
+        if (isShielding(client.player)) {
+            shieldBreak.reset();
+            shieldBreakReady = false;
             if (isFlick(context)) {
                 endFlick();
             }
@@ -139,16 +136,28 @@ public final class SwordAuraFeature implements ModuleFeature {
         PlayerEntity target = findPlayerById(client, targetId);
         if (target == null || !isValidPlayerTarget(client.player, target)
             || client.player.squaredDistanceTo(target) > context.slider("Range", 6.0D) * context.slider("Range", 6.0D)) {
+            shieldBreak.reset();
+            shieldBreakReady = false;
             if (isFlick(context)) {
                 endFlick();
             }
             return;
         }
-        EntityHitResult hit = silentPlayerHit(client, ATTACK_RANGE);
-        if (hit == null || !isSameAttackTarget(hit, target) || isShielding(target)) {
-            if (isShielding(target)) {
-                startShieldBreak(client, target);
-            } else if (isFlick(context)) {
+        if (ShieldBreakSupport.blockingFrom(client, target)) {
+            submitShieldBreak(context, target);
+            return;
+        }
+        shieldBreak.reset();
+        shieldBreakReady = false;
+        if (tickCounter < nextTick) {
+            if (isFlick(context)) {
+                endFlick();
+            }
+            return;
+        }
+        EntityHitResult hit = silentPlayerHit(client);
+        if (hit == null || !isSameAttackTarget(hit, target)) {
+            if (isFlick(context)) {
                 endFlick();
             }
             return;
@@ -169,7 +178,7 @@ public final class SwordAuraFeature implements ModuleFeature {
         }
         boolean flick = isFlick(context);
         ActionScheduler.getInstance().submit(this, PRIORITY, actionClient -> {
-            if (attackSilentCrosshairPlayer(actionClient, hit, target)) {
+            if (attackSilentCrosshairPlayer(actionClient, target)) {
                 scheduleAttack(context);
                 if (flick) {
                     endFlick();
@@ -192,28 +201,30 @@ public final class SwordAuraFeature implements ModuleFeature {
             return;
         }
         updateSilentLook(client, target, context);
-        RotationManager.getInstance().hold(this, silentLook, MoveFixMode.STRICT);
+        RotationManager.getInstance().hold(this, silentLook, moveFixMode(context));
     }
 
     @Override
     public void onDisable(ModuleContext context) {
-        clear(context.client(), true);
+        clear();
     }
 
     @Override
     public void onWorldChanged(ModuleContext context) {
-        clear(context.client(), true);
+        clear();
     }
 
-    private void clear(MinecraftClient client, boolean restoreShield) {
+    private void clear() {
         SeeRotationsFeature.syncFromAura(false, false);
-        RotationManager.getInstance().release(this);
-        resetShield(client == null ? null : client.player, restoreShield);
+        GameplayFoundation.releaseOwner(this);
+        shieldBreak.reset();
+        shieldPlayer = null;
+        shieldBreakReady = false;
         aim.reset();
         silentLook = null;
         targetId = -1;
         nextTick = 0;
-        cooldownThreshold = 0.88D;
+        cooldownThreshold = Double.NaN;
     }
 
     private static boolean isFlick(ModuleContext context) {
@@ -221,7 +232,7 @@ public final class SwordAuraFeature implements ModuleFeature {
     }
 
     private boolean shouldFlickToTarget(MinecraftClient client, PlayerEntity target, ModuleContext context) {
-        if (tickCounter < nextTick || client.player.squaredDistanceTo(target) > ATTACK_RANGE * ATTACK_RANGE) {
+        if (tickCounter < nextTick) {
             return false;
         }
         if (!canRunTriggerAttack(client.player,
@@ -229,7 +240,12 @@ public final class SwordAuraFeature implements ModuleFeature {
             context.toggle("Prioritize Sprint", false))) {
             return false;
         }
-        return client.player.getAttackCooldownProgress(0.0F) >= cooldownThreshold - 0.02F;
+        if (client.player.getAttackCooldownProgress(0.0F) < cooldownThreshold - 0.02F) {
+            return false;
+        }
+        // Flick only starts when the prospective snap would hit; it must not depend on owning the old look.
+        Rotation prospective = Rotation.lookingAt(client.player, aimPoint(target));
+        return isSameAttackTarget(playerHitAt(client, prospective), target);
     }
 
     private void endFlick() {
@@ -260,7 +276,7 @@ public final class SwordAuraFeature implements ModuleFeature {
         );
     }
 
-    private void requestSilentAim() {
+    private void requestSilentAim(ModuleContext context) {
         if (silentLook == null) {
             return;
         }
@@ -269,8 +285,13 @@ public final class SwordAuraFeature implements ModuleFeature {
             .lifetimeTicks(2)
             .smoothing(180.0F, 180.0F)
             .sensitivityQuantized(false)
-            .moveFix(MoveFixMode.STRICT)
+            .moveFix(moveFixMode(context))
             .build());
+    }
+
+    private static MoveFixMode moveFixMode(ModuleContext context) {
+        return "Anarchy".equals(context.mode("Movefix mode", "Default"))
+            ? MoveFixMode.ANARCHY : MoveFixMode.STRICT;
     }
 
     private PlayerEntity selectTarget(MinecraftClient client, ModuleContext context) {
@@ -333,49 +354,37 @@ public final class SwordAuraFeature implements ModuleFeature {
             && !player.isClimbing() && !player.isGliding();
     }
 
-    private EntityHitResult silentPlayerHit(MinecraftClient client, double range) {
+    private EntityHitResult silentPlayerHit(MinecraftClient client) {
         ClientPlayerEntity self = client.player;
-        if (self == null || client.world == null) {
+        if (self == null || client.world == null || client.interactionManager == null) {
             return null;
         }
         Rotation look = RotationManager.getInstance().isOwnedBy(this)
             ? RotationManager.getInstance().serverRotation()
             : new Rotation(self.getYaw(), self.getPitch());
-        Vec3d start = self.getEyePos();
-        Vec3d direction = look.direction();
-        if (direction.lengthSquared() < 1.0E-8D) {
-            return null;
-        }
-        Vec3d end = start.add(direction.multiply(range));
-        HitResult block = client.world.raycast(new RaycastContext(
-            start, end, RaycastContext.ShapeType.COLLIDER,
-            RaycastContext.FluidHandling.NONE, self));
-        double maximumDistance = block.getType() == HitResult.Type.MISS
-            ? range * range : start.squaredDistanceTo(block.getPos());
-        double reach = Math.sqrt(maximumDistance);
-        Box search = self.getBoundingBox().stretch(direction.multiply(reach)).expand(1.0D);
-        EntityHitResult hit = ProjectileUtil.raycast(
-            self,
-            start,
-            start.add(direction.multiply(reach)),
-            search,
-            entity -> entity instanceof PlayerEntity player && isValidPlayerTarget(self, player),
-            maximumDistance
-        );
-        if (hit == null) {
-            return null;
-        }
-        AttackRangeComponent attackRange = self.getMainHandStack().get(DataComponentTypes.ATTACK_RANGE);
-        if (attackRange != null && !attackRange.isWithinRange(self, hit.getPos())) {
-            return null;
-        }
-        return hit;
+        return playerHitAt(client, look);
     }
 
-    private boolean attackSilentCrosshairPlayer(MinecraftClient client, EntityHitResult hit,
-                                                PlayerEntity expected) {
-        if (client.player == null || !isSameAttackTarget(hit, expected)
+    private EntityHitResult playerHitAt(MinecraftClient client, Rotation look) {
+        ClientPlayerEntity self = client.player;
+        if (self == null || client.world == null || client.interactionManager == null) {
+            return null;
+        }
+        // Combat authority always originates at the real player. A detached
+        // Freecam entity is presentation only and must never extend or move reach.
+        return SwordAuraTargeting.playerHit(self, self, look.yaw(), look.pitch(),
+            target -> isValidPlayerTarget(self, target));
+    }
+
+    private boolean attackSilentCrosshairPlayer(MinecraftClient client, PlayerEntity expected) {
+        if (client.player == null || client.world == null || client.interactionManager == null
+            || client.currentScreen != null
             || !isValidPlayerTarget(client.player, expected)) {
+            return false;
+        }
+        // Re-query when the scheduler executes: movement, a slot change or a new blocker invalidates an older hit.
+        EntityHitResult hit = silentPlayerHit(client);
+        if (!isSameAttackTarget(hit, expected)) {
             return false;
         }
         ClientPlayerEntity self = client.player;
@@ -440,101 +449,50 @@ public final class SwordAuraFeature implements ModuleFeature {
         return false;
     }
 
-    private boolean startShieldBreak(MinecraftClient client, PlayerEntity target) {
-        int axeSlot = shieldBreakerAxeSlot(client, target);
-        if (axeSlot < 0) {
+    private boolean shieldCooldownReady(ModuleContext context) {
+        return context.toggle("Shield Break No Cooldown", true)
+            || tickCounter >= nextTick
+                && context.client().player.getAttackCooldownProgress(0.0F) >= cooldownThreshold;
+    }
+
+    private void submitShieldBreak(ModuleContext context, PlayerEntity target) {
+        MinecraftClient client = context.client();
+        boolean flick = isFlick(context);
+        if (!shieldBreakReady || !shieldHitReady(context, target)
+            || ActionScheduler.getInstance().hasExecuted()) {
+            if (flick) {
+                endFlick();
+            }
+            return;
+        }
+        ActionScheduler.getInstance().submit(this, PRIORITY, actionClient -> {
+            // Winning the action does not retain an old hit or slot choice.
+            // The dedicated axe path never enters physical Mace Swap policy.
+            if (actionClient == client && shieldHitReady(context, target)
+                && shieldBreak.attempt(this, context, target, PRIORITY,
+                    context.toggle("Shield silent swap", true))) {
+                scheduleAttack(context);
+            }
+            if (flick) {
+                endFlick();
+            }
+        });
+    }
+
+    private boolean shieldHitReady(ModuleContext context, PlayerEntity target) {
+        MinecraftClient client = context.client();
+        if (client.player == null || client.player != shieldPlayer || client.world == null
+            || client.interactionManager == null || client.currentScreen != null
+            || target.getId() != targetId || !isValidPlayerTarget(client.player, target)
+            || !client.player.getMainHandStack().isIn(ItemTags.SWORDS)
+            || !ShieldBreakSupport.blockingFrom(client, target) || !shieldCooldownReady(context)) {
             return false;
         }
-        shieldOriginalSlot = client.player.getInventory().getSelectedSlot();
-        shieldAxeSlot = axeSlot;
-        shieldTargetId = target.getId();
-        shieldState = ShieldState.WAIT_SWAP;
-        shieldNextTick = tickCounter + millisecondsToTicks(90.0D);
-        return true;
-    }
-
-    private int shieldBreakerAxeSlot(MinecraftClient client, PlayerEntity target) {
-        if (shieldState != ShieldState.IDLE
-            || !client.player.getMainHandStack().isIn(ItemTags.SWORDS)
-            || !isShielding(target)) {
-            return -1;
-        }
-        return findAxeSlot(client.player);
-    }
-
-    private static int findAxeSlot(ClientPlayerEntity player) {
-        int visible = player.getInventory().getSelectedSlot();
-        if (player.getInventory().getStack(visible).isIn(ItemTags.AXES)) {
-            return visible;
-        }
-        for (int slot = 0; slot < 9; slot++) {
-            if (player.getInventory().getStack(slot).isIn(ItemTags.AXES)) {
-                return slot;
-            }
-        }
-        return -1;
-    }
-
-    private void tickShieldBreak(ModuleContext context) {
-        if (tickCounter < shieldNextTick) {
-            return;
-        }
-        MinecraftClient client = context.client();
-        PlayerEntity target = findPlayerById(client, shieldTargetId);
-        if (target == null || !isValidPlayerTarget(client.player, target)
-            || client.player.squaredDistanceTo(target) > 4.35D * 4.35D) {
-            resetShield(client.player, true);
-            return;
-        }
-        if (!isShielding(target)) {
-            resetShield(client.player, true);
-            return;
-        }
-        switch (shieldState) {
-            case WAIT_SWAP -> {
-                if (!SilentSlotManager.getInstance().selectVisibleSlot(client, shieldAxeSlot)) {
-                    resetShield(client.player, true);
-                    return;
-                }
-                shieldState = ShieldState.WAIT_CLICK;
-                shieldNextTick = tickCounter + millisecondsToTicks(80.0D);
-            }
-            case WAIT_CLICK -> {
-                EntityHitResult attackHit = silentPlayerHit(client, ATTACK_RANGE);
-                if (!isSameAttackTarget(attackHit, target)) {
-                    resetShield(client.player, true);
-                    return;
-                }
-                if (ActionScheduler.getInstance().hasExecuted()) {
-                    return;
-                }
-                ActionScheduler.getInstance().submit(this, PRIORITY, actionClient -> {
-                    if (attackSilentCrosshairPlayer(actionClient, attackHit, target)) {
-                        shieldState = ShieldState.WAIT_BACK;
-                        shieldNextTick = tickCounter + millisecondsToTicks(90.0D);
-                    }
-                });
-            }
-            case WAIT_BACK -> {
-                if (shieldOriginalSlot >= 0 && shieldOriginalSlot < 9) {
-                    SilentSlotManager.getInstance().selectVisibleSlot(client, shieldOriginalSlot);
-                }
-                resetShield(client.player, false);
-            }
-            default -> resetShield(client.player, true);
-        }
-    }
-
-    private void resetShield(ClientPlayerEntity player, boolean restore) {
-        if (restore && player != null && shieldState != ShieldState.IDLE
-            && shieldOriginalSlot >= 0 && shieldOriginalSlot < 9) {
-            SilentSlotManager.getInstance().selectVisibleSlot(MinecraftClient.getInstance(), shieldOriginalSlot);
-        }
-        shieldState = ShieldState.IDLE;
-        shieldOriginalSlot = -1;
-        shieldAxeSlot = -1;
-        shieldTargetId = -1;
-        shieldNextTick = 0;
+        double range = context.slider("Range", 6.0D);
+        int axeSlot = ShieldBreakSupport.axeSlot(client);
+        return client.player.squaredDistanceTo(target) <= range * range
+            && isSameAttackTarget(silentPlayerHit(client), target)
+            && axeSlot >= 0 && VanillaCombatReach.canAttack(client, target, axeSlot, range, true);
     }
 
     private boolean isValidPlayerTarget(ClientPlayerEntity self, PlayerEntity target) {
@@ -574,7 +532,4 @@ public final class SwordAuraFeature implements ModuleFeature {
         return low + RANDOM.nextDouble() * Math.max(0.0D, high - low);
     }
 
-    private static int millisecondsToTicks(double milliseconds) {
-        return Math.max(1, (int) Math.ceil(Math.max(0.0D, milliseconds) / 50.0D));
-    }
 }

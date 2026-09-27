@@ -16,6 +16,12 @@ public final class GuiPipelines {
     public static final RenderPipeline RECT = dev.c4lam.celeste.compat.BetaRenderPipelines.register(
             gui("rect", "rect/rect", VertexFormats.POSITION_COLOR).build()
     );
+    /** Solid pixel-aligned media bars; the rounded-rect edge fade blurs two-pixel strokes. */
+    public static final RenderPipeline WAVEFORM = dev.c4lam.celeste.compat.BetaRenderPipelines.register(
+            gui("waveform", "rect/rect", VertexFormats.POSITION_COLOR)
+                    .withFragmentShader(shader("rect/waveform"))
+                    .build()
+    );
     public static final RenderPipeline GRADIENT_RECT = dev.c4lam.celeste.compat.BetaRenderPipelines.register(
             gui("gradient_rect", "rect/gradient_rect", VertexFormats.POSITION_COLOR).build()
     );

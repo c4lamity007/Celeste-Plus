@@ -1,12 +1,14 @@
 # Celeste+
 
-Celeste+ is the live-attach client. This repository contains its Windows launcher, Java 21 resident host (Bootstrap A), disposable payload bootstrap (Bootstrap B), hook adapters, delivery verification, and isolated regression tests. The normal mod-folder product is maintained separately in [Celeste](https://github.com/c4lamity007/Celeste).
+Celeste+ is the live-attach client. This is the development repository for its native launcher, Java 21 resident host (Bootstrap A), disposable payload bootstrap (Bootstrap B), game module updates, authentication integration, and regression tests. The normal mod-folder product is maintained separately in [Celeste](https://github.com/c4lamity007/Celeste).
+
+Push Celeste+ work to **[c4lamity007/Celeste-Plus](https://github.com/c4lamity007/Celeste-Plus)**. The pinned Celeste core is an input dependency, not the destination for Plus changes. See [the current source and authentication handoff](docs/plus-source-transfer-20260927.md).
 
 The host and launcher build independently of Minecraft, Fabric Loom, the authentication server, and a local Celeste checkout. A complete remapped Celeste runtime is an explicit packaging input. Authentication remains product-scoped to `celeste_plus`; no special UID or Owner license bypass is provided. Existing `beta` package names and wire schemas are retained for protocol compatibility.
 
 ## Build and test
 
-Use Java 21 (with `JAVA_HOME` set), Python 3.10+, and the included Gradle wrapper. The Windows launcher requires stable Rust with the MSVC toolchain and Visual Studio C++ build tools. Dependency resolution needs network access on the first build; add `--offline` only when the caches are populated.
+Use Java 21 (with `JAVA_HOME` set), Python 3.11+, and the included Gradle wrapper. The Windows launcher requires stable Rust with the MSVC toolchain and Visual Studio C++ build tools. Dependency resolution needs network access on the first build; add `--offline` only when the caches are populated.
 
 ```powershell
 .\gradlew.bat --no-daemon build
@@ -15,7 +17,7 @@ cargo test --locked --release --manifest-path beta-lab/native-launcher/Cargo.tom
 cargo build --locked --release --manifest-path beta-lab/native-launcher/Cargo.toml
 ```
 
-On other platforms, `./gradlew` builds and checks the Java host. The launcher uses Windows APIs and is not a cross-platform executable.
+On other platforms, `./gradlew` builds and checks the Java host. The native launcher also has Linux and macOS implementations, with separate candidate CI jobs. Desktop credential storage, attach behavior, and gameplay require platform-specific runtime verification; a successful CI build does not establish those results.
 
 Outputs are ignored by Git:
 
@@ -24,6 +26,11 @@ Outputs are ignored by Git:
 - `beta-lab/native-launcher/target/release/CelestePlus.exe`
 
 The default A/B artifacts are development outputs without a release trust/support contract. They are not assembled server releases. `check` runs explicit Java programs for A lifecycle, B lifecycle/loader retirement, resident transport, and signed delivery. The A transaction tests use synthetic Minecraft-shaped bytecode; the B tests use isolated fixtures. These checks do not establish in-game compatibility. The Java transport fixture attaches only to its own non-Minecraft test process.
+
+For a separate offline hook/schema gate, supply a named Minecraft 1.21.11 jar
+explicitly: `./gradlew betaMinecraftSchemaCheck -PminecraftSchemaJar=/path/to/named.jar`.
+That task fails when the input is missing and reads class bytes without launching
+Minecraft. Default host builds never search a local game cache.
 
 Two additional native integration checks require explicit Java fixture paths and never attach to a game. After the Java build:
 
@@ -37,7 +44,7 @@ cargo test --locked --release --manifest-path beta-lab/native-launcher/Cargo.tom
 
 ## Runtime dependency
 
-`core.lock.json` pins the normal Celeste Git commit and the manifest hash of `runtime-overlay/`. The overlay contains the current Celeste+ development source changes and two shader sources, not a complete copy of Celeste. It is **not byte-identical to the published protected runtime**. No imported models, native binaries, authentication database, or signing credentials are included.
+`core.lock.json` pins the normal Celeste Git commit and the manifest hash of `runtime-overlay/`. The overlay contains the current Celeste+ modules, HUDs, runtime authentication, shaders, fonts, and required HUD assets. Applying it reproduces the latest development game source. It is **not byte-identical to the published protected runtime**. No imported models, native binaries, authentication database, or signing credentials are included.
 
 Supply an accessible checkout of the exact pinned core commit:
 
@@ -73,6 +80,22 @@ python beta-lab/release-package/package_beta.py assemble --package <prepared-rel
 ```
 
 The five-file output contains A, B, two payload parts, and `beta-release.json`. Assembly verifies contract and digest agreement; it neither signs server responses nor deploys. Server configuration, product entitlements, release approval, and in-game verification remain separate release steps.
+
+## Authentication and publication
+
+`auth-service/` contains the coordinated shared backend source required by this Plus revision, including live entitlement/device validation, request proof binding, nonce-bound delivery, token revocation, and native publication manifests. It still serves both product identities; changing the source repository does not create a second service or change its live configuration. The Plus launcher, host, and runtime require the `celeste_plus` entitlement. See [the auth implementation record](docs/auth-hardening-20260927.md).
+
+The service and new clients must ship together. Pushing source does not deploy the service or make an existing launcher use these fixes. The native protection policy deliberately has no approved protector yet; protected/signed publication remains blocked until the reviewed toolchain and signing credentials are supplied. The Plus-only workflow uploads unsigned test candidates and runs offline checks. See [native release requirements](tools/packaging/NATIVE-RELEASE.md).
+
+Offline backend and packaging checks:
+
+```powershell
+python -m pip install -r auth-service/requirements.txt
+python -m unittest discover -s tools/qa -p 'test_*.py'
+python -m unittest discover -s beta-lab/release-package -p 'test_*.py'
+Set-Location auth-service
+python -m pytest tests -q
+```
 
 ## Lifetime and compatibility
 

@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>License #{{ license.uid }}</title>
+  <link rel="stylesheet" href="/assets/admin.css">
+</head>
+<body class="admin-page">
+  <header class="topbar">
+    <div><a class="back" href="/admin">← All licenses</a><div class="page-title"><span class="brand-dot" aria-hidden="true"></span><h1>#{{ license.uid }} · {{ license.label or 'Unlabeled license' }}</h1></div></div>
+    <nav class="admin-nav" aria-label="Admin sections">
+      <a class="active" href="/admin">Licenses</a>
+      <a href="/admin/users">Users</a>
+      <a href="/admin/flags">Flags</a>
+      <a href="/admin/configs">Cloud Configs</a>
+    </nav>
+    <form method="post" action="/admin/logout"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="quiet">Log out</button></form>
+  </header>
+  <main>
+    <section class="license-hero">
+      <div class="summary-grid">
+        <div><span>Status</span>{% if license.status == 'revoked' %}<strong class="danger-text">Revoked</strong>{% elif license.expires_at and license.expires_at <= now %}<strong class="warn-text">Expired</strong>{% else %}<strong class="good-text">Active</strong>{% endif %}</div>
+        <div><span>License key</span>{% if license.key_prefix %}<code class="license-prefix">{{ license.key_prefix }}…</code>{% else %}<strong class="muted">Unavailable for legacy license</strong>{% endif %}</div>
+        <div><span>Products</span><strong>{{ products|join(" + ") or "No product access" }}</strong></div>
+        <div><span>Length</span><strong>{{ license.duration_kind|replace('_', ' ')|title }}</strong></div>
+        <div><span>Created</span><strong>{{ license.created_at|timestamp }}</strong></div>
+        <div><span>Activated</span><strong>{{ license.activated_at|timestamp }}</strong></div>
+        <div><span>Expires</span><strong>{% if license.expires_at %}{{ license.expires_at|timestamp }}{% else %}Never{% endif %}</strong></div>
+        <div><span>Device limit</span><strong>{{ license.max_devices }}</strong></div>
+      </div>
+      {% if license.revoked_reason %}<p class="revocation"><strong>Revocation reason:</strong> {{ license.revoked_reason }} · {{ license.revoked_at|timestamp }}</p>{% endif %}
+      <div class="actions">
+        <form method="post" action="/admin/licenses/{{ license.uid }}/reset"><input type="hidden" name="csrf" value="{{ csrf }}"><button>Reset binding</button></form>
+        {% if license.status == 'active' %}<form method="post" action="/admin/licenses/{{ license.uid }}/revoke"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="danger">Revoke now</button></form>{% endif %}
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head"><div><span class="eyebrow">INSTALLATIONS</span><h2>Devices</h2></div><p>Activation origin, signed identities, hardware bindings, and latest server contact.</p></div>
+      <div class="device-list">
+      {% for device in devices %}
+        <article class="device-card">
+          <div class="device-title"><div><span class="badge {% if device.status == 'active' %}good{% else %}danger-text{% endif %}">{{ device.status|title }}</span><h3>{{ device.last_game_name or 'Unknown player' }}</h3></div><code>{{ device.device_id }}</code></div>
+          <div class="detail-grid">
+            <div><span>Minecraft UUID</span><code>{{ device.last_game_uuid }}</code></div>
+            <div><span>Activated</span><strong>{{ device.created_at|timestamp }}</strong></div>
+            <div><span>Activation IP</span><code>{{ device.activation_ip or 'Unavailable' }}</code></div>
+            <div><span>Last authenticated call</span><strong>{{ device.last_call_at|timestamp }}</strong></div>
+            <div><span>Last endpoint</span><code>{{ device.last_call_endpoint or 'None' }}</code></div>
+            <div><span>Last IP</span><code>{{ device.last_ip or 'Unavailable' }}</code></div>
+            <div><span>Last integrity check</span><strong>{{ device.last_integrity_at|timestamp }}</strong></div>
+            <div><span>Reported client digest</span><code>{{ device.last_integrity_sha256 or 'None' }}</code></div>
+            <div><span>Hardware binding</span><code>{{ device.hardware_core_hash }}</code></div>
+            <div><span>Monitor binding</span><code>{{ device.monitor_hash }}</code></div>
+            <div><span>Install key fingerprint</span><code>{{ device.install_key_fingerprint }}</code></div>
+            <div><span>Token key fingerprint</span><code>{{ device.token_key_fingerprint }}</code></div>
+            <div><span>Tamper flags</span><strong class="{% if device.tamper_count %}danger-text{% endif %}">{{ device.tamper_count }}</strong></div>
+          </div>
+        </article>
+      {% else %}<p class="empty">This license has not been activated.</p>{% endfor %}
+      </div>
+    </section>
+
+    <div class="split">
+      <section>
+        <div class="section-head"><div><span class="eyebrow">SECURITY</span><h2>Flags</h2></div></div>
+        <div class="event-list">
+        {% for row in security_rows %}<article class="event {{ row.severity }}"><div><strong>{{ row.event_type|replace('_', ' ')|title }}</strong><code>{{ row.device_id }}</code></div><p>{{ row.details }}</p><small>{{ row.occurred_at|timestamp }} · {{ row.client_ip }}</small></article>{% else %}<p class="empty">No security flags for this license.</p>{% endfor %}
+        </div>
+      </section>
+      <section>
+        <div class="section-head"><div><span class="eyebrow">AUDIT</span><h2>License history</h2></div></div>
+        <div class="event-list compact">
+        {% for row in audit_rows %}<article class="event"><div><strong>{{ row.event|replace('_', ' ')|title }}</strong></div><p>{{ row.details or row.subject }}</p><small>{{ row.occurred_at|timestamp }}</small></article>{% endfor %}
+        </div>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

@@ -3,10 +3,16 @@ package dev.c4lam.celeste.gui.model;
 import java.util.List;
 import java.util.Objects;
 
-public sealed interface GuiSetting permits GuiSetting.Action, GuiSetting.Toggle, GuiSetting.Slider, GuiSetting.Range, GuiSetting.Mode, GuiSetting.Keybind, GuiSetting.ColorPick, GuiSetting.ItemPick {
+public sealed interface GuiSetting permits GuiSetting.Action, GuiSetting.Toggle, GuiSetting.Slider, GuiSetting.Range, GuiSetting.Mode, GuiSetting.Keybind, GuiSetting.ColorPick, GuiSetting.ItemPick, GuiSetting.BlockList {
     String label();
 
     String description();
+
+    /** Persisted editor coordinates need not clutter the module's settings card. */
+    default boolean visibleInMenu() { return true; }
+
+    /** Conditional rows are retained by the module, then evaluated while drawing. */
+    default boolean hasVisibilityCondition() { return false; }
 
     /** A local UI command, not a configurable or serializable value. */
     final class Action implements GuiSetting {
@@ -76,6 +82,8 @@ public sealed interface GuiSetting permits GuiSetting.Action, GuiSetting.Toggle,
         private final double maximum;
         private final double step;
         private double value;
+        private boolean visibleInMenu = true;
+        private java.util.function.BooleanSupplier visibilityCondition;
 
         public Slider(String label, String description, double value, double minimum, double maximum, double step) {
             this.label = label;
@@ -98,6 +106,21 @@ public sealed interface GuiSetting permits GuiSetting.Action, GuiSetting.Toggle,
 
         public double minimum() {
             return minimum;
+        }
+
+        public Slider hidden() {
+            visibleInMenu = false;
+            return this;
+        }
+
+        public Slider visibleWhen(java.util.function.BooleanSupplier condition) {
+            visibilityCondition = Objects.requireNonNull(condition, "condition");
+            return this;
+        }
+
+        @Override public boolean hasVisibilityCondition() { return visibilityCondition != null; }
+        @Override public boolean visibleInMenu() {
+            return visibleInMenu && (visibilityCondition == null || visibilityCondition.getAsBoolean());
         }
 
         public double maximum() {
@@ -226,6 +249,7 @@ public sealed interface GuiSetting permits GuiSetting.Action, GuiSetting.Toggle,
         private final String description;
         private final List<String> values;
         private int index;
+        private java.util.function.BooleanSupplier visibilityCondition;
 
         public Mode(String label, String description, List<String> values, String selected) {
             if (values.isEmpty()) {
@@ -253,6 +277,16 @@ public sealed interface GuiSetting permits GuiSetting.Action, GuiSetting.Toggle,
 
         public List<String> values() {
             return values;
+        }
+
+        public Mode visibleWhen(java.util.function.BooleanSupplier condition) {
+            visibilityCondition = Objects.requireNonNull(condition, "condition");
+            return this;
+        }
+
+        @Override public boolean hasVisibilityCondition() { return visibilityCondition != null; }
+        @Override public boolean visibleInMenu() {
+            return visibilityCondition == null || visibilityCondition.getAsBoolean();
         }
 
         public void setValue(String value) {
@@ -389,6 +423,59 @@ public sealed interface GuiSetting permits GuiSetting.Action, GuiSetting.Toggle,
 
         private static int clamp(int channel) {
             return Math.max(0, Math.min(255, channel));
+        }
+    }
+
+    /** Hidden persisted multi-selection, edited by the texture-backed block picker. */
+    final class BlockList implements GuiSetting {
+        public static final int MAX_BLOCKS = 256;
+        private final String label;
+        private final String description;
+        private java.util.Set<String> ids = java.util.Set.of();
+
+        public BlockList(String label, String description, java.util.Collection<String> defaults) {
+            this.label = label;
+            this.description = description;
+            setIds(defaults);
+        }
+        @Override public String label() { return label; }
+        @Override public String description() { return description; }
+        @Override public boolean visibleInMenu() { return false; }
+        public java.util.Set<String> ids() { return ids; }
+        public boolean contains(String id) {
+            String normalized = normalize(id);
+            return normalized != null && ids.contains(normalized);
+        }
+        public boolean toggle(String id) {
+            String normalized = normalize(id);
+            if (normalized == null) return false;
+            java.util.Set<String> next = new java.util.TreeSet<>(ids);
+            if (!next.remove(normalized)) {
+                if (next.size() >= MAX_BLOCKS) return false;
+                next.add(normalized);
+            }
+            ids = java.util.Collections.unmodifiableSet(next);
+            return true;
+        }
+        public void setIds(java.util.Collection<String> values) {
+            java.util.Set<String> next = new java.util.TreeSet<>();
+            if (values != null) for (String id : values) {
+                String normalized = normalize(id);
+                if (normalized != null) next.add(normalized);
+                if (next.size() >= MAX_BLOCKS) break;
+            }
+            ids = java.util.Collections.unmodifiableSet(next);
+        }
+        public String serialized() { return String.join(",", ids); }
+        public void setSerialized(String value) {
+            if (value == null || value.length() > 65536) return;
+            setIds(java.util.Arrays.asList(value.split(",", MAX_BLOCKS + 1)));
+        }
+        private static String normalize(String id) {
+            if (id == null) return null;
+            String value = id.strip().toLowerCase(java.util.Locale.ROOT);
+            if (value.indexOf(':') < 0) value = "minecraft:" + value;
+            return value.length() <= 256 && value.matches("[a-z0-9_.-]+:[a-z0-9_./-]+") ? value : null;
         }
     }
 

@@ -42,6 +42,7 @@ public final class GameplayFoundation {
     /** Called after the vanilla client tick for lease observation/cleanup. */
     public static void afterTick(MinecraftClient client) {
         SilentSlotManager.getInstance().endTick(client);
+        RotationManager.getInstance().endTick();
     }
 
     public static void releaseOwner(Object owner) {

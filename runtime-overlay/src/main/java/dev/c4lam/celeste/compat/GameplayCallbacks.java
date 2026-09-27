@@ -28,14 +28,25 @@ public final class GameplayCallbacks {
     public static void destroy(EntitiesDestroyS2CPacket packet) {
         for (int id : packet.getEntityIds()) AuraServerState.observeEntity(MinecraftClient.getInstance().world, id, false);
     }
+    public static void entityStatus(EntityStatusS2CPacket packet) {
+        TotemPopTracker.observe(packet);
+    }
+    public static void useItem(MinecraftClient client) {
+        MinecraftAccess.useItem(client);
+    }
+    public static void blockBreaking(MinecraftClient client, boolean breaking) {
+        MinecraftAccess.handleBlockBreaking(client, breaking);
+    }
     public static boolean attack(MinecraftClient client) {
-        SwordAttackCoordinator.AttackScope scope = SwordAttackCoordinator.beginVanillaAttack(client);
-        if (!scope.proceed()) return false;
-        try {
-            SwordAttackCoordinator.prepareVanillaClick(client, scope);
-            if (scope.replaceVanillaClick()) return SwordAttackCoordinator.performSwappedMelee(client, scope);
-            return MinecraftAccess.attack(client);
-        } finally { SwordAttackCoordinator.finishVanillaAttack(client, scope); }
+        try (RealActionTarget.Scope target = RealActionTarget.begin(client)) {
+            SwordAttackCoordinator.AttackScope scope = SwordAttackCoordinator.beginVanillaAttack(client);
+            if (!scope.proceed()) return false;
+            try {
+                SwordAttackCoordinator.prepareVanillaClick(client, scope);
+                if (scope.replaceVanillaClick()) return SwordAttackCoordinator.performSwappedMelee(client, scope);
+                return MinecraftAccess.attack(client);
+            } finally { SwordAttackCoordinator.finishVanillaAttack(client, scope); }
+        }
     }
     public static ItemStack mainHand(ItemStack vanilla, Hand hand) {
         return hand != Hand.MAIN_HAND ? vanilla : SwordAttackCoordinator.mainHandForVanillaClick(vanilla);

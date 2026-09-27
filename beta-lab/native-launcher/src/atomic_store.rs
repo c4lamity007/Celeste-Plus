@@ -1,6 +1,8 @@
 use anyhow::{Context, Result, anyhow};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -36,6 +38,10 @@ pub(crate) fn atomic_write(path: &Path, value: &[u8]) -> Result<()> {
     drop(file);
     result.context("Could not persist temporary output")?;
     replace(&pending.0, path).context("Could not replace output; previous file was retained")?;
+    #[cfg(unix)]
+    File::open(parent)
+        .and_then(|directory| directory.sync_all())
+        .context("Output was replaced but its directory could not be durably synchronized")?;
     Ok(())
 }
 
@@ -53,11 +59,11 @@ fn create_pending(parent: &Path, name: &std::ffi::OsStr) -> Result<(PendingFile,
             std::process::id()
         ));
         let pending = parent.join(pending_name);
-        match OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&pending)
-        {
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        options.mode(0o600);
+        match options.open(&pending) {
             Ok(file) => return Ok((PendingFile(pending), file)),
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
             Err(error) => return Err(error).context("Could not create temporary output"),
@@ -174,6 +180,25 @@ mod tests {
             b"replacement protected credential"
         );
         directory.assert_only_target(&target);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn portable_atomic_credentials_never_create_group_or_world_readable_files() {
+        use std::os::unix::fs::PermissionsExt;
+        let directory = TestDirectory::new();
+        let target = directory.0.join("device.bin");
+        for data in [
+            b"original encrypted fixture".as_slice(),
+            b"replacement encrypted fixture",
+        ] {
+            atomic_write(&target, data).unwrap();
+            assert_eq!(
+                fs::metadata(&target).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+            directory.assert_only_target(&target);
+        }
     }
 
     #[cfg(windows)]

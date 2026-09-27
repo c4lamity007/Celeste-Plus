@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Flags</title>
+  <link rel="stylesheet" href="/assets/admin.css">
+</head>
+<body class="admin-page">
+  <header class="topbar">
+    <div class="page-title"><span class="brand-dot" aria-hidden="true"></span><div><span class="eyebrow">CELESTE AUTH</span><h1>Flags</h1></div></div>
+    <nav class="admin-nav" aria-label="Admin sections">
+      <a href="/admin">Licenses</a>
+      <a href="/admin/users">Users</a>
+      <a class="active" href="/admin/flags">Flags</a>
+      <a href="/admin/configs">Cloud Configs</a>
+    </nav>
+    <form method="post" action="/admin/logout"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="quiet">Log out</button></form>
+  </header>
+  <main>
+    <div class="stats three">
+      <article><span>Flagged users</span><strong>{{ flagged_users|length }}</strong></article>
+      <article><span>User flags</span><strong>{{ counts.user_events or 0 }}</strong></article>
+      <article><span>Website flags</span><strong>{{ counts.website_events or 0 }}</strong></article>
+    </div>
+
+    <section>
+      <div class="section-head"><div><span class="eyebrow">AFFECTED USERS</span><h2>Flagged users</h2></div><p>Users are grouped by installation and ordered by their newest flag.</p></div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>User</th><th>License</th><th>Severity</th><th>Flags</th><th>Last flag</th></tr></thead>
+        <tbody>
+        {% for user in flagged_users %}
+          <tr>
+            <td><strong>{{ user.game_name }}</strong><small>{{ user.game_uuid or user.device_id or 'Installation unavailable' }}</small></td>
+            <td><a class="uid" href="/admin/licenses/{{ user.license_uid }}">#{{ user.license_uid }}</a><small>{{ user.license_label or 'Unlabeled license' }}</small></td>
+            <td>{% if user.severity_rank >= 4 %}<span class="badge danger-text">Critical</span>{% elif user.severity_rank >= 3 %}<span class="badge danger-text">High</span>{% elif user.severity_rank >= 2 %}<span class="badge warn">Medium</span>{% else %}<span class="badge">Low</span>{% endif %}</td>
+            <td>{{ user.flag_count }}</td>
+            <td>{{ user.last_flag_at|timestamp }}</td>
+          </tr>
+        {% else %}<tr><td colspan="5" class="empty">No users have been flagged.</td></tr>{% endfor %}
+        </tbody>
+      </table></div>
+    </section>
+
+    <div class="split flags-split">
+      <section>
+        <div class="section-head"><div><span class="eyebrow">CLIENT</span><h2>User flags</h2></div></div>
+        <div class="event-list">
+        {% for row in user_flags %}
+          <article class="event {{ row.severity }}"><div><strong>{{ row.event_type|replace('_', ' ')|title }}</strong><a href="/admin/licenses/{{ row.license_uid }}">{{ row.game_name }} · UID {{ row.license_uid }}</a></div><p>{{ row.details }}</p><small>{{ row.occurred_at|timestamp }} · {{ row.client_ip }}</small></article>
+        {% else %}<p class="empty">No user flags.</p>{% endfor %}
+        </div>
+      </section>
+      <section>
+        <div class="section-head"><div><span class="eyebrow">ADMIN WEBSITE</span><h2>Website flags</h2></div></div>
+        <div class="event-list">
+        {% for row in website_flags %}
+          <article class="event {{ row.severity }}"><div><strong>{{ row.event_type|replace('_', ' ')|title }}</strong><span class="badge {% if row.severity in ('high', 'critical') %}danger-text{% elif row.severity == 'medium' %}warn{% endif %}">{{ row.severity|title }}</span></div><p>{{ row.details or 'A protected website action was rejected.' }}</p><small>{{ row.occurred_at|timestamp }} · {{ row.client_ip }}</small></article>
+        {% else %}<p class="empty">No website flags.</p>{% endfor %}
+        </div>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

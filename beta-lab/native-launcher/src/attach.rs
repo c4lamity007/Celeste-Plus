@@ -9,17 +9,24 @@ use serde::Deserialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
+#[cfg(windows)]
 use std::ffi::OsString;
 use std::fs::{self, OpenOptions};
 use std::io::{Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, TcpStream};
+#[cfg(windows)]
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
+#[cfg(windows)]
 use std::os::windows::fs::OpenOptionsExt;
+#[cfg(windows)]
 use std::os::windows::process::CommandExt;
-use std::path::{Component, Path, PathBuf, Prefix};
+#[cfg(windows)]
+use std::path::{Component, Prefix};
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
+#[cfg(windows)]
 use winapi::um::winnt::FILE_SHARE_READ;
 
 #[derive(Clone)]
@@ -91,15 +98,11 @@ fn resident_key(context: &AttachContext) -> String {
 }
 
 fn validate_endpoint(context: &AttachContext, endpoint: &ResidentEndpoint) -> Result<Vec<u8>> {
-    let started = context
-        .target
-        .started
-        .checked_sub(116_444_736_000_000_000)
-        .ok_or_else(|| anyhow!("Invalid selected process creation time"))?
-        / 10_000;
+    let started = context.target.started;
     if endpoint.schema != 1
         || endpoint.port == 0
         || endpoint.pid != u64::from(context.target.pid)
+        || started == 0
         || endpoint.started != started
         || unhex(&endpoint.digest)? != context.sha256
     {
@@ -307,12 +310,7 @@ pub fn verify_inspection(context: &AttachContext, report: &Report) -> Result<()>
             "Celeste+ requires Minecraft 1.21.11 without an already loaded Celeste client; the selected instance was not changed"
         );
     }
-    let started_ms = context
-        .target
-        .started
-        .checked_sub(116_444_736_000_000_000)
-        .ok_or_else(|| anyhow!("Invalid Windows process creation time"))?
-        / 10_000;
+    let started_ms = context.target.started;
     if report.pid != context.target.pid.to_string() || report.started_at != started_ms.to_string() {
         bail!("Minecraft inspection identity differs from the explicitly selected process");
     }
@@ -337,6 +335,7 @@ fn read_output(mut input: impl Read) -> std::io::Result<Vec<u8>> {
 // Rust canonical Windows paths use the verbatim namespace. Java 21's -jar
 // loader cannot resolve its Main-Class through that spelling, although NIO can.
 // Keep canonical paths for trust checks; convert only at the helper boundary.
+#[cfg(windows)]
 fn java_path_spelling(path: &Path) -> Result<PathBuf> {
     if !path.is_absolute() {
         bail!("Java helper path must be absolute");
@@ -380,6 +379,15 @@ fn java_path_spelling(path: &Path) -> Result<PathBuf> {
     Ok(PathBuf::from(OsString::from_wide(&ordinary)))
 }
 
+#[cfg(unix)]
+fn java_path_spelling(path: &Path) -> Result<PathBuf> {
+    use std::os::unix::ffi::OsStrExt;
+    if !path.is_absolute() || path.as_os_str().as_bytes().contains(&0) {
+        bail!("Java helper path must be an absolute, valid local path");
+    }
+    Ok(path.to_path_buf())
+}
+
 fn helper_command(context: &AttachContext) -> Result<Command> {
     let agent = java_path_spelling(&context.agent)?;
     let original = fs::canonicalize(&context.agent).context("Cannot resolve the verified agent")?;
@@ -387,12 +395,10 @@ fn helper_command(context: &AttachContext) -> Result<Command> {
     {
         bail!("Java helper path resolves to a different agent");
     }
-    let started_ms = context
-        .target
-        .started
-        .checked_sub(116_444_736_000_000_000)
-        .ok_or_else(|| anyhow!("Invalid selected process creation time"))?
-        / 10_000;
+    let started_ms = context.target.started;
+    if started_ms == 0 {
+        bail!("Invalid selected process creation time");
+    }
     let mut command = Command::new(&context.java);
     command
         .args(["--add-modules", "jdk.attach", "-jar"])
@@ -402,12 +408,21 @@ fn helper_command(context: &AttachContext) -> Result<Command> {
         .arg("--agent")
         .arg(&agent)
         .arg("--started-at")
-        .arg(started_ms.to_string())
-        .creation_flags(0x08000000); // CREATE_NO_WINDOW
+        .arg(started_ms.to_string());
+    #[cfg(windows)]
+    command.creation_flags(0x08000000); // CREATE_NO_WINDOW
     Ok(command)
 }
 
 pub fn command(context: &AttachContext, request: Value) -> Result<Report> {
+    let environment_checked = matches!(
+        request.get("action").and_then(Value::as_str),
+        Some("start" | "inspect")
+    );
+    if environment_checked {
+        crate::environment_guard::require_allowed()?;
+        crate::native_manifest::require_current("celeste_plus")?;
+    }
     recheck_process(&context.target)?;
     let mut resident = RESIDENT
         .get_or_init(|| Mutex::new(HashMap::new()))
@@ -423,11 +438,19 @@ pub fn command(context: &AttachContext, request: Value) -> Result<Report> {
         request_bytes.fill(0);
         return parse_report(context, &request, &response?);
     }
-    // Prevent concurrent replacement while the helper JVM reads this verified A.
-    let mut lock = OpenOptions::new()
-        .read(true)
-        .share_mode(FILE_SHARE_READ)
-        .open(&context.agent)?;
+    // A resident status/stop request remains available for cleanup. Starting
+    // an Attach helper can load an agent, so every fresh attach is guarded.
+    if !environment_checked {
+        crate::environment_guard::require_allowed()?;
+        crate::native_manifest::require_current("celeste_plus")?;
+    }
+    // Windows denies concurrent replacement; Unix uses the private support directory.
+    // Always recheck the signed bytes immediately before the helper reads them.
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(windows)]
+    options.share_mode(FILE_SHARE_READ);
+    let mut lock = options.open(&context.agent)?;
     if Sha256::digest(bounded_read(&mut lock)?).as_slice() != context.sha256 {
         bail!(
             "Local bootstrap agent changed after signature verification; it will not be executed"
@@ -538,6 +561,21 @@ pub fn command(context: &AttachContext, request: Value) -> Result<Report> {
 mod tests {
     use super::*;
     #[test]
+    #[cfg(unix)]
+    fn unix_java_paths_preserve_spaces_unicode_and_reject_relative_or_nul() {
+        for value in [
+            "/home/test user/ç”¨æˆ·/agent.jar",
+            "/Users/person/Library/Application Support/Celeste/agent.jar",
+        ] {
+            assert_eq!(
+                java_path_spelling(Path::new(value)).unwrap(),
+                PathBuf::from(value)
+            );
+        }
+        assert!(java_path_spelling(Path::new("relative/agent.jar")).is_err());
+        assert!(java_path_spelling(Path::new("/bad\0agent.jar")).is_err());
+    }
+    #[test]
     fn resident_frames_authenticate_key_identity_direction_and_bounds() {
         let cipher = Aes256Gcm::new_from_slice(&[7; 32]).unwrap();
         let mut frame = Vec::new();
@@ -591,7 +629,6 @@ mod tests {
                 .args(["-Xverify:all", "-cp"])
                 .arg(cp)
                 .args(["dev.celestebeta.attach.ResidentControlCheck", "bridge"])
-                .creation_flags(0x08000000)
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
@@ -609,7 +646,7 @@ mod tests {
             target: MinecraftProcess {
                 pid: child.0.id(),
                 title: "owned non-Minecraft fixture".into(),
-                started: 116_444_736_000_000_000 + endpoint.started * 10_000,
+                started: endpoint.started,
             },
             java: PathBuf::new(),
             agent: PathBuf::new(),
@@ -645,6 +682,7 @@ mod tests {
         assert!(child.0.wait().unwrap().success());
     }
     #[test]
+    #[cfg(windows)]
     fn java_paths_preserve_disk_unc_spaces_and_unicode_without_loss() {
         for (input, expected) in [
             (
@@ -689,6 +727,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(windows)]
     fn java_paths_reject_relative_device_and_ambiguous_names() {
         for path in [
             r"relative.jar",
@@ -723,7 +762,7 @@ mod tests {
             target: MinecraftProcess {
                 pid: 0,
                 title: "no target".into(),
-                started: 116_444_736_000_010_000,
+                started: 1,
             },
             java,
             agent,
@@ -776,7 +815,7 @@ mod tests {
             target: MinecraftProcess {
                 pid: 7654,
                 title: "Minecraft fixture".into(),
-                started: 116_444_736_000_000_000 + 1_800_000_000_123 * 10_000,
+                started: 1_800_000_000_123,
             },
             java: PathBuf::new(),
             agent: PathBuf::new(),

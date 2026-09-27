@@ -8,23 +8,32 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.BiPredicate;
 import org.objectweb.asm.ClassReader;
+import org.objectweb.asm.Opcodes;
+import org.objectweb.asm.tree.AbstractInsnNode;
 import org.objectweb.asm.tree.ClassNode;
 import org.objectweb.asm.tree.MethodInsnNode;
+import org.objectweb.asm.tree.MethodNode;
 
 /** Offline composition only. Installation, version verification and rollback belong to the host. */
 public final class CombinedHooksTransformer {
     private static final List<Entry> ENTRIES = List.of(
         new Entry("client/MinecraftClient", "310", List.of(Family.RELOAD, Family.FAKE_GAMBLE, Family.GAMEPLAY)),
-        new Entry("client/network/ClientPlayerInteractionManager", "636", List.of(Family.INTERACTION, Family.ROTATION, Family.FAKE_GAMBLE, Family.GAMEPLAY)),
+        new Entry("client/network/ClientPlayerInteractionManager", "636", List.of(Family.INTERACTION, Family.ROTATION, Family.GAMEPLAY, Family.FAKE_GAMBLE)),
         new Entry("client/network/ClientPlayNetworkHandler", "634", List.of(Family.FAKE_GAMBLE, Family.GAMEPLAY)),
         new Entry("entity/LivingEntity", "1309", List.of(Family.VISUAL, Family.ROTATION)),
         new Entry("client/render/GameRenderer", "757", List.of(Family.VISUAL)),
         new Entry("client/gui/hud/InGameHud", "329", List.of(Family.VISUAL)),
         new Entry("client/gui/screen/ChatScreen", "408", List.of(Family.VISUAL)),
         new Entry("client/render/entity/LivingEntityRenderer", "922", List.of(Family.VISUAL)),
+        new Entry("client/render/entity/ItemEntityRenderer", "916", List.of(Family.VISUAL)),
+        new Entry("client/render/item/HeldItemRenderer", "759", List.of(Family.VISUAL)),
+        new Entry("client/render/WorldRenderer", "761", List.of(Family.ROTATION)),
         new Entry("client/render/SkyRendering", "9975", List.of(Family.VISUAL)),
-        new Entry("client/network/ClientPlayerEntity", "746", List.of(Family.ROTATION)),
+        new Entry("client/network/ClientPlayerEntity", "746", List.of(Family.ROTATION, Family.FAKE_GAMBLE)),
+        new Entry("client/world/ClientWorld", "638", List.of(Family.FAKE_GAMBLE)),
+        new Entry("client/network/ClientCommonNetworkHandler", "8673", List.of(Family.FAKE_GAMBLE)),
         new Entry("entity/Entity", "1297", List.of(Family.ROTATION)),
         new Entry("client/input/KeyboardInput", "743", List.of(Family.ROTATION)),
         new Entry("entity/player/PlayerInventory", "1661", List.of(Family.ROTATION)),
@@ -66,14 +75,43 @@ public final class CombinedHooksTransformer {
         if (!baseline.name.equals(owner)) throw reject("class name and bytes differ");
         rejectExistingHooks(baseline);
         List<String> schema = schema(baseline);
-        FabricCancellationCompatibility.Review review = FabricCancellationCompatibility.inspect(baseline);
+        // Preparation is offline and side-effect free. Discover the methods the
+        // families actually edit, rather than maintaining a second target list.
+        prepared = compose(owner, prepared, entry, schema, (method, returned) -> false);
+        Set<String> edited = new LinkedHashSet<>();
+        for (MethodNode method : read(prepared).methods) {
+            for (var instruction : method.instructions) {
+                if (instruction instanceof MethodInsnNode call && BRIDGES.contains(call.owner)) {
+                    edited.add(method.name + method.desc);
+                    break;
+                }
+            }
+        }
+        var review = FabricCancellationCompatibility.inspect(baseline, edited);
+        if (!review.cancellations().isEmpty()) {
+            // Ordinary Mixin injection points were selected before its callback
+            // guards added early exits. Replay only when classification matters.
+            prepared = compose(owner, original.clone(), entry, schema, (method, returned) -> {
+                var cancellation = review.cancellations().get(method.name + method.desc);
+                if (cancellation == null) return false;
+                int ordinal = 0;
+                for (var instruction : method.instructions) {
+                    if (instruction.getOpcode() < Opcodes.IRETURN || instruction.getOpcode() > Opcodes.RETURN) continue;
+                    if (instruction == returned) return cancellation.returnOrdinals().contains(ordinal);
+                    ordinal++;
+                }
+                throw reject("return anchor disappeared during preparation");
+            });
+        }
+        return prepared;
+    }
+
+    private static byte[] compose(String owner, byte[] prepared, Entry entry, List<String> schema,
+                                   BiPredicate<MethodNode, AbstractInsnNode> cancellationReturn) {
         for (Family family : entry.families) {
-            prepared = family.prepare(owner, prepared);
-            if (family == Family.INTERACTION) prepared = FabricCancellationCompatibility.restoreCancellationTiming(prepared, review);
+            prepared = family.prepare(owner, prepared, cancellationReturn);
             if (!schema.equals(schema(read(prepared)))) throw reject("schema changed after " + family.label);
         }
-        ClassNode result = read(prepared);
-        FabricCancellationCompatibility.rejectUnreviewedTargetGuards(baseline, result, review, BRIDGES);
         return prepared;
     }
 
@@ -118,15 +156,15 @@ public final class CombinedHooksTransformer {
         ATMOSPHERE("atmosphere"), FAKE_GAMBLE("fake-gamble"), GAMEPLAY("gameplay");
         private final String label;
         Family(String label) { this.label = label; }
-        private byte[] prepare(String owner, byte[] bytes) {
+        private byte[] prepare(String owner, byte[] bytes, BiPredicate<MethodNode, AbstractInsnNode> cancellationReturn) {
             return switch (this) {
                 case RELOAD -> ResourceReloadTransformer.prepare(owner, bytes);
-                case VISUAL -> VisualHooksTransformer.prepare(owner, bytes);
-                case INTERACTION -> InteractionHooksTransformer.prepare(owner, bytes);
-                case ROTATION -> RotationHooksTransformer.prepare(owner, bytes);
+                case VISUAL -> VisualHooksTransformer.prepare(owner, bytes, cancellationReturn);
+                case INTERACTION -> InteractionHooksTransformer.prepare(owner, bytes, cancellationReturn);
+                case ROTATION -> RotationHooksTransformer.prepare(owner, bytes, cancellationReturn);
                 case ATMOSPHERE -> AtmosphereHooksTransformer.prepare(owner, bytes);
-                case FAKE_GAMBLE -> FakeGambleHooksTransformer.prepare(owner, bytes);
-                case GAMEPLAY -> GameplayCallbacksTransformer.prepare(owner, bytes);
+                case FAKE_GAMBLE -> FakeGambleHooksTransformer.prepare(owner, bytes, cancellationReturn);
+                case GAMEPLAY -> GameplayCallbacksTransformer.prepare(owner, bytes, cancellationReturn);
             };
         }
     }

@@ -21,6 +21,22 @@ public abstract class SwordExpansionMinecraftClientMixin {
         return dev.c4lam.celeste.compat.GameplayCallbacks.attack(client);
     }
 
+    @Redirect(
+        method = "handleInputEvents",
+        at = @At(value = "INVOKE", target = "Lnet/minecraft/client/MinecraftClient;doItemUse()V")
+    )
+    private void celeste$realActionUse(MinecraftClient client) {
+        dev.c4lam.celeste.compat.GameplayCallbacks.useItem(client);
+    }
+
+    @Redirect(
+        method = "handleInputEvents",
+        at = @At(value = "INVOKE", target = "Lnet/minecraft/client/MinecraftClient;handleBlockBreaking(Z)V")
+    )
+    private void celeste$realActionBreaking(MinecraftClient client, boolean breaking) {
+        dev.c4lam.celeste.compat.GameplayCallbacks.blockBreaking(client, breaking);
+    }
+
     /**
      * Vanilla {@code doAttack} reads MAINHAND from {@code getStackInHand}. Use
      * the stack that was just swapped in so the click matches a sword swap.

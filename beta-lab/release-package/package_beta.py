@@ -187,10 +187,10 @@ def prepare(args: argparse.Namespace) -> None:
     if args.validation_only:
         require(not args.base_url and not args.server_key, "Validation mode cannot accept live origin/key")
     else:
-        from urllib.parse import urlparse
-        parsed = urlparse(args.base_url)
-        require(parsed.scheme == "https" and bool(parsed.hostname) and not parsed.username and not parsed.password
-                and not parsed.query and not parsed.fragment, "Auth origin must be public HTTPS without credentials/query/fragment")
+        production = "https://qb0f90cf11f4d1d52.fly.dev"
+        require(args.base_url in (production, production + "/"),
+                "Production API origin must be " + production)
+        args.base_url = production
 
     nested = [entry["file"] for entry in metadata.get("jars", [])]
     require(len(nested) == len(set(nested)), "Duplicate declared nested dependency")

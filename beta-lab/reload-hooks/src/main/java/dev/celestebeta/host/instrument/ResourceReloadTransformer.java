@@ -20,6 +20,11 @@ import org.objectweb.asm.tree.MethodInsnNode;
 import org.objectweb.asm.tree.MethodNode;
 import org.objectweb.asm.tree.TryCatchBlockNode;
 import org.objectweb.asm.tree.VarInsnNode;
+import org.objectweb.asm.tree.analysis.Analyzer;
+import org.objectweb.asm.tree.analysis.AnalyzerException;
+import org.objectweb.asm.tree.analysis.BasicInterpreter;
+import org.objectweb.asm.tree.analysis.BasicValue;
+import org.objectweb.asm.tree.analysis.Frame;
 
 /**
  * Offline, fail-closed preparation of the two Minecraft 1.21.11 reload hooks.
@@ -72,9 +77,10 @@ public final class ResourceReloadTransformer {
         // Complete all preflight checks before modifying either method's tree.
         VarInsnNode inputStore = findInputStore(inputs, layout);
         List<AbstractInsnNode> returns = validateResult(result);
+        List<int[]> returnStacks = returnStacks(result, returns, layout.owner());
 
         augmentInputs(inputs, inputStore);
-        augmentResult(result, returns, layout);
+        augmentResult(result, returns, returnStacks, layout);
 
         // A reader-backed writer copies every non-target method's original bytes.
         // Only the two prepared MethodNodes are emitted through visitors. No
@@ -232,7 +238,23 @@ public final class ResourceReloadTransformer {
         method.maxStack = Math.max(method.maxStack, 4);
     }
 
-    private static void augmentResult(MethodNode method, List<AbstractInsnNode> returns, Layout layout) {
+    /** RETURN discards the entire operand stack; a jump to the shared epilogue must do the same. */
+    private static List<int[]> returnStacks(MethodNode method, List<AbstractInsnNode> returns, String owner) {
+        Frame<BasicValue>[] frames;
+        try { frames = new Analyzer<>(new BasicInterpreter()).analyze(owner, method); }
+        catch (AnalyzerException failure) { throw mismatch("unverifiable result callback stack: " + failure.getMessage()); }
+        List<int[]> stacks = new ArrayList<>();
+        for (AbstractInsnNode returned : returns) {
+            Frame<BasicValue> frame = frames[method.instructions.indexOf(returned)];
+            if (frame == null) throw mismatch("unreachable result callback return");
+            int[] widths = new int[frame.getStackSize()];
+            for (int i = 0; i < widths.length; i++) widths[i] = frame.getStack(i).getSize();
+            stacks.add(widths);
+        }
+        return stacks;
+    }
+
+    private static void augmentResult(MethodNode method, List<AbstractInsnNode> returns, List<int[]> returnStacks, Layout layout) {
         LabelNode originalStart = new LabelNode();
         LabelNode normalExit = new LabelNode();
         LabelNode failedExit = new LabelNode();
@@ -246,7 +268,16 @@ public final class ResourceReloadTransformer {
 
         // All original normal exits (and the handled HEAD path) meet outside the
         // protected callback range. Observer failures cannot re-enter the observer.
-        for (AbstractInsnNode originalReturn : returns) {
+        for (int i = 0; i < returns.size(); i++) {
+            AbstractInsnNode originalReturn = returns.get(i);
+            // An INVOKE-site Mixin cancellation can leave evaluated receiver or
+            // arguments below its void RETURN, including category-two values.
+            int[] widths = returnStacks.get(i);
+            InsnList discard = new InsnList();
+            for (int value = widths.length - 1; value >= 0; value--) {
+                discard.add(new InsnNode(widths[value] == 2 ? Opcodes.POP2 : Opcodes.POP));
+            }
+            method.instructions.insertBefore(originalReturn, discard);
             method.instructions.set(originalReturn, new JumpInsnNode(Opcodes.GOTO, normalExit));
         }
         method.instructions.add(normalExit);

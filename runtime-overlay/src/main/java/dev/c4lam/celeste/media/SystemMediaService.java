@@ -8,6 +8,7 @@ import java.time.Instant;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.Comparator;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
@@ -41,6 +42,8 @@ public final class SystemMediaService implements AutoCloseable {
     private final Object lifecycleLock = new Object();
     private final Thread shutdownHook;
     private final NativeMediaLyrics nativeLyrics = new NativeMediaLyrics();
+    private final LrclibLyricsSource onlineLyrics = new LrclibLyricsSource();
+    private final EnumSet<LyricsConsumer> lyricsConsumers = EnumSet.noneOf(LyricsConsumer.class);
 
     private volatile boolean initialized;
     private volatile boolean closed;
@@ -78,6 +81,26 @@ public final class SystemMediaService implements AutoCloseable {
     public MediaPlaybackSnapshot snapshot() {
         initialize();
         return snapshot.get();
+    }
+
+    public void setSkyLyricsEnabled(boolean enabled) {
+        setLyricsConsumer(LyricsConsumer.SKY_LYRICS, enabled);
+    }
+
+    /** Dynamic Island is an independent lyric consumer; disabling Sky Lyrics must not stop it. */
+    public void setMediaHudLyricsEnabled(boolean enabled) {
+        setLyricsConsumer(LyricsConsumer.MEDIA_HUD, enabled);
+    }
+
+    private void setLyricsConsumer(LyricsConsumer consumer, boolean enabled) {
+        synchronized (lifecycleLock) {
+            if (closed) return;
+            boolean wasNeeded = !lyricsConsumers.isEmpty();
+            if (enabled) lyricsConsumers.add(consumer);
+            else lyricsConsumers.remove(consumer);
+            boolean needed = !lyricsConsumers.isEmpty();
+            if (wasNeeded != needed) onlineLyrics.setEnabled(needed);
+        }
     }
 
     public CompletableFuture<MediaPlaybackSnapshot> refresh() {
@@ -126,6 +149,7 @@ public final class SystemMediaService implements AutoCloseable {
                 activeSession.set(null);
                 MediaPlaybackSnapshot empty = MediaPlaybackSnapshot.empty("Nothing is playing");
                 nativeLyrics.reset();
+                onlineLyrics.reset();
                 return publish(empty);
             }
             activeSession.set(session);
@@ -146,6 +170,7 @@ public final class SystemMediaService implements AutoCloseable {
             activeSession.set(null);
             MediaPlaybackSnapshot failed = MediaPlaybackSnapshot.empty("Could not read Windows media");
             nativeLyrics.reset();
+            onlineLyrics.reset();
             return publish(failed);
         }
     }
@@ -154,6 +179,7 @@ public final class SystemMediaService implements AutoCloseable {
         synchronized (lifecycleLock) {
             if (closed) {
                 nativeLyrics.reset();
+                onlineLyrics.reset();
                 activeSession.set(null);
                 return snapshot.get();
             }
@@ -224,7 +250,7 @@ public final class SystemMediaService implements AutoCloseable {
             durationMs,
             "",
             Instant.now(),
-            nativeLyrics.update(owner, media)
+            onlineLyrics.update(owner, title, artist, durationMs, nativeLyrics.update(owner, media))
         );
     }
 
@@ -243,6 +269,8 @@ public final class SystemMediaService implements AutoCloseable {
             closed = true;
             snapshot.set(MediaPlaybackSnapshot.empty("Media support closed"));
             nativeLyrics.reset();
+            onlineLyrics.reset();
+            lyricsConsumers.clear();
             activeSession.set(null);
             closingBridge = bridge;
             bridge = null;
@@ -252,6 +280,7 @@ public final class SystemMediaService implements AutoCloseable {
         } catch (IllegalStateException shuttingDown) {
             // The JVM already owns and is running its shutdown hooks.
         }
+        onlineLyrics.close();
         executor.shutdownNow();
         boolean executorStopped = false;
         try {
@@ -268,7 +297,7 @@ public final class SystemMediaService implements AutoCloseable {
         MediaArtwork.getInstance().close();
     }
 
-    /** Completes only after the native worker, artwork decoder and queued render work have drained. */
+    /** Completes only after the native/lyrics workers, artwork decoder and queued render work have drained. */
     public CompletionStage<Void> stopped() {
         synchronized (lifecycleLock) {
             if (!closed) return CompletableFuture.failedFuture(new IllegalStateException("Media support is not closed"));
@@ -284,7 +313,7 @@ public final class SystemMediaService implements AutoCloseable {
                     }
                     releaseNativeResources();
                 });
-                stopCompletion = CompletableFuture.allOf(workerStopped,
+                stopCompletion = CompletableFuture.allOf(workerStopped, onlineLyrics.stopped().toCompletableFuture(),
                     MediaArtwork.getInstance().stopped().toCompletableFuture());
             }
             return stopCompletion.minimalCompletionStage();
@@ -313,4 +342,6 @@ public final class SystemMediaService implements AutoCloseable {
     }
 
     private enum Command { STATE, TOGGLE, NEXT, PREVIOUS, CYCLE }
+
+    private enum LyricsConsumer { SKY_LYRICS, MEDIA_HUD }
 }

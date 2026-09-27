@@ -10,4 +10,5 @@ gradlew.bat text eol=crlf
 *.jar binary
 *.zip binary
 runtime-overlay/** text eol=lf
+runtime-overlay/**/*.png binary
 core.lock.json text eol=lf

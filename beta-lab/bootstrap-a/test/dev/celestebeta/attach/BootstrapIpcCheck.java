@@ -50,7 +50,7 @@ public final class BootstrapIpcCheck {
         assembleAgent(agent); assembleTarget(targetJar);
         String java = Path.of(System.getProperty("java.home"), "bin", System.getProperty("os.name").startsWith("Windows") ? "java.exe" : "java").toString();
         String nonce = UUID.randomUUID().toString().replace("-", "");
-        Process target = new ProcessBuilder(java, "-jar", targetJar.toString(), nonce).redirectError(directory.resolve("ipc-target.stderr").toFile()).start();
+        Process target = new ProcessBuilder(java, "-Djava.net.preferIPv6Addresses=true", "-jar", targetJar.toString(), nonce).redirectError(directory.resolve("ipc-target.stderr").toFile()).start();
         long selectedStarted = target.info().startInstant().orElseThrow().toEpochMilli();
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(target.getInputStream(), StandardCharsets.UTF_8))) {
             check(readLine(reader).equals("READY:" + nonce + ":" + target.pid()), "target PID is bound to newly-created child and fresh nonce");
@@ -124,7 +124,8 @@ public final class BootstrapIpcCheck {
     }
     private static JsonObject request(String java, Path agent, Process target, long selectedStarted, String request) throws Exception {
         if (!target.isAlive()) throw new IOException("fixture target exited");
-        Process cli = new ProcessBuilder(java, "--add-modules", "jdk.attach", "-jar", agent.toString(),
+        // Deliberately disagree with the target's IPv6 preference; the handoff is explicitly IPv4 on both ends.
+        Process cli = new ProcessBuilder(java, "-Djava.net.preferIPv4Stack=true", "--add-modules", "jdk.attach", "-jar", agent.toString(),
             "--pid", Long.toString(target.pid()), "--agent", agent.toString(), "--started-at", Long.toString(selectedStarted)).redirectErrorStream(true).start();
         try {
             cli.getOutputStream().write(request.getBytes(StandardCharsets.UTF_8)); cli.getOutputStream().close();

@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.BiPredicate;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.ClassWriter;
@@ -18,6 +19,10 @@ public final class GameplayCallbacksTransformer {
     private record Target(String name, String descriptor, int kind) { }
 
     public static byte[] prepare(String owner, byte[] bytes) {
+        return prepare(owner, bytes, (method, returned) -> false);
+    }
+
+    public static byte[] prepare(String owner, byte[] bytes, BiPredicate<MethodNode, AbstractInsnNode> cancellationReturn) {
         boolean named = !owner.startsWith("net/minecraft/class_");
         List<Target> targets = targets(owner, named);
         ClassReader reader = new ClassReader(bytes);
@@ -44,7 +49,7 @@ public final class GameplayCallbacksTransformer {
                     returns++;
                 }
                 if (code == Opcodes.JSR || code == Opcodes.RET) throw reject("legacy subroutine");
-                if (target.kind < 5 && (instruction instanceof VarInsnNode variable && variable.var <= 1
+                if ((target.kind < 5 || target.kind == 8) && (instruction instanceof VarInsnNode variable && variable.var <= 1
                     && code >= Opcodes.ISTORE && code <= Opcodes.ASTORE
                     || instruction instanceof IincInsnNode increment && increment.var <= 1)) throw reject("packet callback argument overwritten");
             }
@@ -54,13 +59,18 @@ public final class GameplayCallbacksTransformer {
         }
         for (Target target : targets) {
             MethodNode method = edits.get(target.name + target.descriptor);
-            if (target.kind < 5) {
+            if (target.kind < 5 || target.kind == 8) {
+                // Keep the unchanged packet live where vanilla's final frame
+                // discarded it before our new TAIL read.
+                HookArgumentFrames.retain(owner, method, 1);
                 // Mixin TAIL is the final return instruction, unlike RETURN
                 // which would also observe branches that return early.
                 AbstractInsnNode tail = method.instructions.getLast();
-                while (tail.getOpcode() != Opcodes.RETURN) tail = tail.getPrevious();
+                while (tail != null && (tail.getOpcode() != Opcodes.RETURN || cancellationReturn.test(method, tail))) tail = tail.getPrevious();
+                if (tail == null) throw reject("missing normal server-update TAIL return");
                 InsnList callback = new InsnList();
-                callback.add(new InsnNode(Opcodes.ICONST_0 + target.kind));
+                callback.add(target.kind == 8 ? new IntInsnNode(Opcodes.BIPUSH, 8)
+                    : new InsnNode(Opcodes.ICONST_0 + target.kind));
                 callback.add(new VarInsnNode(Opcodes.ALOAD, 1));
                 callback.add(new MethodInsnNode(Opcodes.INVOKESTATIC, BRIDGE, "serverUpdate", "(ILjava/lang/Object;)V", false));
                 method.instructions.insertBefore(tail, callback);
@@ -75,6 +85,10 @@ public final class GameplayCallbacksTransformer {
                 for (MethodInsnNode call : calls(method, owner, named, target.kind)) {
                     method.instructions.set(call, new MethodInsnNode(Opcodes.INVOKESTATIC, BRIDGE, "attack", "(Ljava/lang/Object;)Z", false));
                 }
+                replaceInputCalls(method, owner, named, named ? "doItemUse" : "method_1583", "()V",
+                    "useItem", "(Ljava/lang/Object;)V");
+                replaceInputCalls(method, owner, named, named ? "handleBlockBreaking" : "method_1590", "(Z)V",
+                    "blockBreaking", "(Ljava/lang/Object;Z)V");
             } else {
                 int handLocal = method.maxLocals++;
                 for (MethodInsnNode call : calls(method, owner, named, target.kind)) {
@@ -118,15 +132,31 @@ public final class GameplayCallbacksTransformer {
         if (result.isEmpty()) throw reject("expected original call " + name);
         return result;
     }
+    private static void replaceInputCalls(MethodNode method, String owner, boolean named, String name,
+                                          String descriptor, String hook, String hookDescriptor) {
+        List<MethodInsnNode> result = new ArrayList<>();
+        for (AbstractInsnNode instruction : method.instructions) {
+            if (instruction instanceof MethodInsnNode call && call.owner.equals(owner)
+                && call.name.equals(name) && call.desc.equals(descriptor)) {
+                if (call.itf || call.getOpcode() == Opcodes.INVOKESTATIC) throw reject("unexpected invocation kind");
+                result.add(call);
+            }
+        }
+        if (result.isEmpty()) throw reject("expected original call " + name);
+        for (MethodInsnNode call : result) {
+            method.instructions.set(call, new MethodInsnNode(Opcodes.INVOKESTATIC, BRIDGE, hook, hookDescriptor, false));
+        }
+    }
     private static List<Target> targets(String owner, boolean named) {
         if (owner.equals("net/minecraft/client/network/ClientPlayNetworkHandler") || owner.equals("net/minecraft/class_634")) {
-            String[] names = { "onWorldTimeUpdate", "onBlockUpdate", "onChunkDeltaUpdate", "onEntitySpawn", "onEntitiesDestroy" };
-            String[] mapped = { "method_11079", "method_11136", "method_11100", "method_11112", "method_11095" };
-            String[] packets = { "WorldTimeUpdateS2CPacket", "BlockUpdateS2CPacket", "ChunkDeltaUpdateS2CPacket", "EntitySpawnS2CPacket", "EntitiesDestroyS2CPacket" };
-            String[] ids = { "2761", "2626", "2637", "2604", "2716" };
+            String[] names = { "onWorldTimeUpdate", "onBlockUpdate", "onChunkDeltaUpdate", "onEntitySpawn", "onEntitiesDestroy", "onEntityStatus" };
+            String[] mapped = { "method_11079", "method_11136", "method_11100", "method_11112", "method_11095", "method_11148" };
+            String[] packets = { "WorldTimeUpdateS2CPacket", "BlockUpdateS2CPacket", "ChunkDeltaUpdateS2CPacket", "EntitySpawnS2CPacket", "EntitiesDestroyS2CPacket", "EntityStatusS2CPacket" };
+            String[] ids = { "2761", "2626", "2637", "2604", "2716", "2663" };
             List<Target> result = new ArrayList<>();
             for (int i = 0; i < names.length; i++) result.add(new Target(named ? names[i] : mapped[i],
-                "(L" + (named ? "net/minecraft/network/packet/s2c/play/" + packets[i] : "net/minecraft/class_" + ids[i]) + ";)V", i));
+                "(L" + (named ? "net/minecraft/network/packet/s2c/play/" + packets[i] : "net/minecraft/class_" + ids[i]) + ";)V",
+                i == 5 ? 8 : i));
             return result;
         }
         if (owner.equals("net/minecraft/client/MinecraftClient") || owner.equals("net/minecraft/class_310")) {

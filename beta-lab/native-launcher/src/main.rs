@@ -1,11 +1,31 @@
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod atomic_store;
 mod attach;
 mod auth;
+#[cfg(windows)]
+mod credential_protection;
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[path = "../../native-shared/src/portable_credential_protection.rs"]
+mod credential_protection;
 mod delivery;
+#[path = "../../../shared-auth/dpop.rs"]
+mod dpop;
+#[path = "../../native-shared/src/environment_guard.rs"]
+mod environment_guard;
+#[path = "../../native-shared/src/native_manifest.rs"]
+mod native_manifest;
 mod platform;
 mod release;
+#[path = "../../native-shared/src/user_profile.rs"]
+mod user_profile;
+#[cfg(windows)]
+mod windows_profile;
+
+#[cfg(not(target_os = "macos"))]
+pub(crate) const SETUP_BUILD: &str = "20260920.3";
+#[cfg(target_os = "macos")]
+pub(crate) const SETUP_BUILD: &str = "20260920.4-macos";
 
 use anyhow::{Result, anyhow};
 use attach::{AttachContext, Report};
@@ -56,6 +76,11 @@ impl UiMetrics {
 }
 
 enum Event {
+    Activated,
+    ActivationNeeded,
+    Targets(Vec<GameProfile>, Vec<MinecraftProcess>, String, String),
+    ActivationFailed(String),
+    ActivationRequired(String),
     Progress(String),
     Context(AttachContext),
     Report(Report),
@@ -63,6 +88,8 @@ enum Event {
 }
 
 struct App {
+    setup_ready: bool,
+    setup_busy: bool,
     checking: bool,
     details_open: bool,
     license: String,
@@ -85,36 +112,89 @@ impl App {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
         apply_theme(&cc.egui_ctx);
         let (tx, rx) = mpsc::channel();
-        let (profiles, error) = match platform::modrinth_profiles() {
-            Ok(profiles) => (profiles, String::new()),
-            Err(error) => (
-                Vec::new(),
-                format!("Could not read Modrinth profile metadata: {error:#}"),
-            ),
-        };
-        Self {
+        let mut app = Self {
+            setup_ready: false,
+            setup_busy: false,
             checking: false,
             details_open: false,
             license: String::new(),
-            game: initial_game(&profiles),
-            profiles,
-            processes: platform::minecraft_processes(),
+            game: String::new(),
+            profiles: Vec::new(),
+            processes: Vec::new(),
             selected: None,
-            jdk: platform::find_jdk()
-                .map(|path| path.display().to_string())
-                .unwrap_or_default(),
+            jdk: String::new(),
             busy: false,
             phase: "idle".into(),
-            status: "Choose your profile and running Minecraft window, then Load.".into(),
-            error,
+            status: "Choose your profile and running Minecraft process, then Load.".into(),
+            error: String::new(),
             attached: None,
             rx,
             tx,
             polled: Instant::now(),
+        };
+        app.activate(true);
+        app
+    }
+
+    fn activate(&mut self, saved: bool) {
+        if !self.can_change_license() {
+            return;
         }
+        let license = if saved {
+            String::new()
+        } else {
+            self.license.trim().to_owned()
+        };
+        if !saved && !(20..=96).contains(&license.len()) {
+            self.error = "Paste your complete Celeste+ or Both license key.".into();
+            return;
+        }
+        self.setup_ready = false;
+        self.setup_busy = true;
+        self.error.clear();
+        self.status = if saved {
+            "Checking saved activationâ€¦"
+        } else {
+            "Activating this PCâ€¦"
+        }
+        .into();
+        let tx = self.tx.clone();
+        std::thread::spawn(move || {
+            let event = match auth::activate(&license) {
+                Ok(true) => {
+                    let _ = tx.send(Event::Activated);
+                    let (profiles, error) = match platform::modrinth_profiles() {
+                        Ok(profiles) => (profiles, String::new()),
+                        Err(error) => (
+                            Vec::new(),
+                            format!(
+                                "Could not find profiles: {error:#}. Set your game folder in Details."
+                            ),
+                        ),
+                    };
+                    let processes = platform::minecraft_processes();
+                    let jdk = platform::find_jdk()
+                        .map(|path| path.display().to_string())
+                        .unwrap_or_default();
+                    Event::Targets(profiles, processes, jdk, error)
+                }
+                Ok(false) => Event::ActivationNeeded,
+                Err(error) => {
+                    let mut message = format!("{error:#}");
+                    if !license.is_empty() {
+                        message = message.replace(&license, "[redacted license]");
+                    }
+                    Event::ActivationFailed(message)
+                }
+            };
+            let _ = tx.send(event);
+        });
     }
 
     fn start(&mut self) {
+        if !self.setup_ready || self.setup_busy {
+            return;
+        }
         if !can_start(
             self.busy || self.checking,
             self.attached.is_some(),
@@ -172,11 +252,19 @@ impl App {
                         return Ok(());
                     }
                 }
-                let session = auth::authenticate(&game, &license)?;
-                let _ = tx.send(Event::Progress("Celeste+ activated. Preparing the signed release.".into()));
+                let session = match auth::authenticate(&game, &license) {
+                    Ok(session) => session,
+                    Err(error) if auth::needs_activation(&error) => {
+                        let _ = tx.send(Event::ActivationRequired(format!("{error:#}")));
+                        return Ok(());
+                    }
+                    Err(error) => return Err(error),
+                };
+                let _ = tx.send(Event::Progress(
+                    "Celeste+ activated. Preparing the signed release.".into(),
+                ));
                 let support = platform::support_directory(target.pid, target.started)?;
-                let verified =
-                    delivery::download_bootstrap(&session.grant, &session.device, &support, session.uid)?;
+                let verified = delivery::download_bootstrap(&session, &support)?;
                 let context = if let Some(previous) = retry {
                     attach::verify_retry_artifact(
                         &previous,
@@ -253,6 +341,61 @@ impl App {
     fn events(&mut self) {
         while let Ok(event) = self.rx.try_recv() {
             match event {
+                Event::ActivationNeeded => {
+                    self.setup_ready = false;
+                    self.setup_busy = false;
+                    self.error.clear();
+                    self.status = "Enter your license to get started.".into();
+                }
+                Event::Activated => {
+                    self.setup_ready = true;
+                    self.setup_busy = false;
+                    self.license.clear();
+                    self.error.clear();
+                    self.status =
+                        "Start Minecraft, select its profile and window, then Load.".into();
+                    if self.attached.is_none() {
+                        self.phase = "idle".into();
+                    }
+                }
+                Event::Targets(profiles, processes, jdk, error) => {
+                    if self.attached.is_some() {
+                        continue;
+                    }
+                    if self.game.trim().is_empty() {
+                        self.game = initial_game(&profiles);
+                    }
+                    self.profiles = profiles;
+                    self.replace_processes(processes);
+                    if self.jdk.trim().is_empty() {
+                        self.jdk = jdk;
+                    }
+                    if !error.is_empty() {
+                        self.error = error;
+                        self.details_open = true;
+                    }
+                }
+                Event::ActivationRequired(message) => {
+                    // Start confirms an existing host is inactive before auth;
+                    // no start request has been sent on this failure path.
+                    if self.attached.is_some() {
+                        self.phase = "inactive".into();
+                    }
+                    self.setup_ready = false;
+                    self.setup_busy = false;
+                    self.busy = false;
+                    self.checking = false;
+                    self.error = message;
+                    self.status = "Enter your current license to continue.".into();
+                }
+                Event::ActivationFailed(message) => {
+                    self.setup_ready = false;
+                    self.setup_busy = false;
+                    self.busy = false;
+                    self.checking = false;
+                    self.error = message;
+                    self.status = "Activate once. Your activation is saved for next time.".into();
+                }
                 Event::Progress(message) => self.status = message,
                 Event::Context(context) => self.attached = Some(context),
                 Event::Failure(message) => {
@@ -309,7 +452,7 @@ impl eframe::App for App {
             self.control("status");
         }
         if ctx.input(|input| input.viewport().close_requested()) {
-            if self.busy || self.checking {
+            if self.busy || self.checking || self.setup_busy {
                 ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
                 self.status =
                     "A request is in progress. Wait for its result before closing this launcher."
@@ -328,8 +471,19 @@ impl eframe::App for App {
 }
 
 impl App {
+    fn can_change_license(&self) -> bool {
+        !self.setup_busy
+            && !self.busy
+            && !self.checking
+            && (self.attached.is_none() || is_reusable_phase(&self.phase))
+    }
+
     fn can_change_target(&self) -> bool {
-        !self.busy && !self.checking && self.attached.is_none()
+        self.setup_ready
+            && !self.setup_busy
+            && !self.busy
+            && !self.checking
+            && self.attached.is_none()
     }
 
     fn select_profile(&mut self, index: usize) {
@@ -396,9 +550,13 @@ impl App {
                                             .strong(),
                                     );
                                     ui.label(
-                                        RichText::new("LIVE LOAD")
-                                            .color(MUTED)
-                                            .size(10.0 * metrics.factor),
+                                        RichText::new(if self.setup_ready {
+                                            "LIVE LOAD"
+                                        } else {
+                                            "ACTIVATE YOUR LICENSE"
+                                        })
+                                        .color(MUTED)
+                                        .size(10.0 * metrics.factor),
                                     );
                                 });
                                 ui.add_space(4.0 * metrics.factor);
@@ -408,11 +566,85 @@ impl App {
                                         (metrics.body_height - 78.0 * metrics.factor).max(100.0),
                                     )
                                     .auto_shrink([false, true])
-                                    .show(ui, |ui| self.show_main(ui, &metrics));
-                                self.show_main_footer(ui, &metrics);
+                                    .show(ui, |ui| {
+                                        if self.setup_ready {
+                                            self.show_main(ui, &metrics);
+                                        } else {
+                                            self.show_activation(ui, &metrics);
+                                        }
+                                    });
+                                if self.setup_ready {
+                                    self.show_main_footer(ui, &metrics);
+                                }
                             });
                     });
             });
+    }
+
+    fn show_activation(&mut self, ui: &mut egui::Ui, metrics: &UiMetrics) {
+        ui.label(
+            RichText::new(
+                "Enter your license to get started. You only need to do this once on this computer.",
+            )
+            .size(12.0 * metrics.factor)
+            .color(MUTED),
+        );
+        ui.add_space(6.0 * metrics.factor);
+        ui.label(
+            RichText::new("License key")
+                .color(TEXT)
+                .size(12.0 * metrics.factor),
+        );
+        let input = ui.add_enabled(
+            !self.setup_busy,
+            egui::TextEdit::singleline(&mut self.license)
+                .password(true)
+                .hint_text("Celeste+ or Both license")
+                .desired_width(ui.available_width()),
+        );
+        let submit = input.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+        let valid = (20..=96).contains(&self.license.trim().len());
+        let activate = ui
+            .add_enabled(
+                !self.setup_busy && valid,
+                egui::Button::new(if self.setup_busy {
+                    "Checkingâ€¦"
+                } else {
+                    "Activate"
+                })
+                .fill(ACCENT)
+                .stroke(Stroke::NONE)
+                .corner_radius(9.0)
+                .min_size(Vec2::new(ui.available_width(), 38.0 * metrics.factor)),
+            )
+            .clicked();
+        if (activate || submit) && !self.setup_busy && valid {
+            self.activate(false);
+        }
+        if self.setup_busy {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label(RichText::new(&self.status).color(MUTED).size(11.5));
+            });
+            #[cfg(target_os = "macos")]
+            ui.add(egui::Label::new(RichText::new(
+                "If Keychain asks, approve access to the Celeste item. Choose Always Allow if you want Minecraft to read it without asking again.",
+            ).color(MUTED).size(11.5)).wrap());
+        } else if !self.error.is_empty() {
+            ui.add(egui::Label::new(RichText::new(&self.error).color(FAILURE).size(11.5)).wrap());
+            ui.horizontal(|ui| {
+                if ui.small_button("Copy error").clicked() {
+                    ui.ctx().copy_text(format!(
+                        "Celeste+ setup build {SETUP_BUILD}\n{}",
+                        self.error
+                    ));
+                }
+                ui.label(RichText::new(SETUP_BUILD).size(10.0).color(MUTED));
+            });
+            if ui.button("Retry saved activation").clicked() {
+                self.activate(true);
+            }
+        }
     }
 
     fn show_main(&mut self, ui: &mut egui::Ui, metrics: &UiMetrics) {
@@ -468,8 +700,15 @@ impl App {
         let selected = self
             .selected
             .as_ref()
-            .map(|process| format!("{} · {}", process.title, process.pid))
-            .unwrap_or_else(|| "Choose your game window".into());
+            .map(|process| format!("{} Â· {}", process.title, process.pid))
+            .unwrap_or_else(|| {
+                if cfg!(windows) {
+                    "Choose your game window"
+                } else {
+                    "Choose Minecraft's Java process"
+                }
+                .into()
+            });
         let mut process_index = None;
         ui.horizontal(|ui| {
             let refresh_width = 62.0 * metrics.factor;
@@ -495,7 +734,7 @@ impl App {
                             if ui
                                 .selectable_label(
                                     current,
-                                    format!("{} · PID {}", process.title, process.pid),
+                                    format!("{} Â· PID {}", process.title, process.pid),
                                 )
                                 .clicked()
                             {
@@ -558,22 +797,17 @@ impl App {
             )
             .wrap(),
         );
-        ui.label(
-            RichText::new("Celeste+ license key")
-                .color(MUTED)
-                .size(11.0 * metrics.factor),
-        );
-        ui.add_enabled(
-            !self.busy
-                && !self.checking
-                && (self.attached.is_none() || is_reusable_phase(&self.phase)),
-            egui::TextEdit::singleline(&mut self.license)
-                .password(true)
-                .hint_text("Leave blank to use saved activation")
-                .desired_width(ui.available_width())
-                .background_color(INPUT_BG)
-                .text_color(TEXT),
-        );
+        if ui
+            .add_enabled(
+                self.can_change_license(),
+                egui::Button::new("Change license"),
+            )
+            .clicked()
+        {
+            self.setup_ready = false;
+            self.license.clear();
+            self.error.clear();
+        }
         ui.add_enabled_ui(self.can_change_target(), |ui| {
             ui.label(
                 RichText::new("Game folder")
@@ -590,7 +824,7 @@ impl App {
         });
         if let Some(context) = &self.attached {
             ui.label(
-                RichText::new(format!("PID {} · {}", context.target.pid, context.release))
+                RichText::new(format!("PID {} Â· {}", context.target.pid, context.release))
                     .color(MUTED)
                     .size(10.5 * metrics.factor),
             );
@@ -627,8 +861,8 @@ impl App {
             MainAction::Load => "Load",
             MainAction::Stop => "Stop",
             MainAction::Restart => "Restart Minecraft",
-            MainAction::Waiting if self.phase == "stopping" => "Stopping…",
-            MainAction::Waiting => "Loading…",
+            MainAction::Waiting if self.phase == "stopping" => "Stoppingâ€¦",
+            MainAction::Waiting => "Loadingâ€¦",
         };
         if ui
             .with_layout(Layout::top_down(Align::Center), |ui| {
@@ -663,8 +897,8 @@ impl App {
         } else {
             match self.phase.as_str() {
                 "active" => "Loaded",
-                "starting" | "authenticating" => "Loading Celeste…",
-                "stopping" => "Waiting for cleanup…",
+                "starting" | "authenticating" => "Loading Celesteâ€¦",
+                "stopping" => "Waiting for cleanupâ€¦",
                 "stopped" | "inactive" => "Ready to load again",
                 "failed" => "Check Details to continue",
                 "restart required" => "Restart Minecraft before loading again",
@@ -996,6 +1230,8 @@ mod ui_state_tests {
     fn fixture_app() -> App {
         let (tx, rx) = mpsc::channel();
         App {
+            setup_ready: true,
+            setup_busy: false,
             checking: false,
             details_open: false,
             license: String::new(),
@@ -1036,6 +1272,69 @@ mod ui_state_tests {
     }
 
     #[test]
+    fn first_setup_blocks_game_selection_and_load_until_verified() {
+        let mut app = fixture_app();
+        app.setup_ready = false;
+        app.license = "fixture-complete-looking-license-key".into();
+        app.select_profile(0);
+        app.select_process(0);
+        app.start();
+        assert!(app.game.is_empty());
+        assert!(app.selected.is_none());
+        assert!(!app.busy && app.attached.is_none());
+        assert!(app.rx.try_recv().is_err());
+        app.tx.send(Event::Activated).unwrap();
+        app.events();
+        assert!(app.setup_ready && !app.setup_busy);
+        assert!(app.license.is_empty());
+        app.select_profile(0);
+        app.select_process(0);
+        assert!(!app.game.is_empty() && app.selected.is_some());
+    }
+
+    #[test]
+    fn failed_or_revoked_activation_keeps_the_key_screen_and_allows_retry() {
+        let mut app = fixture_app();
+        app.setup_ready = false;
+        app.setup_busy = true;
+        app.tx
+            .send(Event::ActivationFailed("offline fixture".into()))
+            .unwrap();
+        app.events();
+        assert!(!app.setup_ready && !app.setup_busy);
+        assert_eq!(app.error, "offline fixture");
+        app.tx.send(Event::Activated).unwrap();
+        app.events();
+        assert!(app.setup_ready && app.error.is_empty());
+        app.busy = true;
+        app.tx
+            .send(Event::ActivationRequired("revoked fixture".into()))
+            .unwrap();
+        app.events();
+        assert!(!app.setup_ready && !app.busy && !app.checking);
+        assert!(app.attached.is_none());
+    }
+
+    #[test]
+    #[ignore = "manual setup-window fixture; no authentication, license, or game access"]
+    fn preview_first_setup_window() {
+        eframe::run_native(
+            "Celeste+ setup preview",
+            eframe::NativeOptions {
+                viewport: egui::ViewportBuilder::default().with_inner_size([440.0, 380.0]),
+                ..Default::default()
+            },
+            Box::new(|cc| {
+                apply_theme(&cc.egui_ctx);
+                let mut app = fixture_app();
+                app.setup_ready = false;
+                Ok(Box::new(app))
+            }),
+        )
+        .unwrap();
+    }
+
+    #[test]
     fn reload_requires_confirmed_inactive_or_stopped_and_keeps_failures_closed() {
         assert!(can_start(false, false, "failed", true));
         assert!(can_start(false, true, "inactive", true));
@@ -1060,9 +1359,7 @@ fn main() -> Result<()> {
         .with_inner_size([440.0, 380.0])
         .with_min_inner_size([400.0, 340.0])
         .with_resizable(true);
-    if let Ok(source) = image::load_from_memory(include_bytes!(
-        "../assets/celeste-logo.png"
-    )) {
+    if let Ok(source) = image::load_from_memory(include_bytes!("../assets/celeste-logo.png")) {
         let source = source.into_rgba8();
         viewport = viewport.with_icon(egui::IconData {
             width: source.width(),

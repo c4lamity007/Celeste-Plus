@@ -90,8 +90,17 @@ public final class CelesteScreen extends Screen {
     private static final Color CONTROL = color(19, 13, 22, 205);
     private static final Object SEARCH_HOVER_KEY = new Object();
     private static final Object MENU_KEY_HOVER_KEY = new Object();
+    private static final FirstUseTourStore TOUR_STORE = FirstUseTourStore.forUser(
+        java.nio.file.Path.of(System.getProperty("user.home")),
+        net.fabricmc.loader.api.FabricLoader.getInstance().getConfigDir().resolve("celeste").resolve("first-use-plus.properties"));
 
-    private CelestePage selectedPage = CelestePage.SWORD;
+    private final boolean plusRuntime;
+    private boolean tourInitialized;
+    private FirstUseTour tour;
+    private CelestePage tourReturnPage;
+    private FieldHit tourReplayHit;
+
+    private CelestePage selectedPage = InterfaceConfig.lastSidebarPage();
     private GuiModule expandedModule;
     private GuiSetting.Slider draggingSlider;
     private GuiSetting.Range draggingRange;
@@ -123,6 +132,8 @@ public final class CelesteScreen extends Screen {
     private FieldHit friendFieldHit;
     private ConfigLibrary.Tab configTab = ConfigLibrary.Tab.MY;
     private String inspectConfigId = "";
+    private GuiContentLayout.Inspection configInspection;
+    private float inspectionScroll;
     private final List<TabHit> configTabHits = new ArrayList<>();
     private final List<IconHit> configIconHits = new ArrayList<>();
     private String pendingTooltip = "";
@@ -162,7 +173,12 @@ public final class CelesteScreen extends Screen {
     private boolean pointerHot;
 
     public CelesteScreen() {
+        this(false);
+    }
+
+    public CelesteScreen(boolean plusRuntime) {
         super(Text.literal("Celeste Client"));
+        this.plusRuntime = plusRuntime;
     }
 
     @Override
@@ -174,6 +190,17 @@ public final class CelesteScreen extends Screen {
         lastScaleUpdateAt = openedAt;
         layout();
         GuiCursors.hideNative(client);
+        if (!tourInitialized) {
+            tourInitialized = true;
+            if (plusRuntime && dev.c4lam.celeste.CelesteClient.active()) {
+                try {
+                    if (TOUR_STORE.beginFirstUse()) startTour();
+                } catch (java.io.IOException | IllegalArgumentException exception) {
+                    dev.c4lam.celeste.compat.RuntimeLogging.getLogger("Celeste/GUI")
+                        .warn("Could not record first GUI use; the tour can be opened from Settings", exception);
+                }
+            }
+        }
     }
 
     @Override
@@ -181,6 +208,8 @@ public final class CelesteScreen extends Screen {
         updateInterfaceScaleAnimation();
         layout();
         float animation = openAnimation();
+        targetScroll = GuiContentLayout.scroll(targetScroll, configScrollMin);
+        contentScroll = GuiContentLayout.scroll(contentScroll, configScrollMin);
         contentScroll += (targetScroll - contentScroll) * Math.min(1.0f, delta * 0.22f + 0.12f);
         if (selectedPage == CelestePage.CONFIGS) {
             boolean atBottom = contentScroll <= configScrollMin + 1.5f;
@@ -212,8 +241,11 @@ public final class CelesteScreen extends Screen {
         configIconHits.clear();
         configFieldHit = null;
         menuKeyHit = null;
+        tourReplayHit = null;
         friendFieldHit = null;
         pendingTooltip = "";
+        configInspection = null;
+        colorPicker.setViewport(0, 0, width / uiScale, height / uiScale);
 
         float animatedY = panelY + (1.0f - animation) * 18.0f;
         Color glassTop = withAlpha(PANEL_TOP, Math.round(PANEL_TOP.getAlpha() * animation));
@@ -280,12 +312,35 @@ public final class CelesteScreen extends Screen {
             updateDraggedConfig(virtualMouseX);
         }
 
+        dev.c4lam.celeste.hud.HudManager.getInstance().renderIslandOverlay(context);
+        // The island draws in screen pixels; restore this screen's virtual transform.
+        matrices.loadIdentity();
+        matrices.scale(uiScale, uiScale, 1.0f);
+        if (tour != null) {
+            tour.state().configName(configInput);
+            if (selectedPage == CelestePage.VISUALS && visibleSearchLength(System.nanoTime()) == search.length())
+                tour.state().search(search, filteredModules().size());
+            if (tour.visible()) {
+                tour.draw(matrices, width / uiScale, height / uiScale,
+                    new FirstUseTour.Rect(panelX, animatedY, panelWidth, panelHeight), tourTarget(),
+                    virtualMouseX, virtualMouseY, keyName(InterfaceConfig.menuKey()));
+            } else {
+                tour = null;
+                selectedPage = tourReturnPage;
+                search = "";
+                searchRevealTimes.clear();
+                collapseAllModules();
+                pageChangedAt = System.nanoTime();
+            }
+        }
         boolean grab = pointerHot
             || draggingSlider != null
             || draggingRange != null
             || draggingConfig != null
             || colorPicker.isDragging()
             || overInteractive(virtualMouseX, virtualMouseY);
+        if (tour != null) grab = tour.contains(virtualMouseX, virtualMouseY)
+            ? tour.pointer(virtualMouseX, virtualMouseY) : grab;
         GuiCursors.hideNative(client);
         matrices.push();
         matrices.loadIdentity();
@@ -394,20 +449,22 @@ public final class CelesteScreen extends Screen {
         float pageEntrance = pageEntrance(0);
         float headerOffset = (1.0f - pageEntrance) * 5.0f;
         float headerAnimation = animation * pageEntrance;
+        float headerTextWidth = contentWidth - ((selectedPage.feature() || selectedPage == CelestePage.CONFIGS)
+            ? Math.min(176, contentWidth * 0.32f) + 12 : 0);
         if (selectedPage == CelestePage.CONFIGS) {
             ConfigLibrary library = ConfigLibrary.getInstance();
             library.initialize();
             int total = library.totalVisible(configTab);
             RenderUtil.TEXTURE_RECT.draw(matrices, headerX, y + 22 + headerOffset, 18, 18, 0,
                 withAlpha(TEXT, Math.round(255 * headerAnimation)), 0, 0, 1, 1, CelestePage.CONFIGS.icon());
-            bold.drawText(matrices, "Configs  •  Total configs  " + total, headerX + 24, y + 23 + headerOffset, 14.5f,
+            bold.drawText(matrices, fitText("Configs  •  Total configs  " + total, headerTextWidth - 24, bold, 14.5f), headerX + 24, y + 23 + headerOffset, 14.5f,
                 withAlpha(TEXT, Math.round(255 * headerAnimation)));
-            regular.drawText(matrices, selectedPage.description(), headerX + 24, y + 43 + headerOffset, 8.7f,
+            regular.drawText(matrices, fitText(selectedPage.description(), headerTextWidth - 24, regular, 8.7f), headerX + 24, y + 43 + headerOffset, 8.7f,
                 withAlpha(MUTED, Math.round(255 * headerAnimation)));
         } else {
-            bold.drawText(matrices, selectedPage.label(), headerX, y + 23 + headerOffset, 14.5f,
+            bold.drawText(matrices, fitText(selectedPage.label(), headerTextWidth, bold, 14.5f), headerX, y + 23 + headerOffset, 14.5f,
                 withAlpha(TEXT, Math.round(255 * headerAnimation)));
-            regular.drawText(matrices, selectedPage.description(), headerX, y + 43 + headerOffset, 8.7f,
+            regular.drawText(matrices, fitText(selectedPage.description(), headerTextWidth, regular, 8.7f), headerX, y + 43 + headerOffset, 8.7f,
                 withAlpha(MUTED, Math.round(255 * headerAnimation)));
         }
 
@@ -437,13 +494,14 @@ public final class CelesteScreen extends Screen {
             21 * uiScale
         );
         if (!search.isEmpty()) {
-            float glyphX = textX - textOffset;
-            for (int index = 0; index < visibleLength; index++) {
-                String glyph = visibleSearch.substring(index, index + 1);
+            for (int index = 0; index < visibleLength;) {
+                int end = index + Character.charCount(visibleSearch.codePointAt(index));
+                String glyph = visibleSearch.substring(index, end);
+                float glyphX = textX - textOffset + regular.getWidth(visibleSearch.substring(0, end), 8.5f) - regular.getWidth(glyph, 8.5f);
                 float fade = searchCharacterFade(index, now);
                 regular.drawText(matrices, glyph, glyphX, centeredTextY(searchY, 29, 8.5f), 8.5f,
                     withAlpha(TEXT, Math.round(255 * animation * fade)));
-                glyphX += regular.getWidth(glyph, 8.5f);
+                index = end;
             }
         } else if (!searchFocused) {
             regular.drawText(matrices, selectedPage == CelestePage.CONFIGS ? "Search configs" : "Search modules", textX, centeredTextY(searchY, 29, 8.5f), 8.5f,
@@ -476,18 +534,21 @@ public final class CelesteScreen extends Screen {
             float expansion = expansionAnimations
                 .computeIfAbsent(module, ignored -> new TimedAnimation())
                 .update(open ? 1.0f : 0.0f, EXPANSION_ANIMATION_NANOS);
-            float settingsHeight = module.settings().isEmpty() ? 0 : module.settings().size() * 39 + 11;
+            float settingsHeight = module.visibleSettings().isEmpty() ? 0 : module.visibleSettings().size() * 39 + 11;
             float cardHeight = 54 + settingsHeight * expansion;
             boolean hovered = hovered(mouseX, mouseY, x, drawY, columnWidth, 54);
             float hover = hoverAnimation(module, hovered);
 
             float cardAlpha = Math.round((100 + 15 * hover + 18 * expansion) * cardAnimation);
 
-            Fonts.semibold().drawText(matrices, module.name(), x + 15, drawY + 11.5f, 10.2f,
+            Fonts.semibold().drawText(matrices, fitText(module.name(), columnWidth - 66, Fonts.semibold(), 10.2f), x + 15, drawY + 11.5f, 10.2f,
                 withAlpha(TEXT, Math.round(255 * cardAnimation)));
-            Fonts.regular().drawText(matrices, trim(module.description(), 43), x + 15, drawY + 30.5f, 7.8f,
+            Fonts.regular().drawText(matrices, fitText(module.description(), columnWidth - 66, Fonts.regular(), 7.8f), x + 15, drawY + 30.5f, 7.8f,
                 withAlpha(MUTED, Math.round(255 * cardAnimation)));
             drawToggle(matrices, module, x + columnWidth - 43, drawY + 19, module.enabled(), cardAnimation);
+            if (hovered && (Fonts.semibold().getWidth(module.name(), 10.2f) > columnWidth - 66
+                    || Fonts.regular().getWidth(module.description(), 7.8f) > columnWidth - 66))
+                setPendingTooltip(mouseX, mouseY, module.name() + ": " + module.description());
 
             moduleHits.add(new ModuleHit(module, x, drawY, columnWidth, 54));
             if (expansion > 0.001f && settingsHeight > 0) {
@@ -507,7 +568,9 @@ public final class CelesteScreen extends Screen {
                     mouseX,
                     mouseY,
                     cardAnimation * expansion,
-                    expansion > 0.92f
+                    expansion > 0.92f,
+                    settingsTop,
+                    settingsTop + settingsHeight * expansion
                 );
                 GuiRenderer.getInstance().popScissor();
             }
@@ -522,7 +585,7 @@ public final class CelesteScreen extends Screen {
         float minimumY = Math.min(leftY, rightY);
         float maximumY = Math.max(leftY, rightY);
         float required = Math.max(0, maximumY - (contentY + contentScroll) - contentHeight + 8);
-        targetScroll = clamp(targetScroll, -required, 0);
+        updateScrollBounds(-required);
 
         if (modules.isEmpty()) {
             float entrance = pageEntrance(1);
@@ -541,9 +604,12 @@ public final class CelesteScreen extends Screen {
         int mouseX,
         int mouseY,
         float animation,
-        boolean interactive
+        boolean interactive,
+        float clipTop,
+        float clipBottom
     ) {
-        int settingCount = module.settings().size();
+        List<GuiSetting> visibleSettings = module.visibleSettings();
+        int settingCount = visibleSettings.size();
         if (settingCount == 0) {
             return;
         }
@@ -553,9 +619,15 @@ public final class CelesteScreen extends Screen {
             withAlpha(SIDEBAR, Math.round(SIDEBAR.getAlpha() * animation)), InterfaceConfig.glassTintMix());
 
         int settingIndex = 0;
-        for (GuiSetting setting : module.settings()) {
+        for (GuiSetting setting : visibleSettings) {
+            float controlWidth = settingControlWidth(setting, width);
+            float labelWidth = GuiContentLayout.labelWidth(width, controlWidth);
             boolean hovered = hovered(mouseX, mouseY, x, y, width, 34);
             float hover = hoverAnimation(setting, hovered && interactive);
+            if (hovered && interactive && mouseY >= clipTop && mouseY <= clipBottom
+                    && (Fonts.regular().getWidth(setting.label(), 8.2f) > labelWidth
+                        || Fonts.regular().getWidth(setting.description(), 6.5f) > labelWidth))
+                setPendingTooltip(mouseX, mouseY, setting.label() + ": " + setting.description());
             if (hover > 0.001f) {
                 RenderUtil.RECT.draw(matrices, x + 2, y + 2, width - 4, 30, 5,
                     withAlpha(color(45, 28, 45, 155), Math.round(76 * hover * animation)));
@@ -564,14 +636,14 @@ public final class CelesteScreen extends Screen {
                 boolean buttonHovered = interactive && hovered(mouseX, mouseY, x + 9, y + 3, width - 18, 18);
                 RenderUtil.RECT.draw(matrices, x + 9, y + 3, width - 18, 18, 5,
                     withAlpha(buttonHovered ? ACCENT : ACCENT_SOFT, Math.round(230 * animation)));
-                Fonts.semibold().drawCenteredText(matrices, action.label(), x + width / 2,
+                Fonts.semibold().drawCenteredText(matrices, fitText(action.label(), width - 30, Fonts.semibold(), 7.6f), x + width / 2,
                     centeredTextY(y + 3, 18, 7.6f), 7.6f, withAlpha(TEXT, Math.round(255 * animation)));
-                Fonts.regular().drawText(matrices, trim(action.description(), 34), x + 9, y + 24, 6.5f,
+                Fonts.regular().drawText(matrices, fitText(action.description(), width - 18, Fonts.regular(), 6.5f), x + 9, y + 24, 6.5f,
                     withAlpha(DIM, Math.round(255 * animation)));
             } else {
-                Fonts.regular().drawText(matrices, setting.label(), x + 9, y + 7.4f, 8.2f,
+                Fonts.regular().drawText(matrices, fitText(setting.label(), labelWidth, Fonts.regular(), 8.2f), x + 9, y + 7.4f, 8.2f,
                     withAlpha(TEXT, Math.round(255 * animation)));
-                Fonts.regular().drawText(matrices, trim(setting.description(), 34), x + 9, y + 20.6f, 6.5f,
+                Fonts.regular().drawText(matrices, fitText(setting.description(), labelWidth, Fonts.regular(), 6.5f), x + 9, y + 20.6f, 6.5f,
                     withAlpha(DIM, Math.round(255 * animation)));
             }
 
@@ -607,22 +679,23 @@ public final class CelesteScreen extends Screen {
                 Fonts.semibold().drawCenteredText(matrices, value, sliderX + sliderWidth / 2, y + 7, 7.2f,
                     withAlpha(TEXT, Math.round(255 * animation)));
             } else if (setting instanceof GuiSetting.Mode mode) {
-                String value = mode.value();
-                float valueWidth = Math.max(46, Fonts.semibold().getWidth(value, 7.2f) + 17);
+                String value = fitText(mode.value(), controlWidth - 17, Fonts.semibold(), 7.2f);
+                float valueWidth = controlWidth;
                 float valueX = x + width - valueWidth - 9;
                 RenderUtil.RECT.draw(matrices, valueX, y + 8, valueWidth, 18, 5, withAlpha(CONTROL, Math.round(205 * animation)));
                 Fonts.semibold().drawCenteredText(matrices, value, valueX + valueWidth / 2,
                     centeredTextY(y + 8, 18, 7.2f), 7.2f, withAlpha(TEXT, Math.round(255 * animation)));
             } else if (setting instanceof GuiSetting.ItemPick itemPick) {
-                String value = itemPickName(itemPick);
-                float valueWidth = Math.max(46, Fonts.semibold().getWidth(value, 7.2f) + 17);
+                String value = fitText(itemPickName(itemPick), controlWidth - 17, Fonts.semibold(), 7.2f);
+                float valueWidth = controlWidth;
                 float valueX = x + width - valueWidth - 9;
                 RenderUtil.RECT.draw(matrices, valueX, y + 8, valueWidth, 18, 5, withAlpha(CONTROL, Math.round(205 * animation)));
                 Fonts.semibold().drawCenteredText(matrices, value, valueX + valueWidth / 2,
                     centeredTextY(y + 8, 18, 7.2f), 7.2f, withAlpha(TEXT, Math.round(255 * animation)));
             } else if (setting instanceof GuiSetting.Keybind keybind) {
                 String value = listeningKeybind == keybind ? "Press key" : keyName(keybind.keyCode());
-                float valueWidth = Math.max(51, Fonts.semibold().getWidth(value, 7.2f) + 17);
+                value = fitText(value, controlWidth - 17, Fonts.semibold(), 7.2f);
+                float valueWidth = controlWidth;
                 float valueX = x + width - valueWidth - 9;
                 RenderUtil.RECT.draw(matrices, valueX, y + 8, valueWidth, 18, 5,
                     withAlpha(listeningKeybind == keybind ? ACCENT_SOFT : CONTROL, Math.round(205 * animation)));
@@ -634,13 +707,13 @@ public final class CelesteScreen extends Screen {
 
             if (interactive) {
                 if (setting instanceof GuiSetting.Action) {
-                    settingHits.add(new SettingHit(setting, x + 9, y + 3, width - 18, 18));
+                    addSettingHit(setting, x + 9, y + 3, width - 18, 18, clipTop, clipBottom);
                 } else if (setting instanceof GuiSetting.Slider || setting instanceof GuiSetting.Range) {
-                    settingHits.add(new SettingHit(setting, x + width - 93, y + 14, 76, 17));
+                    addSettingHit(setting, x + width - 93, y + 14, 76, 17, clipTop, clipBottom);
                 } else if (setting instanceof GuiSetting.ColorPick) {
-                    settingHits.add(new SettingHit(setting, x + width - 37, y + 9, 16, 16));
+                    addSettingHit(setting, x + width - 37, y + 9, 16, 16, clipTop, clipBottom);
                 } else {
-                    settingHits.add(new SettingHit(setting, x, y, width, 34));
+                    addSettingHit(setting, x, y, width, 34, clipTop, clipBottom);
                 }
             }
 
@@ -716,7 +789,7 @@ public final class CelesteScreen extends Screen {
                 float avatarX = cardX + 9;
                 float avatarY = cardY + 11;
                 drawPlayerHead(matrices, skinFor(friend.uuid()), friend.lastKnownName(), avatarX, avatarY, 30, animation * entrance);
-                Fonts.semibold().drawText(matrices, trim(friend.lastKnownName(), 12), cardX + 46, cardY + 12, 7.6f,
+                Fonts.semibold().drawText(matrices, fitText(friend.lastKnownName(), cardWidth - 74, Fonts.semibold(), 7.6f), cardX + 46, cardY + 12, 7.6f,
                     withAlpha(TEXT, Math.round(255 * animation * entrance)));
                 Fonts.regular().drawText(matrices, "Friend", cardX + 46, cardY + 30, 5.8f,
                     withAlpha(MUTED, Math.round(255 * animation * entrance)));
@@ -736,8 +809,7 @@ public final class CelesteScreen extends Screen {
 
         float totalHeight = cursor - (contentY + contentScroll) + 12;
         float minimum = Math.min(0, contentHeight - totalHeight);
-        targetScroll = Math.max(minimum, Math.min(0, targetScroll));
-        configScrollMin = minimum;
+        updateScrollBounds(minimum);
     }
 
     private void drawFriendSuggestions(
@@ -987,7 +1059,7 @@ public final class CelesteScreen extends Screen {
             String fieldText = configInput.isEmpty()
                 ? (configFieldFocused ? (pulse() ? "|" : "") : "Name, path, or folder")
                 : configInput + (configFieldFocused && pulse() ? "|" : "");
-            Fonts.regular().drawText(matrices, trim(fieldText, 42), x + 10, centeredTextY(fieldY, 28, 7.2f), 7.2f,
+            Fonts.regular().drawText(matrices, configFieldFocused ? GuiContentLayout.fitTail(fieldText, fieldWidth - 20, value -> Fonts.regular().getWidth(value, 7.2f)) : fitText(fieldText, fieldWidth - 20, Fonts.regular(), 7.2f), x + 10, centeredTextY(fieldY, 28, 7.2f), 7.2f,
                 withAlpha(configInput.isEmpty() && !configFieldFocused ? DIM : TEXT, Math.round(255 * fieldOpacity)));
             configFieldHit = new FieldHit(x, fieldY, fieldWidth, 28);
 
@@ -1011,7 +1083,7 @@ public final class CelesteScreen extends Screen {
             : (configTab == ConfigLibrary.Tab.MY
                 ? "Using  " + ConfigProfileManager.getInstance().active()
                 : configTab.label());
-        Fonts.regular().drawText(matrices, status, x, cursor + (1.0f - pageEntrance(card)) * 3.0f, 6.4f,
+        Fonts.regular().drawText(matrices, fitText(status, width, Fonts.regular(), 6.4f), x, cursor + (1.0f - pageEntrance(card)) * 3.0f, 6.4f,
             withAlpha(!configStatus.isEmpty() && System.nanoTime() < configStatusUntil ? ACCENT : DIM,
                 Math.round(255 * animation)));
         cursor += 18;
@@ -1028,7 +1100,7 @@ public final class CelesteScreen extends Screen {
                         : library.publicError().isEmpty()
                             ? "No public configs yet. Publish one from My Configs."
                             : "Cloud unavailable: " + trim(library.publicError(), 46);
-            Fonts.regular().drawText(matrices, empty, x, cursor + (1.0f - entrance) * 4.0f, 7.2f,
+            Fonts.regular().drawText(matrices, fitText(empty, width, Fonts.regular(), 7.2f), x, cursor + (1.0f - entrance) * 4.0f, 7.2f,
                 withAlpha(MUTED, Math.round(255 * animation * entrance)));
             cursor += 28;
         } else {
@@ -1056,7 +1128,7 @@ public final class CelesteScreen extends Screen {
                     withAlpha(TEXT, Math.round(255 * opacity)));
 
                 float textX = cardX + 62;
-                Fonts.semibold().drawText(matrices, trim(entry.name(), 18), textX, cardY + 12, 8.4f,
+                Fonts.semibold().drawText(matrices, fitText(entry.name(), cardWidth - 74, Fonts.semibold(), 8.4f), textX, cardY + 12, 8.4f,
                     withAlpha(TEXT, Math.round(255 * opacity)));
                 Fonts.regular().drawText(matrices, entry.dateLabel(), textX, cardY + 29, 6.3f,
                     withAlpha(MUTED, Math.round(255 * opacity)));
@@ -1124,29 +1196,42 @@ public final class CelesteScreen extends Screen {
                 .findFirst().orElse(null);
             if (inspect != null) {
                 List<String> modules = library.enabledModules(inspect);
-                float panelWidth = Math.min(220, width * 0.46f);
-                float panelHeight = 28 + Math.max(1, modules.size()) * 13 + 12;
-                float panelX = x + width - panelWidth;
-                float panelY = contentY + 8;
-                drawRailCard(matrices, panelX, panelY, panelWidth, panelHeight, 10, 0.0f, animation);
-                Fonts.semibold().drawText(matrices, "Enabled", panelX + 10, panelY + 8, 7.4f,
+                configInspection = GuiContentLayout.inspection(
+                    new GuiContentLayout.Box(contentX, contentY, contentWidth, contentHeight), modules.size());
+                inspectionScroll = GuiContentLayout.scroll(inspectionScroll, configInspection.minimumScroll());
+                GuiContentLayout.Box panel = configInspection.panel();
+                GuiContentLayout.Box list = configInspection.list();
+                GuiContentLayout.Box close = configInspection.close();
+                pendingTooltip = "";
+                drawRailCard(matrices, panel.x(), panel.y(), panel.width(), panel.height(), 10, 0.0f, animation);
+                Fonts.semibold().drawText(matrices, "Enabled", panel.x() + 10, panel.y() + 8, 7.4f,
                     withAlpha(TEXT, Math.round(255 * animation)));
-                if (modules.isEmpty()) {
-                    Fonts.regular().drawText(matrices, "Nothing enabled", panelX + 10, panelY + 26, 6.4f,
-                        withAlpha(DIM, Math.round(255 * animation)));
-                } else {
-                    for (int index = 0; index < modules.size(); index++) {
-                        Fonts.regular().drawText(matrices, modules.get(index), panelX + 10, panelY + 26 + index * 13, 6.4f,
-                            withAlpha(MUTED, Math.round(255 * animation)));
-                    }
+                boolean closeHovered = close.contains(mouseX, mouseY);
+                Fonts.semibold().drawCenteredText(matrices, "×", close.x() + close.width() / 2,
+                    centeredTextY(close.y(), close.height(), 9), 9,
+                    withAlpha(closeHovered ? TEXT : MUTED, Math.round(255 * animation)));
+                GuiRenderer.getInstance().pushScissor(list.x() * uiScale, list.y() * uiScale,
+                    list.width() * uiScale, list.height() * uiScale);
+                List<String> lines = modules.isEmpty() ? List.of("Nothing enabled") : modules;
+                for (int index = 0; index < lines.size(); index++) {
+                    Fonts.regular().drawText(matrices, fitText(lines.get(index), list.width() - 5, Fonts.regular(), 6.4f),
+                        list.x(), list.y() + inspectionScroll + index * 13, 6.4f,
+                        withAlpha(modules.isEmpty() ? DIM : MUTED, Math.round(255 * animation)));
                 }
+                GuiRenderer.getInstance().popScissor();
+                if (configInspection.minimumScroll() < 0) {
+                    float barHeight = Math.max(14, list.height() * list.height() / (lines.size() * 13));
+                    float barY = list.y() + (list.height() - barHeight) * inspectionScroll / configInspection.minimumScroll();
+                    RenderUtil.RECT.draw(matrices, panel.x() + panel.width() - 6, barY, 2, barHeight, 1,
+                        withAlpha(DIM, Math.round(140 * animation)));
+                }
+            } else {
+                inspectConfigId = "";
             }
         }
 
         float totalHeight = cursor - (contentY + contentScroll) + 18;
-        float minimum = Math.min(0, contentHeight - totalHeight);
-        targetScroll = Math.max(minimum, Math.min(0, targetScroll));
-        configScrollMin = minimum;
+        updateScrollBounds(GuiContentLayout.minimumScroll(totalHeight, contentHeight));
     }
 
     private void drawStarIcon(
@@ -1236,23 +1321,9 @@ public final class CelesteScreen extends Screen {
         }
     }
 
-    private static List<String> wrapTooltip(String text, float font, float maxWidth) {
-        List<String> lines = new ArrayList<>();
-        String[] words = text.split(" ");
-        StringBuilder line = new StringBuilder();
-        for (String word : words) {
-            String next = line.isEmpty() ? word : line + " " + word;
-            if (Fonts.regular().getWidth(next, font) > maxWidth && !line.isEmpty()) {
-                lines.add(line.toString());
-                line = new StringBuilder(word);
-            } else {
-                line = new StringBuilder(next);
-            }
-        }
-        if (!line.isEmpty()) {
-            lines.add(line.toString());
-        }
-        return lines;
+    private List<String> wrapTooltip(String text, float font, float maxWidth) {
+        return GuiContentLayout.wrap(text, maxWidth, Math.max(1, (int) ((panelHeight - 28) / 8.2f)),
+            value -> Fonts.regular().getWidth(value, font));
     }
 
     private record ConfigAction(String id, String label, String help) {
@@ -1316,6 +1387,26 @@ public final class CelesteScreen extends Screen {
 
         drawMenuKeyCard(matrices, contentX + cardWidth + gap, contentY + 5 + cardHeight + gap,
             cardWidth, cardHeight, mouseX, mouseY, animation * pageEntrance(options.length + 1));
+
+        float colorY = contentY + 5 + (cardHeight + gap) * 2;
+        GuiSetting.ColorPick hudText = InterfaceConfig.hudTextSetting();
+        drawPanelCard(matrices, contentX, colorY, contentWidth, 36, 9, 0, animation);
+        Fonts.semibold().drawText(matrices, "HUD text", contentX + 14, colorY + 12,
+            8.0f, withAlpha(TEXT, Math.round(255 * animation)));
+        colorPicker.drawSwatch(matrices, hudText, contentX + contentWidth - 37, colorY + 10, animation);
+        settingHits.add(new SettingHit(hudText, contentX + contentWidth - 37, colorY + 10, 16, 16));
+        if (plusRuntime) {
+            float tourY = colorY + 46;
+            boolean hover = hovered(mouseX, mouseY, contentX, tourY, contentWidth, 42);
+            drawPanelCard(matrices, contentX, tourY, contentWidth, 42, 9, hover ? 1 : 0, animation);
+            Fonts.semibold().drawText(matrices, "GUI tour", contentX + 14, tourY + 10,
+                8.5f, withAlpha(TEXT, Math.round(255 * animation)));
+            Fonts.regular().drawText(matrices, "Modules, configs and HUD controls.", contentX + 14, tourY + 25,
+                7, withAlpha(MUTED, Math.round(255 * animation)));
+            Fonts.semibold().drawText(matrices, "Replay", contentX + contentWidth - 45, tourY + 17,
+                8, withAlpha(ACCENT, Math.round(255 * animation)));
+            tourReplayHit = new FieldHit(contentX, tourY, contentWidth, 42);
+        }
     }
 
     private void drawMenuKeyCard(
@@ -1339,7 +1430,7 @@ public final class CelesteScreen extends Screen {
         Fonts.semibold().drawCenteredText(matrices, value, x + width - valueWidth / 2 - 12,
             centeredTextY(y + 9, 19, 7.5f), 7.5f,
             withAlpha(listeningMenuKey ? ACCENT : TEXT, Math.round(255 * animation)));
-        Fonts.regular().drawText(matrices, "Click, then press a key. Delete resets to Right Shift.",
+        Fonts.regular().drawText(matrices, "Click to bind · Delete to reset",
             x + 14, y + 35, 6.7f, withAlpha(MUTED, Math.round(255 * animation)));
         menuKeyHit = new FieldHit(x, y, width, height);
     }
@@ -1399,8 +1490,28 @@ public final class CelesteScreen extends Screen {
 
     @Override
     public boolean mouseClicked(Click click, boolean doubled) {
+        if (tour != null && handleTourClick(click)) return true;
+        if (tour == null && click.button() == GLFW.GLFW_MOUSE_BUTTON_LEFT && tourReplayHit != null
+                && tourReplayHit.contains(click.x() / uiScale, click.y() / uiScale)) {
+            startTour();
+            return true;
+        }
         double mouseX = click.x() / uiScale;
         double mouseY = click.y() / uiScale;
+        if (colorPicker.isOpen()) {
+            if (click.button() == GLFW.GLFW_MOUSE_BUTTON_LEFT && colorPicker.mouseClicked(mouseX, mouseY)) return true;
+            if (!colorPicker.popupContains(mouseX, mouseY)) colorPicker.close();
+            return true;
+        }
+        if (configInspection != null) {
+            if (configInspection.close().contains(mouseX, mouseY) || !configInspection.panel().contains(mouseX, mouseY)) {
+                inspectConfigId = "";
+                configInspection = null;
+            }
+            return true;
+        }
+        if (click.button() == GLFW.GLFW_MOUSE_BUTTON_LEFT
+                && dev.c4lam.celeste.hud.HudManager.getInstance().handleIslandClick(click.x(), click.y())) return true;
         if (selectedPage == CelestePage.FRIENDS && click.button() == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
             boolean insideContent = hovered(mouseX, mouseY, contentX, contentY, contentWidth, contentHeight);
             if (insideContent) {
@@ -1411,6 +1522,7 @@ public final class CelesteScreen extends Screen {
             }
         }
         if (click.button() == GLFW.GLFW_MOUSE_BUTTON_MIDDLE && selectedPage == CelestePage.FRIENDS) {
+            if (!inside(mouseX, mouseY, contentX, contentY, contentWidth, contentHeight)) return false;
             for (FriendHit hit : friendHits) {
                 if (hit.contains(mouseX, mouseY)) {
                     FriendManager.getInstance().removeFriend(hit.friend().uuid());
@@ -1422,17 +1534,9 @@ public final class CelesteScreen extends Screen {
         if (click.button() != GLFW.GLFW_MOUSE_BUTTON_LEFT && click.button() != GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
             return false;
         }
-        if (colorPicker.mouseClicked(mouseX, mouseY)) {
-            return true;
-        }
-        if (colorPicker.isOpen() && !colorPicker.popupContains(mouseX, mouseY)) {
-            colorPicker.close();
-            return true;
-        }
-
         if (selectedPage == CelestePage.FRIENDS && click.button() == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
             for (SuggestionHit hit : suggestionHits) {
-                if (hit.contains(mouseX, mouseY)) {
+                if (inside(mouseX, mouseY, contentX, contentY, contentWidth, contentHeight) && hit.contains(mouseX, mouseY)) {
                     addSuggestedFriend(hit.suggestion());
                     friendFieldFocused = true;
                     searchFocused = false;
@@ -1440,7 +1544,8 @@ public final class CelesteScreen extends Screen {
                     return true;
                 }
             }
-            if (friendFieldHit != null && friendFieldHit.contains(mouseX, mouseY)) {
+            if (friendFieldHit != null && inside(mouseX, mouseY, contentX, contentY, contentWidth, contentHeight)
+                    && friendFieldHit.contains(mouseX, mouseY)) {
                 friendFieldFocused = true;
                 friendSuggestionIndex = 0;
                 searchFocused = false;
@@ -1476,14 +1581,19 @@ public final class CelesteScreen extends Screen {
 
         for (NavHit hit : navHits) {
             if (click.button() == GLFW.GLFW_MOUSE_BUTTON_LEFT && hit.contains(mouseX, mouseY)) {
+                searchFocused = configFieldFocused = friendFieldFocused = false;
+                listeningKeybind = null;
+                listeningMenuKey = false;
                 if (hit.page() == CelestePage.HUD) {
-                    client.setScreen(new HudEditorScreen(this));
+                    client.setScreen(new HudEditorScreen(this, hudTour() == null ? null : this));
                     return true;
                 }
                 if (selectedPage != hit.page()) {
                     pageChangedAt = System.nanoTime();
                 }
                 selectedPage = hit.page();
+                InterfaceConfig.rememberSidebarPage(selectedPage, tour != null);
+                if (tour != null) tour.state().selectedPage(selectedPage.label());
                 collapseAllModules();
                 listeningKeybind = null;
                 contentScroll = targetScroll = 0;
@@ -1592,9 +1702,11 @@ public final class CelesteScreen extends Screen {
                     itemPick.next();
                 }
             } else if (hit.setting() instanceof GuiSetting.Slider slider) {
+                if (click.button() != GLFW.GLFW_MOUSE_BUTTON_LEFT) return true;
                 draggingSlider = slider;
                 updateDraggedSlider(mouseX);
             } else if (hit.setting() instanceof GuiSetting.Range range) {
+                if (click.button() != GLFW.GLFW_MOUSE_BUTTON_LEFT) return true;
                 draggingRange = range;
                 float lowX = hit.x() + hit.width() * (float) range.lowProgress();
                 float highX = hit.x() + hit.width() * (float) range.highProgress();
@@ -1612,10 +1724,16 @@ public final class CelesteScreen extends Screen {
             if (!insideContent || !hit.contains(mouseX, mouseY)) {
                 continue;
             }
-            if (click.button() == GLFW.GLFW_MOUSE_BUTTON_RIGHT && !hit.module().settings().isEmpty()) {
+            if (click.button() == GLFW.GLFW_MOUSE_BUTTON_RIGHT && !hit.module().visibleSettings().isEmpty()) {
                 expandedModule = expandedModule == hit.module() ? null : hit.module();
+                if (tour != null) {
+                    tour.state().settingsClosed();
+                    if (expandedModule == hit.module()) tour.state().settingsOpened(hit.module().name());
+                }
             } else if (click.button() == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+                boolean before = hit.module().enabled();
                 hit.module().toggle();
+                if (tour != null) tour.state().moduleChanged(hit.module().name(), before, hit.module().enabled());
             }
             return true;
         }
@@ -1625,6 +1743,7 @@ public final class CelesteScreen extends Screen {
 
     @Override
     public boolean mouseReleased(Click click) {
+        if (click.button() != GLFW.GLFW_MOUSE_BUTTON_LEFT) return super.mouseReleased(click);
         double mouseX = click.x() / uiScale;
         double mouseY = click.y() / uiScale;
         colorPicker.mouseReleased(mouseX, mouseY);
@@ -1639,6 +1758,7 @@ public final class CelesteScreen extends Screen {
 
     @Override
     public boolean mouseDragged(Click click, double deltaX, double deltaY) {
+        if (click.button() != GLFW.GLFW_MOUSE_BUTTON_LEFT) return super.mouseDragged(click, deltaX, deltaY);
         colorPicker.drag(click.x() / uiScale, click.y() / uiScale);
         if (draggingSlider != null) {
             updateDraggedSlider(click.x() / uiScale);
@@ -1657,13 +1777,20 @@ public final class CelesteScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
+        if (tour != null && tour.contains(mouseX / uiScale, mouseY / uiScale)) return true;
+        if (colorPicker.isOpen()) return true;
+        if (configInspection != null) {
+            if (configInspection.panel().contains(mouseX / uiScale, mouseY / uiScale))
+                inspectionScroll = GuiContentLayout.scroll(inspectionScroll + (float) verticalAmount * 24, configInspection.minimumScroll());
+            return true;
+        }
         if (isControlDown()) {
             InterfaceConfig.setScale(InterfaceConfig.scale() + verticalAmount * 0.06);
             return true;
         }
         if (hovered(mouseX / uiScale, mouseY / uiScale, contentX, contentY, contentWidth, contentHeight)
             && (selectedPage.feature() || selectedPage == CelestePage.CONFIGS || selectedPage == CelestePage.FRIENDS)) {
-            targetScroll += (float) verticalAmount * 24;
+            targetScroll = GuiContentLayout.scroll(targetScroll + (float) verticalAmount * 24, configScrollMin);
             return true;
         }
         return super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
@@ -1671,6 +1798,30 @@ public final class CelesteScreen extends Screen {
 
     @Override
     public boolean keyPressed(KeyInput input) {
+        if (input.isEscape() && colorPicker.isOpen()) {
+            colorPicker.close();
+            return true;
+        }
+        if (input.isEscape() && configInspection != null) {
+            inspectConfigId = "";
+            configInspection = null;
+            return true;
+        }
+        if (configInspection != null) return true;
+        if (tour != null) {
+            if (tour.closing()) return true;
+            boolean textFocused = searchFocused || configFieldFocused || friendFieldFocused || listeningKeybind != null || listeningMenuKey;
+            if (tour.state().dismissShortcut(input.isEscape(), input.key() == InterfaceConfig.menuKey(), textFocused)) {
+                finishTour();
+                return true;
+            } else if (!textFocused && (input.isEnter() || input.key() == GLFW.GLFW_KEY_RIGHT)) {
+                advanceTour(false);
+                return true;
+            } else if (!textFocused && input.key() == GLFW.GLFW_KEY_LEFT) {
+                advanceTour(true);
+                return true;
+            }
+        }
         if (listeningKeybind != null) {
             listeningKeybind.setKeyCode(input.isEscape() || input.key() == GLFW.GLFW_KEY_DELETE || input.key() == GLFW.GLFW_KEY_BACKSPACE
                 ? GLFW.GLFW_KEY_UNKNOWN
@@ -1689,7 +1840,7 @@ public final class CelesteScreen extends Screen {
             listeningMenuKey = false;
             return true;
         }
-        if (input.key() == InterfaceConfig.menuKey()) {
+        if (input.key() == InterfaceConfig.menuKey() && !(searchFocused || configFieldFocused || friendFieldFocused)) {
             client.setScreen(null);
             return true;
         }
@@ -1706,7 +1857,7 @@ public final class CelesteScreen extends Screen {
                 }
             }
             if ((input.key() == GLFW.GLFW_KEY_DELETE || input.key() == GLFW.GLFW_KEY_BACKSPACE) && !friendInput.isEmpty()) {
-                friendInput = friendInput.substring(0, friendInput.length() - 1);
+                friendInput = GuiContentLayout.withoutLastCodePoint(friendInput);
                 friendSuggestionIndex = 0;
                 return true;
             }
@@ -1739,7 +1890,7 @@ public final class CelesteScreen extends Screen {
                 return true;
             }
             if ((input.key() == GLFW.GLFW_KEY_DELETE || input.key() == GLFW.GLFW_KEY_BACKSPACE) && !configInput.isEmpty()) {
-                configInput = configInput.substring(0, configInput.length() - 1);
+                configInput = GuiContentLayout.withoutLastCodePoint(configInput);
                 return true;
             }
             if (input.isEnter()) {
@@ -1776,6 +1927,8 @@ public final class CelesteScreen extends Screen {
 
     @Override
     public boolean charTyped(CharInput input) {
+        if (tour != null && tour.closing()) return true;
+        if (configInspection != null || colorPicker.isOpen()) return true;
         if (friendFieldFocused && input.isValidChar() && friendInput.length() < 16) {
             friendInput += input.asString();
             friendSuggestionIndex = 0;
@@ -1817,6 +1970,118 @@ public final class CelesteScreen extends Screen {
         listeningKeybind = null;
         GuiCursors.restoreNative(client);
         super.removed();
+    }
+
+    private void startTour() {
+        if (!plusRuntime) return;
+        tourReturnPage = selectedPage;
+        tour = new FirstUseTour();
+        resetTourInputs();
+    }
+
+    private void finishTour() {
+        if (tour == null || tour.closing()) return;
+        tour.dismiss();
+        resetTourInputs();
+        try {
+            TOUR_STORE.dismiss();
+        } catch (java.io.IOException exception) {
+            dev.c4lam.celeste.compat.RuntimeLogging.getLogger("Celeste/GUI")
+                .warn("Could not save first-use preference", exception);
+        }
+    }
+
+    private void resetTourInputs() {
+        draggingSlider = null;
+        draggingRange = null;
+        draggingConfig = null;
+        listeningKeybind = null;
+        listeningMenuKey = false;
+        searchFocused = configFieldFocused = friendFieldFocused = false;
+        search = "";
+        searchRevealTimes.clear();
+        contentScroll = targetScroll = 0;
+        collapseAllModules();
+    }
+
+    private void advanceTour(boolean back) {
+        if (tour == null || tour.closing()) return;
+        if (!back && tour.state().step() == FirstUseTourState.Step.READY) {
+            finishTour();
+            return;
+        }
+        if (back) tour.back(); else tour.next();
+        resetTourInputs();
+        selectedPage = switch (tour.state().step()) {
+            case WELCOME, BROWSE -> CelestePage.SWORD;
+            case MODULES, SETTINGS, SEARCH -> CelestePage.VISUALS;
+            case CONFIGS, HUD, READY -> CelestePage.CONFIGS;
+        };
+        if (tour.state().step() == FirstUseTourState.Step.CONFIGS) configTab = ConfigLibrary.Tab.MY;
+        pageChangedAt = System.nanoTime();
+    }
+
+    private ModuleHit tourModule() {
+        return moduleHits.stream().filter(hit -> FirstUseTourState.MODULE.equals(hit.module().name())).findFirst().orElse(null);
+    }
+
+    private FirstUseTour.Rect tourTarget() {
+        if (tour == null) return null;
+        FirstUseTourState.Step step = tour.state().step();
+        if (step == FirstUseTourState.Step.SETTINGS && expandedModule != null
+                && FirstUseTourState.MODULE.equals(expandedModule.name())) {
+            for (SettingHit hit : settingHits) if (FirstUseTourState.SETTING.equals(hit.setting().label()))
+                return new FirstUseTour.Rect(hit.x(), hit.y() - 15, hit.width(), hit.height() + 15);
+        }
+        if (step == FirstUseTourState.Step.MODULES || step == FirstUseTourState.Step.SETTINGS) {
+            ModuleHit hit = tourModule();
+            if (hit == null) return null;
+            return step == FirstUseTourState.Step.MODULES
+                ? new FirstUseTour.Rect(hit.x() + hit.width() - 43, hit.y() + 19, 28, 16)
+                : new FirstUseTour.Rect(hit.x(), hit.y(), hit.width(), hit.height());
+        }
+        if (step == FirstUseTourState.Step.SEARCH) {
+            float searchWidth = Math.min(176, contentWidth * 0.32f);
+            return new FirstUseTour.Rect(panelX + panelWidth - 22 - searchWidth,
+                panelY + (1 - openAnimation()) * 18 + 23, searchWidth, 29);
+        }
+        if (step == FirstUseTourState.Step.CONFIGS && selectedPage == CelestePage.CONFIGS && configFieldHit != null) {
+            FieldHit field = configFieldHit;
+            if (!configInput.isBlank()) for (ActionHit hit : actionHits) if ("Save".equals(hit.action()))
+                return new FirstUseTour.Rect(hit.x(), hit.y(), hit.width(), hit.height());
+            return new FirstUseTour.Rect(field.x(), field.y(), field.width(), field.height());
+        }
+        CelestePage page = switch (step) {
+            case BROWSE -> CelestePage.VISUALS;
+            case CONFIGS -> CelestePage.CONFIGS;
+            case HUD -> CelestePage.HUD;
+            default -> null;
+        };
+        for (NavHit hit : navHits) if (hit.page() == page)
+            return new FirstUseTour.Rect(hit.x(), hit.y(), hit.width(), hit.height());
+        return null;
+    }
+
+    private boolean handleTourClick(Click click) {
+        double x = click.x() / uiScale, y = click.y() / uiScale;
+        FirstUseTour.Action action = tour.click(x, y, click.button());
+        if (action == FirstUseTour.Action.DISMISS) { finishTour(); return true; }
+        if (action == FirstUseTour.Action.NEXT) { advanceTour(false); return true; }
+        if (action == FirstUseTour.Action.BACK) { advanceTour(true); return true; }
+        if (action == FirstUseTour.Action.HANDLED || tour.closing()) return true;
+        FirstUseTourState.Step step = tour.state().step();
+        // Practice clicks continue through the same handlers used without the tour.
+        return step == FirstUseTourState.Step.WELCOME || step == FirstUseTourState.Step.READY;
+    }
+
+    public FirstUseTour hudTour() {
+        return tour != null && !tour.closing() && tour.state().step() == FirstUseTourState.Step.HUD ? tour : null;
+    }
+
+    public void handleHudTourAction(FirstUseTour.Action action) {
+        if (action == FirstUseTour.Action.DISMISS) finishTour();
+        else if (action == FirstUseTour.Action.NEXT) advanceTour(false);
+        else if (action == FirstUseTour.Action.BACK) advanceTour(true);
     }
 
     private void layout() {
@@ -1877,7 +2142,10 @@ public final class CelesteScreen extends Screen {
             }
             float sliderX = hit.x();
             double progress = clamp((float) ((mouseX - sliderX) / hit.width()), 0, 1);
+            double before = draggingSlider.value();
             draggingSlider.setValue(draggingSlider.minimum() + (draggingSlider.maximum() - draggingSlider.minimum()) * progress);
+            if (tour != null && expandedModule != null)
+                tour.state().settingChanged(expandedModule.name(), draggingSlider.label(), before, draggingSlider.value());
             break;
         }
     }
@@ -1927,7 +2195,7 @@ public final class CelesteScreen extends Screen {
             return;
         }
         int available = 32 - search.length();
-        String addition = value.substring(0, Math.min(available, value.length()));
+        String addition = value.substring(0, GuiContentLayout.prefixBoundary(value, Math.min(available, value.length())));
         long now = System.nanoTime();
         search += addition;
         for (int index = 0; index < addition.length(); index++) {
@@ -1936,7 +2204,7 @@ public final class CelesteScreen extends Screen {
     }
 
     private void setSearchLength(int length) {
-        int clampedLength = Math.max(0, Math.min(length, search.length()));
+        int clampedLength = GuiContentLayout.prefixBoundary(search, length);
         search = search.substring(0, clampedLength);
         while (searchRevealTimes.size() > clampedLength) {
             searchRevealTimes.remove(searchRevealTimes.size() - 1);
@@ -1951,7 +2219,7 @@ public final class CelesteScreen extends Screen {
         while (visible < search.length() && searchRevealTimes.get(visible) <= now) {
             visible++;
         }
-        return visible;
+        return GuiContentLayout.prefixBoundary(search, visible);
     }
 
     private float searchCharacterFade(int index, long now) {
@@ -1964,6 +2232,7 @@ public final class CelesteScreen extends Screen {
 
     private void collapseAllModules() {
         expandedModule = null;
+        if (tour != null) tour.state().settingsClosed();
         expansionAnimations.clear();
         colorPicker.close();
     }
@@ -2062,7 +2331,10 @@ public final class CelesteScreen extends Screen {
     }
 
     private static String trim(String value, int maximum) {
-        return value.length() <= maximum ? value : value.substring(0, Math.max(0, maximum - 1)) + "...";
+        if (value == null) return "";
+        int count = value.codePointCount(0, value.length());
+        return count <= maximum ? value
+            : value.substring(0, value.offsetByCodePoints(0, Math.max(0, maximum - 1))) + "…";
     }
 
     private boolean hovered(double mouseX, double mouseY, float x, float y, float width, float height) {
@@ -2078,11 +2350,14 @@ public final class CelesteScreen extends Screen {
     }
 
     private boolean overInteractive(double mouseX, double mouseY) {
+        if (colorPicker.isOpen()) return colorPicker.popupContains(mouseX, mouseY);
+        if (configInspection != null) return configInspection.close().contains(mouseX, mouseY);
         for (NavHit hit : navHits) {
             if (hit.contains(mouseX, mouseY)) {
                 return true;
             }
         }
+        if (!inside(mouseX, mouseY, contentX, contentY, contentWidth, contentHeight)) return false;
         for (ModuleHit hit : moduleHits) {
             if (hit.contains(mouseX, mouseY)) {
                 return true;
@@ -2156,7 +2431,7 @@ public final class CelesteScreen extends Screen {
     }
 
     private enum FrostedOption {
-        GLASSY("Glassy", "Amount of the world visible in glass", InterfaceConfig.MIN_GLASSY, InterfaceConfig.MAX_GLASSY) {
+        GLASSY("Glassy", "Glass transparency", InterfaceConfig.MIN_GLASSY, InterfaceConfig.MAX_GLASSY) {
             @Override
             float value() {
                 return InterfaceConfig.glassy();
@@ -2167,7 +2442,7 @@ public final class CelesteScreen extends Screen {
                 InterfaceConfig.setGlassy(value);
             }
         },
-        PASSES("Passes", "Blur quality and GPU workload", InterfaceConfig.MIN_PASSES, InterfaceConfig.MAX_PASSES) {
+        PASSES("Passes", "Blur quality", InterfaceConfig.MIN_PASSES, InterfaceConfig.MAX_PASSES) {
             @Override
             float value() {
                 return InterfaceConfig.passes();
@@ -2178,7 +2453,7 @@ public final class CelesteScreen extends Screen {
                 InterfaceConfig.setPasses(value);
             }
         },
-        OFFSET("Offset", "Width of the frosted blur spread", InterfaceConfig.MIN_OFFSET, InterfaceConfig.MAX_OFFSET) {
+        OFFSET("Offset", "Blur spread", InterfaceConfig.MIN_OFFSET, InterfaceConfig.MAX_OFFSET) {
             @Override
             float value() {
                 return InterfaceConfig.offset();
@@ -2382,7 +2657,10 @@ public final class CelesteScreen extends Screen {
                     library.toggleFavourite(id);
                     setConfigStatus(library.isFavourite(id) ? "Favourited" : "Unfavourited");
                 }
-                case "gear" -> inspectConfigId = id.equals(inspectConfigId) ? "" : id;
+                case "gear" -> {
+                    inspectConfigId = id.equals(inspectConfigId) ? "" : id;
+                    inspectionScroll = 0;
+                }
                 case "publish" -> {
                     if (card != null && card.origin() == ConfigLibrary.Tab.MY) {
                         runCloudConfigAction(library.publishPublicAsync(card.name()), "Publishing " + card.name() + "...");
@@ -2433,6 +2711,7 @@ public final class CelesteScreen extends Screen {
                         configs.saveActive();
                         setConfigStatus("Saved " + configs.active());
                     }
+                    if (tour != null && !configInput.isBlank()) tour.state().configSaved(configs.active(), true);
                 }
                 case "Import" -> {
                     configs.importFromPath(configInput);
@@ -2466,6 +2745,7 @@ public final class CelesteScreen extends Screen {
 
 
     private void setPendingTooltip(float x, float y, String text) {
+        if (!inside(x, y, contentX, contentY, contentWidth, contentHeight)) return;
         pendingTooltip = text == null ? "" : text;
         pendingTooltipX = x + 12;
         pendingTooltipY = y + 16;
@@ -2474,6 +2754,31 @@ public final class CelesteScreen extends Screen {
     private void setConfigStatus(String message) {
         configStatus = message == null ? "" : message;
         configStatusUntil = System.nanoTime() + 4_000_000_000L;
+    }
+
+    private static String fitText(String value, float width, Font font, float size) {
+        return GuiContentLayout.fit(value, width, text -> font.getWidth(text, size));
+    }
+
+    private float settingControlWidth(GuiSetting setting, float rowWidth) {
+        if (setting instanceof GuiSetting.Slider || setting instanceof GuiSetting.Range) return 84;
+        String value = setting instanceof GuiSetting.Mode mode ? mode.value()
+            : setting instanceof GuiSetting.ItemPick item ? itemPickName(item)
+            : setting instanceof GuiSetting.Keybind key ? listeningKeybind == key ? "Press key" : keyName(key.keyCode())
+            : null;
+        return value == null ? 28 : Math.min(rowWidth * 0.5f, Math.max(51, Fonts.semibold().getWidth(value, 7.2f) + 17));
+    }
+
+    private void addSettingHit(GuiSetting setting, float x, float y, float width, float height, float clipTop, float clipBottom) {
+        GuiContentLayout.Box hit = new GuiContentLayout.Box(x, y, width, height)
+            .intersect(new GuiContentLayout.Box(x, clipTop, width, clipBottom - clipTop));
+        if (hit.width() > 0 && hit.height() > 0)
+            settingHits.add(new SettingHit(setting, hit.x(), hit.y(), hit.width(), hit.height()));
+    }
+
+    private void updateScrollBounds(float minimum) {
+        configScrollMin = minimum;
+        targetScroll = GuiContentLayout.scroll(targetScroll, minimum);
     }
 
     private void runCloudConfigAction(java.util.concurrent.CompletableFuture<String> action, String pending) {

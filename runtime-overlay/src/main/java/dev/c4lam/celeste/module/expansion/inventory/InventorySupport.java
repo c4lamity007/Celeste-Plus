@@ -9,6 +9,7 @@ import dev.c4lam.celeste.rotation.RotationTask;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.screen.ingame.HandledScreen;
 import net.minecraft.client.gui.screen.ingame.InventoryScreen;
+import net.minecraft.client.gui.screen.recipebook.RecipeBookWidget;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.client.util.InputUtil;
 import net.minecraft.client.world.ClientWorld;
@@ -184,8 +185,9 @@ public static void requestRotation(Object owner, ClientPlayerEntity player, Vec3
     public static boolean actionKeyDown(ModuleContext context) {
         int key = context.keybind("Action");
         MinecraftClient client = context.client();
+        // Track the physical hold through screens; callers gate whether a fresh press may act.
         return key != GLFW.GLFW_KEY_UNKNOWN && key >= 0 && client.getWindow() != null
-            && client.currentScreen == null && InputUtil.isKeyPressed(client.getWindow(), key);
+            && InputUtil.isKeyPressed(client.getWindow(), key);
     }
 
     public static boolean playerInventoryAvailable(MinecraftClient client) {
@@ -197,6 +199,15 @@ public static void requestRotation(Object owner, ClientPlayerEntity player, Vec3
         }
         return client.player.currentScreenHandler == client.player.playerScreenHandler
             && client.player.playerScreenHandler.getCursorStack().isEmpty();
+    }
+
+    /** Only the ordinary, visible survival inventory; never a silent/custom screen. */
+    public static boolean visibleInventoryAvailable(MinecraftClient client) {
+        return client != null && client.world != null && client.currentScreen != null
+            && client.isWindowFocused() && client.getOverlay() == null
+            && client.currentScreen.getClass() == InventoryScreen.class
+            && playerInventoryAvailable(client) && client.player.isAlive() && !client.player.isSpectator()
+            && ((InventoryScreen) client.currentScreen).getScreenHandler() == client.player.playerScreenHandler;
     }
 
     /**
@@ -290,10 +301,54 @@ public static boolean executeClick(MinecraftClient client, ClickIntent intent, i
     }
 
     public static Slot focusedSlot(MinecraftClient client) {
+        if (client.currentScreen instanceof InventoryScreen) {
+            if (!visibleInventoryAvailable(client) || client.getWindow() == null) return null;
+            double mouseX = client.mouse.getScaledX(client.getWindow());
+            double mouseY = client.mouse.getScaledY(client.getWindow());
+            for (Slot slot : client.player.playerScreenHandler.slots) {
+                SlotBounds bounds = slotBounds(client, slot);
+                if (bounds != null && bounds.contains(mouseX, mouseY)) return slot;
+            }
+            return null;
+        }
         if (!(client.currentScreen instanceof HandledScreen<?> handled)) {
             return null;
         }
         return MinecraftAccess.focusedSlot(handled);
+    }
+
+    /**
+     * Current scaled-screen hit rectangle, including vanilla's one-pixel margin.
+     * The real recipe-book child supplies the same public findLeftEdge result
+     * used by RecipeBookScreen.init/toggle; no cached render-time focus or new
+     * private-member binding is needed on either normal Fabric or Celeste+.
+     */
+    public static SlotBounds slotBounds(MinecraftClient client, Slot slot) {
+        if (!visibleInventoryAvailable(client) || slot == null || !slot.isEnabled()) return null;
+        InventoryScreen screen = (InventoryScreen) client.currentScreen;
+        if (slot.id < 0 || slot.id >= screen.getScreenHandler().slots.size()
+            || screen.getScreenHandler().slots.get(slot.id) != slot
+            || screen.width <= 0 || screen.height <= 0) return null;
+        for (var child : screen.children()) {
+            if (child instanceof RecipeBookWidget<?> book) {
+                // Vanilla consumes all inventory clicks while the narrow book overlays it.
+                if (screen.width < 379 && book.isOpen()) return null;
+                int left = book.findLeftEdge(screen.width, 176);
+                int top = (screen.height - 166) / 2;
+                return new SlotBounds(left + slot.x - 1, top + slot.y - 1, 18, 18);
+            }
+        }
+        // Not initialized, or another mod has replaced the expected vanilla layout.
+        return null;
+    }
+
+    public record SlotBounds(double x, double y, double width, double height) {
+        public boolean contains(double mouseX, double mouseY) {
+            return mouseX >= x && mouseX < x + width && mouseY >= y && mouseY < y + height;
+        }
+
+        public double centerX() { return x + width / 2.0D; }
+        public double centerY() { return y + height / 2.0D; }
     }
 
     record ClickIntent(ClientWorld world, ScreenHandler handler, int syncId, int slotId,

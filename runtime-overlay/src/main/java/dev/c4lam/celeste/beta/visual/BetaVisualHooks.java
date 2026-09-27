@@ -4,17 +4,27 @@ import dev.c4lam.celeste.CelesteClient;
 import dev.c4lam.celeste.compat.SkyboxHooks;
 import dev.c4lam.celeste.compat.PresentationHooks;
 import dev.c4lam.celeste.module.impl.visual.expansion.SwingSpeedFeature;
+import dev.c4lam.celeste.module.impl.visual.expansion.HandModelsFeature;
+import dev.c4lam.celeste.module.impl.visual.expansion.HandShadersRenderer;
+import dev.c4lam.celeste.module.impl.visual.expansion.ItemEspFeature;
 import dev.celestebeta.host.VisualHookBridge;
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.network.AbstractClientPlayerEntity;
+import net.minecraft.client.util.math.MatrixStack;
+import net.minecraft.util.Hand;
+import net.minecraft.item.ItemDisplayContext;
+import net.minecraft.item.ItemStack;
 import net.minecraft.client.gui.Click;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.hud.InGameHud;
 import net.minecraft.client.render.Camera;
 import net.minecraft.client.render.RenderTickCounter;
 import net.minecraft.client.render.entity.state.LivingEntityRenderState;
+import net.minecraft.client.render.entity.state.ItemEntityRenderState;
 import net.minecraft.client.render.state.SkyRenderState;
 import net.minecraft.client.world.ClientWorld;
 import net.minecraft.entity.LivingEntity;
+import net.minecraft.entity.ItemEntity;
 
 /** Payload-side bindings; the host retains only the JDK interface until close. */
 public final class BetaVisualHooks implements VisualHookBridge.Handler, AutoCloseable {
@@ -66,12 +76,38 @@ public final class BetaVisualHooks implements VisualHookBridge.Handler, AutoClos
         if (CelesteClient.active()) PresentationHooks.applyServerRotation((LivingEntity) entity, (LivingEntityRenderState) state);
     }
 
+    public void highlightItem(Object entity, Object state) {
+        if (CelesteClient.active()) ItemEspFeature.applyModelHighlight((ItemEntity) entity, (ItemEntityRenderState) state);
+    }
+
     public boolean replacePlayerModel(Object state) {
         return CelesteClient.active() && PresentationHooks.replacePlayerModel((LivingEntityRenderState) state);
     }
 
+    public void transformHand(Object player, Object hand, Object matrices) {
+        if (CelesteClient.active()) HandModelsFeature.transform((AbstractClientPlayerEntity) player, (Hand) hand, (MatrixStack) matrices);
+    }
+
+    public void transformHand(Object player, Object hand, Object item, Object matrices) {
+        if (CelesteClient.active()) HandModelsFeature.transform((AbstractClientPlayerEntity) player, (Hand) hand,
+            (ItemStack) item, (MatrixStack) matrices);
+    }
+
+    public VisualHookBridge.HandPass beginHands() {
+        return CelesteClient.active() ? HandShadersRenderer.begin() : null;
+    }
+
+    public Object handDisplayContext(Object original) {
+        return CelesteClient.active() ? HandModelsFeature.displayContext((ItemDisplayContext) original) : original;
+    }
+
+    public Object handDisplayContext(Object original, Object item) {
+        return CelesteClient.active() ? HandModelsFeature.displayContext((ItemDisplayContext) original, (ItemStack) item) : original;
+    }
+
     @Override public void close() {
         registration.close();
+        HandShadersRenderer.releaseResources();
         SkyboxHooks.clear();
     }
 }

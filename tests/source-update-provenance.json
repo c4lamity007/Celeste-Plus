@@ -1,0 +1,394 @@
+{
+  "schema": "celeste-plus-source-update-1",
+  "destinationRepository": "https://github.com/c4lamity007/Celeste-Plus",
+  "priorPlusCommit": "74212a6441fabbd952f112226bbf5e040b3cb42e",
+  "developmentSourceCommit": "ae01f2d08bb70904cc8ff95102e56f555662e870",
+  "coreLock": {
+    "schema": "celeste-plus-core-lock-1",
+    "repository": "https://github.com/c4lamity007/Celeste.git",
+    "commit": "25b69e69add42462eb88640fad13a725a4a4144d",
+    "overlayManifestSha256": "d2e5c8b94f090b6b33c58d8b8bc458aa6140aaea40c519c1a5244b1d7ed90260"
+  },
+  "runtime": {
+    "status": "PASS",
+    "source_commit": "ae01f2d08bb70904cc8ff95102e56f555662e870",
+    "core_commit": "25b69e69add42462eb88640fad13a725a4a4144d",
+    "src_main_files": 568,
+    "exact_latest_source_files": 567,
+    "overlay_files": 188,
+    "missing": [],
+    "extra": [],
+    "unexpected_differences": [],
+    "intentional_merges": [
+      {
+        "path": "src/main/java/dev/c4lam/celeste/CelesteClient.java",
+        "commit": "74212a6441fabbd952f112226bbf5e040b3cb42e",
+        "scope": "Retain exact standalone screen cleanup block: model import, silent inventory normal close, disposable-loader ownership guard",
+        "sha256": "158aae5360bf04fb607d504e7a034941d675a1fee02972959da35951d91ed634"
+      }
+    ],
+    "overlay_manifest_sha256": "d2e5c8b94f090b6b33c58d8b8bc458aa6140aaea40c519c1a5244b1d7ed90260",
+    "published": false
+  },
+  "native": {
+    "crate": "celeste-plus-launcher",
+    "binary": "CelestePlus",
+    "files": [
+      {
+        "path": "beta-lab/native-launcher/src/atomic_store.rs",
+        "sha256": "56428d1d00c9b16037425454c6ae427c0b7e5e8668a186824f454ff9a2232965",
+        "source": "beta-lab/native-launcher/src/atomic_store.rs",
+        "adapted": false
+      },
+      {
+        "path": "beta-lab/native-launcher/src/attach.rs",
+        "sha256": "b07d22ab98e407b61de9bbe4df4d69ec7493b92744bc051b8e24c99ed3420817",
+        "source": "beta-lab/native-launcher/src/attach.rs",
+        "adapted": false
+      },
+      {
+        "path": "beta-lab/native-launcher/src/auth.rs",
+        "sha256": "6aa2d742243bb6372f6cc4942c9135823f9179b728170a0ed259b1c51ac06e57",
+        "source": "beta-lab/native-launcher/src/auth.rs",
+        "adapted": true
+      },
+      {
+        "path": "beta-lab/native-launcher/src/credential_protection.rs",
+        "sha256": "00b8ec9af0bbf4a7924437374fd2d9dd997c952688bc8044b50dd5cd875d1afa",
+        "source": "beta-lab/native-launcher/src/credential_protection.rs",
+        "adapted": false
+      },
+      {
+        "path": "beta-lab/native-launcher/src/delivery.rs",
+        "sha256": "0014580f0ea7212ef69386bd6cdfbe0b4eb7b33cacfedacf2167db9bd96bc76f",
+        "source": "beta-lab/native-launcher/src/delivery.rs",
+        "adapted": false
+      },
+      {
+        "path": "beta-lab/native-launcher/src/main.rs",
+        "sha256": "b150e8ba4604d115c1f8eaf667a3dd8a2d3824a0a06b6b3250ce6a37912ff241",
+        "source": "beta-lab/native-launcher/src/main.rs",
+        "adapted": true
+      },
+      {
+        "path": "beta-lab/native-launcher/src/platform.rs",
+        "sha256": "4b991d28d6821b1492101a7a21fb66c32464c52d2aece25960d1c5f83e0a28c8",
+        "source": "beta-lab/native-launcher/src/platform.rs",
+        "adapted": false
+      },
+      {
+        "path": "beta-lab/native-launcher/src/process_unix.rs",
+        "sha256": "e83d1fba01cbe0b22d0fe5750770baea6620e4492ecd3ce1396b1b311cbd8ef9",
+        "source": "beta-lab/native-launcher/src/process_unix.rs",
+        "adapted": false
+      },
+      {
+        "path": "beta-lab/native-launcher/src/process_windows.rs",
+        "sha256": "aea51234baae67c5298158f348003afbc681ce676be43ee6b8ada0e466a8ce8c",
+        "source": "beta-lab/native-launcher/src/process_windows.rs",
+        "adapted": false
+      },
+      {
+        "path": "beta-lab/native-launcher/src/release.rs",
+        "sha256": "0181d4374a7e026e2e2687970870282903a376fca1369c33f850f0a889ad23e0",
+        "source": "beta-lab/native-launcher/src/release.rs",
+        "adapted": false
+      },
+      {
+        "path": "beta-lab/native-launcher/src/windows_profile.rs",
+        "sha256": "86317e02d78b734a89278d5a29fd0f8d1307d77cc236a9665cebc97068e2824e",
+        "source": "beta-lab/native-launcher/src/windows_profile.rs",
+        "adapted": false
+      },
+      {
+        "path": "beta-lab/native-launcher/Cargo.toml",
+        "sha256": "1a1f84549227e4bb765e0d22f3fae80ac88b1d5c89a38b3e4f3e638cbdb5fa93",
+        "source": "beta-lab/native-launcher/Cargo.toml",
+        "adapted": true
+      },
+      {
+        "path": "beta-lab/native-launcher/Cargo.lock",
+        "sha256": "8eafa1e7cdcfd1cca6de9d3706959a69c0683759007a795ce2b69bfb4b102f8d",
+        "source": "beta-lab/native-launcher/Cargo.lock",
+        "adapted": true
+      },
+      {
+        "path": "beta-lab/native-shared/src/environment_guard.rs",
+        "sha256": "6f9137bcdf1e39b9c5928224e468773e6a38242304bb24d0e04fc8691d5e8c43",
+        "source": "native-verifier/src/environment_guard.rs",
+        "adapted": false
+      },
+      {
+        "path": "beta-lab/native-shared/src/native_manifest.rs",
+        "sha256": "80a49609a9d89506f5f92861f7f13a9abcc61ffb46e156b87e5d01f703d404b7",
+        "source": "native-verifier/src/native_manifest.rs",
+        "adapted": false
+      },
+      {
+        "path": "beta-lab/native-shared/src/portable_credential_protection.rs",
+        "sha256": "af64d6ca46d4f3fc51ce8965dc4640d1fdf9390d15d305676f3461021053f770",
+        "source": "native-verifier/src/portable_credential_protection.rs",
+        "adapted": false
+      },
+      {
+        "path": "beta-lab/native-shared/src/portable_hardware.rs",
+        "sha256": "be9d5741cf9b0e0feadde7f5763203060f1362d3e069275368dfee303b29c11b",
+        "source": "native-verifier/src/portable_hardware.rs",
+        "adapted": false
+      },
+      {
+        "path": "beta-lab/native-shared/src/user_profile.rs",
+        "sha256": "2e7c96d86f110bfe2e7bb87d46c706d6f2b0b50a9e44f87b2d5b5bae344b25de",
+        "source": "native-verifier/src/user_profile.rs",
+        "adapted": false
+      },
+      {
+        "path": "shared-auth/dpop.rs",
+        "sha256": "fa1b2810d09e3000c7fc6cdd1964797d5ec0acf925f21f2f658379ad39402aba",
+        "source": "shared-auth/dpop.rs",
+        "adapted": false
+      },
+      {
+        "path": "shared-auth/secret_buffer_tests.rs",
+        "sha256": "4026bfdd0adda910e997df617b82b927186e2501c3d73cf5376729511e7ec214",
+        "source": "shared-auth/secret_buffer_tests.rs",
+        "adapted": false
+      },
+      {
+        "path": "beta-lab/native-shared/tests/native-manifest-golden.json",
+        "sha256": "f0588a2d195ca317cebae208ceb543e1de5cdeb62c0f907442b48474ffe172cc",
+        "source": "native-verifier/tests/native-manifest-golden.json",
+        "adapted": false
+      },
+      {
+        "path": "beta-lab/native-launcher/tests/ProcessIdentityProbe.java",
+        "sha256": "203c16cc6e81cf4cdc7864d9660d8a096ba5f65301575d6287b67f4c63e62535",
+        "source": "beta-lab/native-launcher/tests/ProcessIdentityProbe.java",
+        "adapted": false
+      },
+      {
+        "path": "beta-lab/native-launcher/assets/celeste-logo.png",
+        "sha256": "b1bbdb0a5499bcc63ce464b92cfe30a8d86b8a39f0ea3c33db7fc733505e33ee",
+        "source": "src/main/resources/assets/celeste/textures/gui/celeste-logo.png",
+        "adapted": false
+      },
+      {
+        "path": "beta-lab/delivery-client/fixtures/server-schema2-golden.json",
+        "sha256": "0e670ac7612c2cf8d4b688ef9af503c56c6c905968a5e7244ce35352e79b6489",
+        "source": "beta-lab/delivery-client/fixtures/server-schema2-golden.json",
+        "adapted": false
+      }
+    ],
+    "formatting": {
+      "command": "cargo fmt --manifest-path beta-lab/native-launcher/Cargo.toml",
+      "rustfmt": "rustfmt 1.9.0-stable (8bab26f4f6 2026-07-14)",
+      "verification": "Every file matches independently formatted ae01 source with the documented path/name substitutions."
+    }
+  },
+  "backendSource": [
+    {
+      "path": "auth-service/.dockerignore",
+      "sha256": "2ce4ad7308e9270ee13fedda92f646da9375a87c9ac768dc36207591950ff96c"
+    },
+    {
+      "path": "auth-service/Dockerfile",
+      "sha256": "c60027d9a7781bd30b055ef5b91aa3a7782d64fa31c721c528f7fe921c069e6b"
+    },
+    {
+      "path": "auth-service/PRODUCT_LICENSING.md",
+      "sha256": "05ecb97a9336692b6dfd5593bd102ff4bbd1cd6e9fdb3dadafa330c84f10aa98"
+    },
+    {
+      "path": "auth-service/README.md",
+      "sha256": "0b68902449dc5fb63fa3191f450e7ff1f5b2f1f107f40723609a41ee40a5a620"
+    },
+    {
+      "path": "auth-service/app/__init__.py",
+      "sha256": "15b08c60ef4a8cd23dddfb21021a6472b584596f352ed027f1843c7e6c6f7cce"
+    },
+    {
+      "path": "auth-service/app/api_responses.py",
+      "sha256": "a0ce5552835f930c7d8eef9d7ccbc4adf4fdf59c377828959aae9952616c345d"
+    },
+    {
+      "path": "auth-service/app/beta_delivery.py",
+      "sha256": "d3e9d34f2cb960302c9c59d8db9aa9a8c64af051c161ced0c3562935a0b15397"
+    },
+    {
+      "path": "auth-service/app/config.py",
+      "sha256": "5c2c77bd647b5cff1f9a846aa28685b13d05bf9734a15b2f2922684448ad800c"
+    },
+    {
+      "path": "auth-service/app/database.py",
+      "sha256": "c5b9c83e79baaa79afaa052900548ebc4828951706957531c93fbc08c392681b"
+    },
+    {
+      "path": "auth-service/app/dpop.py",
+      "sha256": "6010fdd01a7a85fbbb453fd0eaea956c3882a2b431b328b5122924b318417cd8"
+    },
+    {
+      "path": "auth-service/app/license_operator.py",
+      "sha256": "192cb38354e23b27f59c43ba7cb2de34ba5872c54a0c66a162edbd954a270f7a"
+    },
+    {
+      "path": "auth-service/app/license_reset.py",
+      "sha256": "4dfd21e2b46884174efbbaa5a5fe1edfa6b4bf16b7cf8e88d1e19d4c8b45984e"
+    },
+    {
+      "path": "auth-service/app/main.py",
+      "sha256": "3903a1594cfb83e304d677d9e3c0ae97656741d248bdc34ce2353b3330440000"
+    },
+    {
+      "path": "auth-service/app/native_manifest.py",
+      "sha256": "033826696ab09f915417b6222f62238289f3a2508ec8ca5766dcc03f4b8899e7"
+    },
+    {
+      "path": "auth-service/app/products.py",
+      "sha256": "c07d4d610ae603e9d35b9c490f2f4ac3af4160a50efe9816d8364c1f05d4f488"
+    },
+    {
+      "path": "auth-service/app/request_limits.py",
+      "sha256": "06a0838b1614cedd6b4b317883f15c8329d9591136e8ba73feb52e96a8b73f7f"
+    },
+    {
+      "path": "auth-service/app/security.py",
+      "sha256": "505dd9ab686c716f6425b68de92887ca95007cb7eb5487c6228304b05a9aaee8"
+    },
+    {
+      "path": "auth-service/app/static/admin.css",
+      "sha256": "5b7dab28145ddfdac782d7d9f624f03d202a726e6da9537f216bc78dbf57fb9d"
+    },
+    {
+      "path": "auth-service/app/templates/cloud_configs.html",
+      "sha256": "bebbd54645ac73026fc9522f381655c8f9ff8465931a36abe148b96725e4b780"
+    },
+    {
+      "path": "auth-service/app/templates/dashboard.html",
+      "sha256": "47bab18ced5c6f68cc4c0b894905075c0e05ef62b4d7c48fe023c5963631bc8e"
+    },
+    {
+      "path": "auth-service/app/templates/flags.html",
+      "sha256": "f023eae9db99a136b9dbf5f666da9e18d358bc426d9f0f43c7d09a9773b50efb"
+    },
+    {
+      "path": "auth-service/app/templates/license_detail.html",
+      "sha256": "1c5cae7ae0aa3c4505213ce44adadfd53d010d04f9c991bbdb28544eb0747b45"
+    },
+    {
+      "path": "auth-service/app/templates/login.html",
+      "sha256": "d3cd5dded9e9a8cd8339816cbfa1cc2c085f3d1dbbdb93b5b2d5d4a68f3ef38e"
+    },
+    {
+      "path": "auth-service/app/templates/users.html",
+      "sha256": "20659ff897c8c7878c08e4daa09bf34875edcc7e5caecf532ff37cfb0356e038"
+    },
+    {
+      "path": "auth-service/app/token_revocation.py",
+      "sha256": "b640d10707d0e029a7bc5023b88605f27eeaba430568fcb432c5c208eb66ae09"
+    },
+    {
+      "path": "auth-service/entrypoint.sh",
+      "sha256": "1a5f6316ac767d9c1a9be4949bafa5d35c3da640581d076f9403f8ddb998ec39"
+    },
+    {
+      "path": "auth-service/fly.toml",
+      "sha256": "bd64eb0f587d5d2be6b86c2a9199d13ff4b62f86e4abab13a5076ce428ff7219"
+    },
+    {
+      "path": "auth-service/migrations/20260927_native_publications.sql",
+      "sha256": "f500e38d4cebb01a64e44b972dd1ec0912b0dc621ff67174aaa358379adffcdd"
+    },
+    {
+      "path": "auth-service/migrations/20260927_revoked_tokens.sql",
+      "sha256": "a1c92d0205e475f19edb542585633fd62c13bf774ae2310ce4339a2c4fbda17d"
+    },
+    {
+      "path": "auth-service/releases/.gitkeep",
+      "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+    },
+    {
+      "path": "auth-service/requirements.txt",
+      "sha256": "cce0baaa9675e300bcc51f958b2bc3793c1189ad8a55d68ef9ef5bda76f6ff66"
+    },
+    {
+      "path": "auth-service/tests/dpop_client.py",
+      "sha256": "0bae80b3249c7d1685eacddbc4016e58421128c098e7dbbf1cdcb0d20366f222"
+    },
+    {
+      "path": "auth-service/tests/test_auth_telemetry.py",
+      "sha256": "e465957a6d77276f271131a62d11e44e00ea7a1da3057e72001c60b01c1b1d75"
+    },
+    {
+      "path": "auth-service/tests/test_beta_delivery.py",
+      "sha256": "aeb22eb017266e671c9826b85274f3dd418948ea6bc920fc6db0ff44d87dbcf9"
+    },
+    {
+      "path": "auth-service/tests/test_beta_manifest_nonce.py",
+      "sha256": "96ff4ac20840e31f3ccde814c83f88425dee371b0585b90fdccb91cd6daa076b"
+    },
+    {
+      "path": "auth-service/tests/test_beta_runtime.py",
+      "sha256": "3064abe9f97ba6fe4da9e98ac22a2586ef8573f362781cf5af3516c69e7b5b44"
+    },
+    {
+      "path": "auth-service/tests/test_dpop.py",
+      "sha256": "d54f3730c427501140a06e939a222e7d4baea803d99208603d42d3dc73281421"
+    },
+    {
+      "path": "auth-service/tests/test_grant_validation.py",
+      "sha256": "7dfdb2255ba382b4aa63579a44db705883c274fd8b4072d954ddec0495990037"
+    },
+    {
+      "path": "auth-service/tests/test_license_reset.py",
+      "sha256": "b8e392c9b9bc98679a517b1626516599c0dbbd0ff718c4c68f905cd76a27f531"
+    },
+    {
+      "path": "auth-service/tests/test_native_manifest.py",
+      "sha256": "4d1db1e9ce314f44699f86a5cff8b1814b4267515b6dc8959c13e072cb897534"
+    },
+    {
+      "path": "auth-service/tests/test_products.py",
+      "sha256": "1cb26f4a6f0d44e3ceb57156b967c00a101b929452ec72db6fbdd9338477a6fa"
+    },
+    {
+      "path": "auth-service/tests/test_protocol.py",
+      "sha256": "2875cb0eec4e4b8cd8abac2dc0cd95158732ec221dc5269ddcf77a926979f5ae"
+    },
+    {
+      "path": "auth-service/tests/test_resource_guards.py",
+      "sha256": "febc5854a1352454cbf6d032b85e2fe4aa4436605c38c9693fb8797b1dc55e36"
+    },
+    {
+      "path": "auth-service/tests/test_runtime_kill_switch.py",
+      "sha256": "d3c9f280fe7fc3c7d0dc3f37f8d15ba80042945bbc7dbff4f1628ed3fae88082"
+    },
+    {
+      "path": "auth-service/tests/verify_dpop_interop.py",
+      "sha256": "05d4843573bebc27bc3a6afab0bbaabc2700bcb31aea36911056e00ae261befd"
+    },
+    {
+      "path": "auth-service/tools/create_license.py",
+      "sha256": "d25d3b9820961fe2148df8dd079f1d3c75a22593b67d38a3013ea071fa86cc85"
+    },
+    {
+      "path": "auth-service/tools/remote_smoke_test.py",
+      "sha256": "bf864b7d1e9e4024bdb7efa71babaa9e50b4e2824355e735a05c23b6f103e299"
+    },
+    {
+      "path": "auth-service/tools/reset_licenses.py",
+      "sha256": "98e89cee0ae9bd68065187e89683e5f73a186e22dfd37ff31183ee85dea14161"
+    }
+  ],
+  "adaptations": [
+    "Preserved standalone Plus repository history and build layout.",
+    "Merged latest host authentication with existing loader/resource retirement behavior.",
+    "Preserved standalone CelesteClient owned-screen cleanup while importing latest runtime.",
+    "Mapped native shared modules and Java auth helpers to local standalone source paths.",
+    "Restricted native publication tools and candidate workflow to Celeste+.",
+    "Kept full runtime descriptor encoding in the explicit pinned-core packaging input.",
+    "Separated actual Minecraft schema checks from independent host fixture checks."
+  ],
+  "productionDeployment": false,
+  "productionPrivateKeysIncluded": false,
+  "note": "Test fixtures contain deterministic nonsecret signing seeds; generated artifacts are excluded."
+}

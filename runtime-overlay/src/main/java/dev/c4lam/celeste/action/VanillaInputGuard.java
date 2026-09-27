@@ -10,6 +10,12 @@ public final class VanillaInputGuard {
     private VanillaInputGuard() {
     }
 
+    /** Manual clicks share the resolved look; inventory mutations still relinquish it. */
+    public static boolean hasRotationConflict(MinecraftClient client) {
+        return client.player == null || client.interactionManager == null
+            || activeOrQueued(client.options.pickItemKey) || hasHeldItemMutation(client);
+    }
+
     public static boolean hasInteractionConflict(MinecraftClient client) {
         if (client.player == null || client.interactionManager == null) {
             return true;

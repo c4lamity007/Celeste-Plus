@@ -1,0 +1,38 @@
+app = "qb0f90cf11f4d1d52"
+primary_region = "lax"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  CELESTE_DATABASE_PATH = "/data/auth.sqlite3"
+  CELESTE_ARTIFACT_DIR = "/srv/auth/releases"
+  CELESTE_CLOUD_CONFIG_DIR = "/data/cloud-configs"
+  CELESTE_ALLOWED_HOSTS = "qb0f90cf11f4d1d52.fly.dev,localhost,127.0.0.1,*.internal"
+
+[[mounts]]
+  source = "auth_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+  [[http_service.checks]]
+    interval = "15s"
+    timeout = "3s"
+    grace_period = "10s"
+    method = "GET"
+    path = "/healthz"
+
+    [http_service.checks.headers]
+      Host = "qb0f90cf11f4d1d52.fly.dev"
+      X-Forwarded-Proto = "https"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

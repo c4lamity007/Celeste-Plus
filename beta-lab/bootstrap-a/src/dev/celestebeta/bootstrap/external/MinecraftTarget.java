@@ -25,7 +25,8 @@ record MinecraftTarget(Class<?> client, ClassLoader loader, List<Class<?>> targe
         ProcessHandle self = ProcessHandle.current();
         return java.util.Map.of("phase", "inspected", "game_directory", gameDirectory.toPath().toRealPath().toString(),
             "minecraft", version(fabric, client.getClassLoader(), "minecraft"), "celeste_loaded", Boolean.toString(celeste),
-            "pid", Long.toString(self.pid()), "started_at", Long.toString(self.info().startInstant().orElseThrow().toEpochMilli()));
+            "pid", Long.toString(self.pid()), "started_at", Long.toString(self.info().startInstant()
+                .orElseThrow(() -> new IOException("The operating system did not expose this process start time")).toEpochMilli()));
     }
 
     static MinecraftTarget inspect(Instrumentation instrumentation) throws Exception {

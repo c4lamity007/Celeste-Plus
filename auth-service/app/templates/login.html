@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Gateway</title>
+  <link rel="stylesheet" href="/assets/admin.css">
+</head>
+<body class="login-page">
+  <main class="login-card">
+    <div class="login-brand"><span class="brand-dot" aria-hidden="true"></span><span class="eyebrow">CELESTE AUTH</span></div>
+    <h1>Welcome back</h1>
+    <p>Sign in to manage licenses and installations.</p>
+    {% if error %}<div class="error">{{ error }}</div>{% endif %}
+    <form id="admin-login" method="post" action="/admin/login" autocomplete="on">
+      <!-- This site has one administrator. Give password managers a stable
+           account identity without adding another login step. -->
+      <input id="username" type="text" name="username" value="admin" autocomplete="username" hidden>
+      <label for="password">Password<input id="password" type="password" name="password" maxlength="256" required autofocus autocomplete="current-password"></label>
+      <button type="submit">Sign in</button>
+    </form>
+  </main>
+</body>
+</html>

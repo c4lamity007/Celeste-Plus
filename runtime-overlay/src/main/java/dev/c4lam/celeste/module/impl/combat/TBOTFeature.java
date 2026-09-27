@@ -37,7 +37,7 @@ public final class TBOTFeature implements ModuleFeature {
 
     private final FriendManager friends = FriendManager.getInstance();
     private int tickCounter;
-    private double cooldownThreshold = 0.88D;
+    private double cooldownThreshold = Double.NaN;
     private int hoverTargetId = -1;
     private int hoverTicks;
     private EntityHitResult cachedHit;
@@ -52,6 +52,7 @@ public final class TBOTFeature implements ModuleFeature {
     private int shieldAxeSlot = -1;
     private int shieldTargetId = -1;
     private int shieldNextTick;
+    private ClientPlayerEntity shieldPlayer;
 
     private enum ShieldState {
         IDLE, WAIT_SWAP, WAIT_CLICK, WAIT_BACK
@@ -71,7 +72,12 @@ public final class TBOTFeature implements ModuleFeature {
         if (client.player == null || client.world == null || client.interactionManager == null
             || client.currentScreen != null) {
             resetShield(client.player, true);
+            updateHover(null);
             return;
+        }
+        if (!Double.isFinite(cooldownThreshold)) {
+            cooldownThreshold = sample(context, "Swing Delay Min", DEFAULT_SWING_MIN,
+                "Swing Delay Max", DEFAULT_SWING_MAX) / 100.0D;
         }
 
         if (shieldState != ShieldState.IDLE) {
@@ -79,6 +85,7 @@ public final class TBOTFeature implements ModuleFeature {
         }
 
         if (isShielding(client.player)) {
+            updateHover(null);
             return;
         }
 
@@ -96,7 +103,9 @@ public final class TBOTFeature implements ModuleFeature {
                 "Swing Delay Max", DEFAULT_SWING_MAX) / 100.0D;
             return;
         }
-        if (isShielding(target) && hoveredLongEnough(context) && startShieldBreak(client, target)) {
+        if (isShielding(target) && hoveredLongEnough(context)
+            && client.player.getAttackCooldownProgress(0.0F) >= cooldownThreshold
+            && startShieldBreak(client, target)) {
             scheduleAttack(context);
         }
     }
@@ -143,7 +152,7 @@ public final class TBOTFeature implements ModuleFeature {
     @Override
     public void onDisable(ModuleContext context) {
         resetShield(context.client().player, true);
-        cooldownThreshold = 0.88D;
+        cooldownThreshold = Double.NaN;
         hoverTargetId = -1;
         hoverTicks = 0;
         cacheReady = false;
@@ -198,6 +207,7 @@ public final class TBOTFeature implements ModuleFeature {
             return false;
         }
         shieldOriginalSlot = client.player.getInventory().getSelectedSlot();
+        shieldPlayer = client.player;
         shieldAxeSlot = axeSlot;
         shieldTargetId = target.getId();
         shieldState = ShieldState.WAIT_SWAP;
@@ -228,10 +238,18 @@ public final class TBOTFeature implements ModuleFeature {
     }
 
     private void tickShieldBreak(ModuleContext context) {
+        MinecraftClient client = context.client();
+        int expectedSlot = shieldState == ShieldState.WAIT_SWAP ? shieldOriginalSlot : shieldAxeSlot;
+        if (client.player != shieldPlayer || client.player.getInventory().getSelectedSlot() != expectedSlot
+            || shieldAxeSlot < 0 || shieldAxeSlot > 8
+            || !client.player.getInventory().getStack(shieldAxeSlot).isIn(ItemTags.AXES)) {
+            resetShield(client.player, false);
+            updateHover(null);
+            return;
+        }
         if (tickCounter < shieldNextTick) {
             return;
         }
-        MinecraftClient client = context.client();
         PlayerEntity target = findPlayerById(client, shieldTargetId);
         if (target == null || !isValidPlayerTarget(client.player, target)
             || client.player.squaredDistanceTo(target) > 4.35D * 4.35D) {
@@ -252,6 +270,8 @@ public final class TBOTFeature implements ModuleFeature {
                 shieldNextTick = tickCounter + millisecondsToTicks(80.0D);
             }
             case WAIT_CLICK -> {
+                if (!context.toggle("Shield Break No Cooldown", true)
+                    && client.player.getAttackCooldownProgress(0.0F) < cooldownThreshold) return;
                 EntityHitResult attackHit = freshVanillaAttackPlayerHit(client);
                 if (!isSameAttackTarget(attackHit, target)) {
                     resetShield(client.player, true);
@@ -261,6 +281,13 @@ public final class TBOTFeature implements ModuleFeature {
                     return;
                 }
                 ActionScheduler.getInstance().submit(this, PRIORITY, actionClient -> {
+                    if (shieldState != ShieldState.WAIT_CLICK || actionClient.player != shieldPlayer
+                        || actionClient.player == null
+                        || actionClient.player.getInventory().getSelectedSlot() != shieldAxeSlot
+                        || !actionClient.player.getMainHandStack().isIn(ItemTags.AXES)) {
+                        resetShield(actionClient.player, false);
+                        return;
+                    }
                     if (attackVanillaCrosshairPlayer(actionClient, attackHit, target)) {
                         shieldState = ShieldState.WAIT_BACK;
                         shieldNextTick = tickCounter + millisecondsToTicks(90.0D);
@@ -279,6 +306,8 @@ public final class TBOTFeature implements ModuleFeature {
 
     private void resetShield(ClientPlayerEntity player, boolean restore) {
         if (restore && player != null && shieldState != ShieldState.IDLE
+            && player == shieldPlayer && shieldState != ShieldState.WAIT_SWAP
+            && player.getInventory().getSelectedSlot() == shieldAxeSlot
             && shieldOriginalSlot >= 0 && shieldOriginalSlot < 9) {
             SilentSlotManager.getInstance().selectVisibleSlot(MinecraftClient.getInstance(), shieldOriginalSlot);
         }
@@ -287,6 +316,7 @@ public final class TBOTFeature implements ModuleFeature {
         shieldAxeSlot = -1;
         shieldTargetId = -1;
         shieldNextTick = 0;
+        shieldPlayer = null;
     }
 
     private EntityHitResult freshVanillaAttackPlayerHit(MinecraftClient client) {
@@ -324,10 +354,15 @@ public final class TBOTFeature implements ModuleFeature {
 
     private boolean attackVanillaCrosshairPlayer(MinecraftClient client, EntityHitResult hit,
                                                  PlayerEntity expected) {
-        if (client.player == null || !isSameAttackTarget(hit, expected)
+        if (client.player == null || client.world == null || client.interactionManager == null
+            || client.currentScreen != null || !isSameAttackTarget(hit, expected)
             || !isValidPlayerTarget(client.player, expected)) {
             return false;
         }
+        // A queued action must use the live vanilla hit, not the earlier hover sample.
+        cacheReady = false;
+        hit = freshVanillaAttackPlayerHit(client);
+        if (!isSameAttackTarget(hit, expected)) return false;
         ClientPlayerEntity self = client.player;
         ItemStack held = self.getMainHandStack();
         if (self.isSpectator() || self.hasVehicle()

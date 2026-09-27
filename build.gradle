@@ -13,10 +13,13 @@ dependencies {
 }
 sourceSets {
     main {
-        java.srcDirs = ['beta-lab/bootstrap-a/src', 'beta-lab/delivery-client/src', 'beta-lab/memory-runtime/src/main/java'] +
+        // The standalone host owns its auth helpers; it never imports normal-client sources.
+        java.srcDirs = ['beta-lab/bootstrap-a/src', 'beta-lab/delivery-client/src', 'beta-lab/memory-runtime/src/main/java',
+            'beta-lab/shared-auth/src/main/java'] +
             ['combined-hooks', 'reload-hooks', 'interaction-hooks', 'rotation-hooks', 'fake-gamble-hooks', 'gameplay-callbacks', 'visual-hooks', 'atmosphere-hooks'].collect { "beta-lab/${it}/src/main/java" }
     }
-    test { java.srcDirs = ['beta-lab/bootstrap-a/test', 'beta-lab/delivery-client/test'] }
+    test { java.srcDirs = ['beta-lab/bootstrap-a/test', 'beta-lab/delivery-client/test',
+        'beta-lab/memory-runtime/src/test/java', 'beta-lab/shared-auth/src/test/java'] }
     bootstrapB {
         java.srcDirs = ['beta-lab/bootstrap-b/src']
         compileClasspath += sourceSets.main.output + configurations.compileClasspath
@@ -48,6 +51,22 @@ def aCheck = tasks.register('betaBootstrapACheck', JavaExec) {
     enableAssertions = true
     jvmArgs '-Xverify:all', '-XX:-DisableExplicitGC', '-XX:+ClassUnloading'
 }
+// Explicit additional gate for release validation. Default host checks use
+// synthetic schemas and have no Minecraft artifact or user-cache dependency.
+tasks.register('betaMinecraftSchemaCheck', JavaExec) {
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'dev.celestebeta.bootstrap.external.BootstrapACheck'
+    enableAssertions = true
+    jvmArgs '-Xverify:all', '-XX:-DisableExplicitGC', '-XX:+ClassUnloading'
+    doFirst {
+        def schemaPath = providers.gradleProperty('minecraftSchemaJar').orNull
+        if (schemaPath == null || !file(schemaPath).isFile()) {
+            throw new GradleException('betaMinecraftSchemaCheck requires -PminecraftSchemaJar=/path/to/the/Minecraft-1.21.11-named.jar. It is read as an offline fixture and never launched.')
+        }
+        args '--minecraft-schema', file(schemaPath).absolutePath
+    }
+}
 def deliveryCheck = tasks.register('betaDeliveryClientCheck', JavaExec) {
     dependsOn tasks.named('testClasses')
     classpath = sourceSets.test.runtimeClasspath
@@ -63,6 +82,48 @@ def bCheck = tasks.register('betaBootstrapBCheck', JavaExec) {
     args sourceSets.payloadFixture.output.classesDirs.singleFile.absolutePath
     enableAssertions = true
     jvmArgs '-Xverify:all', '-XX:-DisableExplicitGC', '-XX:+ClassUnloading'
+}
+def memoryCheck = tasks.register('betaMemoryRuntimeCheck', JavaExec) {
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'dev.c4lam.celeste.beta.memory.TwoPartMemoryClassLoaderTest'
+    enableAssertions = true
+    jvmArgs '-Xverify:all'
+}
+def environmentCheck = tasks.register('betaEnvironmentGateCheck', JavaExec) {
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'dev.c4lam.celeste.auth.EnvironmentGateCheck'
+    enableAssertions = true
+}
+def hookCheckOutput = layout.buildDirectory.dir('module-qa/hook-argument-frames/classes')
+def compileHookCheck = tasks.register('compileBetaHookArgumentFramesCheck', JavaCompile) {
+    dependsOn tasks.named('classes')
+    source file('beta-lab/combined-hooks/src/test/java/dev/celestebeta/host/fixture/HookArgumentFramesCheck.java')
+    classpath = sourceSets.main.output + configurations.compileClasspath
+    destinationDirectory = hookCheckOutput
+}
+def hookCheck = tasks.register('betaHookArgumentFramesCheck', JavaExec) {
+    dependsOn compileHookCheck
+    classpath = files(hookCheckOutput) + sourceSets.main.runtimeClasspath
+    mainClass = 'dev.celestebeta.host.fixture.HookArgumentFramesCheck'
+    enableAssertions = true
+    jvmArgs '-Xverify:all'
+}
+// Compile the real session controller against only its controlled game/auth fixtures.
+def sessionCheckOutput = layout.buildDirectory.dir('module-qa/payload-session/classes')
+def compileSessionCheck = tasks.register('compileBetaPayloadSessionCheck', JavaCompile) {
+    source fileTree('beta-lab/payload-session/src') { include '**/*.java' }
+    source file('beta-lab/bootstrap-b/fixtures/core/dev/c4lam/celeste/beta/lifecycle/BetaPayloadSession.java')
+    classpath = files()
+    destinationDirectory = sessionCheckOutput
+}
+def sessionCheck = tasks.register('betaPayloadSessionCheck', JavaExec) {
+    dependsOn compileSessionCheck
+    classpath = files(sessionCheckOutput)
+    mainClass = 'fixture.SessionCheck'
+    enableAssertions = true
+    jvmArgs '-Xverify:all'
 }
 def bootstrapA = tasks.register('betaBootstrapAJar', Jar) {
     dependsOn tasks.named('classes')
@@ -88,7 +149,7 @@ def bootstrapB = tasks.register('betaBootstrapBJar', Jar) {
     destinationDirectory = layout.buildDirectory.dir('module-qa/bootstrap-b')
     manifest { attributes('Implementation-Title': 'Celeste+ internal bootstrap', 'Celeste-Beta-Bootstrap': 'B') }
 }
-tasks.named('check') { dependsOn aCheck, deliveryCheck, bCheck }
+tasks.named('check') { dependsOn aCheck, deliveryCheck, bCheck, memoryCheck, environmentCheck, hookCheck, sessionCheck }
 tasks.named('assemble') { dependsOn bootstrapA, bootstrapB }
 
 // Regression suites are explicit Java main programs, not JUnit-discovered tests.

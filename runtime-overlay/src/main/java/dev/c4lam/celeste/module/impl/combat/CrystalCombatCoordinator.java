@@ -10,6 +10,7 @@ import dev.c4lam.celeste.module.expansion.inventory.SilentInventoryScreen;
 import dev.c4lam.celeste.rotation.RotationManager;
 import dev.c4lam.celeste.silent.SilentSlotManager;
 import net.minecraft.block.BlockState;
+import net.minecraft.block.Block;
 import net.minecraft.block.Blocks;
 import net.minecraft.block.FluidBlock;
 import net.minecraft.block.RespawnAnchorBlock;
@@ -22,6 +23,7 @@ import net.minecraft.entity.decoration.EndCrystalEntity;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.entity.player.PlayerInventory;
 import net.minecraft.entity.projectile.ProjectileUtil;
+import net.minecraft.world.attribute.EnvironmentAttributes;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemPlacementContext;
 import net.minecraft.item.ItemStack;
@@ -34,6 +36,7 @@ import net.minecraft.util.hit.EntityHitResult;
 import net.minecraft.util.hit.HitResult;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Box;
+import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.RaycastContext;
@@ -62,10 +65,13 @@ final class CrystalCombatCoordinator {
 
     private enum Branch { NONE, ANCHOR, AUTO_HIT, AUTO_CRYSTAL }
     private enum CrystalStep { PLACE, BREAK }
+    private enum DoubleAnchorStep { NONE, REPLACE, CHARGE, EXPLODE }
     private enum ActionKind {
         NONE, RESERVE, AUTO_CRYSTAL_USE, AUTO_CRYSTAL_ATTACK,
         AUTO_HIT_OBSIDIAN, AUTO_HIT_CRYSTAL, AUTO_HIT_ATTACK,
-        ANCHOR_PLACE, ANCHOR_GLOWSTONE, ANCHOR_EXPLODE
+        ANCHOR_PLACE, ANCHOR_GLOWSTONE, ANCHOR_EXPLODE,
+        DOUBLE_ANCHOR_FIRST_EXPLODE, DOUBLE_ANCHOR_REPLACE,
+        DOUBLE_ANCHOR_GLOWSTONE, DOUBLE_ANCHOR_FINISH
     }
 
     private static final int PRIORITY = 190;
@@ -103,6 +109,16 @@ final class CrystalCombatCoordinator {
     private long glowstoneUseTick = Long.MIN_VALUE;
     private BlockPos manualAnchorCandidate;
     private long manualAnchorCandidateTick;
+    private boolean anchorCycleStarted;
+    private boolean doubleAnchorCycle;
+    private boolean doubleAnchorHoldConsumed;
+    private boolean doubleAnchorUseBlocked;
+    private DoubleAnchorStep doubleAnchorStep = DoubleAnchorStep.NONE;
+    private BlockHitResult anchorSupportHit;
+    private BlockState anchorSupportState;
+    private BlockHitResult doubleAnchorHit;
+    private long doubleAnchorReplaceTick;
+    private boolean doubleAnchorAwaitingReplacement;
 
     private ClientWorld observedWorld;
     private ClientPlayerEntity observedPlayer;
@@ -125,6 +141,7 @@ final class CrystalCombatCoordinator {
     private boolean wantsUse;
     private boolean useClaimed;
     private boolean actionUsedThisTick;
+    private long interactionAttemptSchedulerTick = Long.MIN_VALUE;
     private boolean silentTakeoverUntilUseRelease;
     private PlannedAction plannedAction = PlannedAction.NONE;
 
@@ -140,6 +157,10 @@ final class CrystalCombatCoordinator {
         clearPlan();
 
         MinecraftClient client = caller.client();
+        // Only an observed physical release rearms the modifier. Cycle, GUI,
+        // module and world cleanup must not turn one held key into repeated pairs.
+        if (client != null && client.isWindowFocused() && !DoubleAnchorMacroFeature.holdKeyDown(client))
+            doubleAnchorHoldConsumed = false;
         if (!basicClientState(client)) {
             useHeldAtStart = false;
             silentTakeoverUntilUseRelease = false;
@@ -153,13 +174,16 @@ final class CrystalCombatCoordinator {
         }
 
         useHeldAtStart = client.isWindowFocused() && UseInputLease.physicalDown(client);
-        if (silentTakeoverActive(client)) {
+        if (!UseInputLease.physicalDown(client)) doubleAnchorUseBlocked = false;
+        if (silentTakeoverActive(client) || branch == Branch.ANCHOR && doubleAnchorCycle
+            && (gameplayTakeoverActive(client) || !ownsSequenceContext(client.player))) {
             silentTakeoverUntilUseRelease = true;
         }
         if (silentTakeoverUntilUseRelease) {
             resetActiveSequence();
             endSilentTransport(client);
-            releaseUse(client);
+            if (doubleAnchorUseBlocked && useHeldAtStart) retainDoubleAnchorUse(client);
+            else releaseUse(client);
             if (!useHeldAtStart) {
                 silentTakeoverUntilUseRelease = false;
                 anchorFinishedUntilRelease = false;
@@ -177,6 +201,10 @@ final class CrystalCombatCoordinator {
             return;
         }
         if (silentTransport && !renewSilentTransport(client)) {
+            if (branch == Branch.ANCHOR && doubleAnchorCycle) {
+                interruptDoubleAnchor(client);
+                return;
+            }
             resetActiveSequence();
             endSilentTransport(client);
         }
@@ -212,12 +240,12 @@ final class CrystalCombatCoordinator {
         long schedulerTick = ActionScheduler.getInstance().tickNumber();
         if (actionSchedulerTick == schedulerTick) return;
         actionSchedulerTick = schedulerTick;
-        if (!useClaimed || plannedAction.kind == ActionKind.NONE
+        if (!useClaimed || !UseInputLease.getInstance().owns(this) || plannedAction.kind == ActionKind.NONE
             || plannedSchedulerTick != schedulerTick) return;
         PlannedAction plan = plannedAction;
         ActionScheduler.getInstance().submit(this, PRIORITY, client -> {
             if (plan != plannedAction || plannedSchedulerTick != schedulerTick
-                || !useClaimed || !canRun(client)) return;
+                || !useClaimed || !UseInputLease.getInstance().owns(this) || !canRun(client)) return;
             executePlan(client, plan);
         });
     }
@@ -240,6 +268,10 @@ final class CrystalCombatCoordinator {
     }
 
     void onWorldChanged(MinecraftClient client) { resetEverything(client); }
+
+    void onDoubleAnchorDisabled(MinecraftClient client) {
+        if (branch == Branch.ANCHOR && doubleAnchorCycle) interruptDoubleAnchor(client);
+    }
 
     private void advanceStartTick(MinecraftClient client, boolean allowNewSequence) {
         if (!canRun(client) || !useHeldAtStart) {
@@ -400,14 +432,31 @@ final class CrystalCombatCoordinator {
             anchorFinishedUntilRelease = false;
             return false;
         }
+        if (anchorFinishedUntilRelease) {
+            claimUse();
+            return true;
+        }
+        if (doubleAnchorStep != DoubleAnchorStep.NONE) return tickDoubleAnchorFollowup(client, context);
         BlockHitResult hit = crosshairBlock(client);
         if (!shouldRunAnchor(client, context, hit)) {
+            if (doubleAnchorCycle) {
+                interruptDoubleAnchor(client);
+                return true;
+            }
             resetAnchorState();
             anchorFinishedUntilRelease = false;
             return false;
         }
         claimUse();
-        if (anchorFinishedUntilRelease) return true;
+        if (!anchorCycleStarted) {
+            anchorCycleStarted = true;
+            doubleAnchorCycle = !doubleAnchorHoldConsumed && DoubleAnchorMacroFeature.held(client);
+            if (doubleAnchorCycle) {
+                doubleAnchorHoldConsumed = true;
+                doubleAnchorUseBlocked = true;
+            }
+        }
+        if (doubleAnchorCycle && !doubleAnchorContextAllowed(client)) return true;
 
         if (waitingForAnchor) {
             if (pendingAnchorPlace != null && isAnchor(client, pendingAnchorPlace)) {
@@ -420,6 +469,10 @@ final class CrystalCombatCoordinator {
                 if (tickCounter - pendingAnchorStartTick >= ANCHOR_CONFIRMATION_TICKS) {
                     if (pendingAnchorPlace != null && !isAnchor(client, pendingAnchorPlace)) {
                         ownedAnchors.remove(pendingAnchorPlace);
+                    }
+                    if (doubleAnchorCycle) {
+                        interruptDoubleAnchor(client);
+                        return true;
                     }
                     resetAnchorState();
                     nextAnchorTick = tickCounter + 1;
@@ -437,6 +490,11 @@ final class CrystalCombatCoordinator {
             return false;
         }
         if (tickCounter < nextAnchorTick) return true;
+        if (doubleAnchorCycle && activeAnchorPos != null
+            && (!activeAnchorPos.equals(hit.getBlockPos()) || !isAnchor(client, activeAnchorPos))) {
+            interruptDoubleAnchor(client);
+            return true;
+        }
         if (!isAnchor(client, hit.getBlockPos())) {
             planAnchorPlacement(client, context, hit);
             return true;
@@ -447,13 +505,34 @@ final class CrystalCombatCoordinator {
         if (glowstoneUseTick != Long.MIN_VALUE) {
             if (charges > chargeBeforeUse) glowstoneUseTick = Long.MIN_VALUE;
             else if (tickCounter - glowstoneUseTick < ANCHOR_CONFIRMATION_TICKS) return true;
+            else if (doubleAnchorCycle) {
+                interruptDoubleAnchor(client);
+                return true;
+            }
             else glowstoneUseTick = Long.MIN_VALUE;
         }
         if (charges < anchorGlowstoneGoal) {
+            // A delayed/rolled-back charge update must not emit a second
+            // glowstone use for the first anchor in a double sequence.
+            if (doubleAnchorCycle && anchorGlowstoneUses > 0) {
+                interruptDoubleAnchor(client);
+                return true;
+            }
             int slot = findHotbar(client.player, stack -> stack.isOf(Items.GLOWSTONE));
             if (slot < 0) return true;
             plan(new PlannedAction(ActionKind.ANCHOR_GLOWSTONE, Branch.ANCHOR,
                 hit, null, slot, context.slider("2 tick swap chance", 18.0D), null));
+            return true;
+        }
+        if (doubleAnchorCycle) {
+            int anchorSlot = preferredHotbarSlot(client.player, Items.RESPAWN_ANCHOR);
+            if (anchorSlot < 0 || !hasDoubleAnchorFinishItems(client)) return true;
+            BlockHitResult support = replacementSupport(client, anchorPos);
+            if (support == null) return true;
+            anchorSupportHit = support;
+            anchorSupportState = client.world.getBlockState(support.getBlockPos());
+            plan(new PlannedAction(ActionKind.DOUBLE_ANCHOR_FIRST_EXPLODE, Branch.ANCHOR,
+                hit, null, anchorSlot, context.slider("2 tick swap chance", 18.0D), anchorPos.toImmutable()));
             return true;
         }
         int explosionSlot = findTotemSlot(client.player);
@@ -488,6 +567,9 @@ final class CrystalCombatCoordinator {
             resetAnchorState();
             return;
         }
+        if (doubleAnchorCycle && (hotbarCount(client.player, Items.RESPAWN_ANCHOR) < 2
+            || hotbarCount(client.player, Items.GLOWSTONE) < 2
+            || findHotbar(client.player, stack -> stack.isOf(Items.TOTEM_OF_UNDYING)) < 0)) return;
         int slot = findHotbar(client.player, stack -> stack.isOf(Items.RESPAWN_ANCHOR));
         if (slot < 0) {
             resetAnchorState();
@@ -499,7 +581,16 @@ final class CrystalCombatCoordinator {
     }
 
     private void executePlan(MinecraftClient client, PlannedAction plan) {
-        if (branch != plan.branch || !ownsTransportContext(client)) return;
+        if (branch != plan.branch) return;
+        if (!ownsTransportContext(client)) {
+            if (branch == Branch.ANCHOR && doubleAnchorCycle) interruptDoubleAnchor(client);
+            return;
+        }
+        if (plan.branch == Branch.ANCHOR && doubleAnchorCycle
+            && (!doubleAnchorContextAllowed(client) || !ownsSequenceContext(client.player))) {
+            interruptDoubleAnchor(client);
+            return;
+        }
         switch (plan.kind) {
             case RESERVE -> { }
             case AUTO_CRYSTAL_USE -> executeAutoCrystalUse(client, plan);
@@ -510,6 +601,9 @@ final class CrystalCombatCoordinator {
             case ANCHOR_PLACE -> executeAnchorPlace(client, plan);
             case ANCHOR_GLOWSTONE -> executeAnchorGlowstone(client, plan);
             case ANCHOR_EXPLODE -> executeAnchorExplode(client, plan);
+            case DOUBLE_ANCHOR_FIRST_EXPLODE -> executeDoubleAnchorFirstExplode(client, plan);
+            case DOUBLE_ANCHOR_REPLACE, DOUBLE_ANCHOR_GLOWSTONE, DOUBLE_ANCHOR_FINISH ->
+                executeDoubleAnchorFollowup(client, plan);
             case NONE -> { }
         }
     }
@@ -588,6 +682,14 @@ final class CrystalCombatCoordinator {
     }
 
     private void executeAnchorPlace(MinecraftClient client, PlannedAction plan) {
+        if (doubleAnchorCycle && (!client.player.getInventory().getStack(plan.slot).isOf(Items.RESPAWN_ANCHOR)
+            || hotbarCount(client.player, Items.RESPAWN_ANCHOR) < 2
+            || hotbarCount(client.player, Items.GLOWSTONE) < 2 || !hasDoubleAnchorFinishItems(client)
+            || client.world.getEnvironmentAttributes().getAttributeValue(
+                EnvironmentAttributes.RESPAWN_ANCHOR_WORKS_GAMEPLAY, plan.placementPos))) {
+            interruptDoubleAnchor(client);
+            return;
+        }
         pendingAnchorPlace = plan.placementPos;
         boolean swapped = logicalSelectedSlot(client.player) != plan.slot;
         if (!selectOwnedSlot(client, plan.slot)) return;
@@ -597,6 +699,8 @@ final class CrystalCombatCoordinator {
             return;
         }
         if (validAirLiquidSupport(client, plan.hit) && performVanillaUse(client, plan.hit)) {
+            anchorSupportHit = plan.hit;
+            anchorSupportState = client.world.getBlockState(plan.hit.getBlockPos());
             activeAnchorPos = pendingAnchorPlace;
             recentAnchorCandidates.put(pendingAnchorPlace, tickCounter);
             waitingForAnchor = true;
@@ -606,10 +710,18 @@ final class CrystalCombatCoordinator {
             pendingAnchorPlace = null;
             waitingForAnchor = false;
             pendingAnchorStartTick = 0;
+            if (doubleAnchorCycle) interruptDoubleAnchor(client);
         }
     }
 
     private void executeAnchorGlowstone(MinecraftClient client, PlannedAction plan) {
+        if (!validAirLiquidSupport(client, plan.hit) || !isAnchor(client, plan.hit.getBlockPos())
+            || doubleAnchorCycle && (!validDoubleAnchorHit(client, plan.hit)
+                || anchorCharges(client, plan.hit.getBlockPos()) != 0 || anchorGlowstoneUses > 0
+                || !client.player.getInventory().getStack(plan.slot).isOf(Items.GLOWSTONE))) {
+            if (doubleAnchorCycle) interruptDoubleAnchor(client);
+            return;
+        }
         boolean swapped = logicalSelectedSlot(client.player) != plan.slot;
         if (!selectOwnedSlot(client, plan.slot)) return;
         if (swapped && rollTwoTick(plan.swapChance)) {
@@ -623,10 +735,12 @@ final class CrystalCombatCoordinator {
             chargeBeforeUse = charges;
             glowstoneUseTick = tickCounter;
             nextAnchorTick = tickCounter + 1;
-        }
+        } else if (doubleAnchorCycle) interruptDoubleAnchor(client);
     }
 
     private void executeAnchorExplode(MinecraftClient client, PlannedAction plan) {
+        if (!validAirLiquidSupport(client, plan.hit) || !isAnchor(client, plan.hit.getBlockPos())
+            || anchorCharges(client, plan.hit.getBlockPos()) <= 0) return;
         boolean swapped = plan.slot >= 0
             && logicalSelectedSlot(client.player) != plan.slot;
         if (plan.slot >= 0 && !selectOwnedSlot(client, plan.slot)) return;
@@ -644,12 +758,226 @@ final class CrystalCombatCoordinator {
         anchorGlowstoneUses = 0;
         glowstoneUseTick = Long.MIN_VALUE;
         int existingCharges = anchorCharges(client, anchorPos);
-        anchorGlowstoneGoal = existingCharges <= 0
+        anchorGlowstoneGoal = doubleAnchorCycle ? 1 : existingCharges <= 0
             && rollPercentage(context.slider("Double glowstone", 0.0D))
             ? 2 : Math.max(1, existingCharges);
     }
 
+    private boolean tickDoubleAnchorFollowup(MinecraftClient client, ModuleContext context) {
+        claimUse();
+        // Never replay a missed replacement on a later tick (GUI, inventory takeover,
+        // scheduler contention, and lost focus can legitimately interrupt a macro).
+        if (!doubleAnchorContextAllowed(client) || doubleAnchorHit == null
+            || !validDoubleAnchorHit(client, doubleAnchorHit)
+            || doubleAnchorStep == DoubleAnchorStep.REPLACE && tickCounter > doubleAnchorReplaceTick) {
+            interruptDoubleAnchor(client);
+            return true;
+        }
+        if (tickCounter < nextAnchorTick) return true;
+        if (doubleAnchorAwaitingReplacement) {
+            // The explosion is server-side. Its old charged block can make the
+            // following placement fail local prediction even after USE was sent.
+            // Wait for the real replacement; never replay that placement click.
+            BlockPos replacement = doubleAnchorHit.getBlockPos();
+            if (isAnchor(client, replacement) && anchorCharges(client, replacement) == 0) {
+                doubleAnchorAwaitingReplacement = false;
+                recentAnchorCandidates.put(replacement, tickCounter);
+            } else {
+                if (tickCounter - doubleAnchorReplaceTick >= ANCHOR_CONFIRMATION_TICKS)
+                    interruptDoubleAnchor(client);
+                return true;
+            }
+        }
+        Item required = switch (doubleAnchorStep) {
+            case REPLACE -> Items.RESPAWN_ANCHOR;
+            case CHARGE -> Items.GLOWSTONE;
+            case EXPLODE -> Items.TOTEM_OF_UNDYING;
+            case NONE -> throw new IllegalStateException("No double-anchor continuation");
+        };
+        int slot = preferredHotbarSlot(client.player, required);
+        if (slot < 0 || doubleAnchorStep == DoubleAnchorStep.REPLACE
+            && (!validDoubleAnchorSupport(client, anchorSupportHit) || !hasDoubleAnchorFinishItems(client))) {
+            interruptDoubleAnchor(client);
+            return true;
+        }
+        ActionKind kind = switch (doubleAnchorStep) {
+            case REPLACE -> ActionKind.DOUBLE_ANCHOR_REPLACE;
+            case CHARGE -> ActionKind.DOUBLE_ANCHOR_GLOWSTONE;
+            case EXPLODE -> ActionKind.DOUBLE_ANCHOR_FINISH;
+            case NONE -> throw new IllegalStateException("No double-anchor continuation");
+        };
+        plan(new PlannedAction(kind, Branch.ANCHOR,
+            doubleAnchorStep == DoubleAnchorStep.REPLACE ? anchorSupportHit : doubleAnchorHit,
+            null, slot, doubleAnchorStep == DoubleAnchorStep.REPLACE ? 0.0D
+                : context.slider("2 tick swap chance", 18.0D), doubleAnchorHit.getBlockPos()));
+        return true;
+    }
+
+    private void executeDoubleAnchorFirstExplode(MinecraftClient client, PlannedAction plan) {
+        if (!isAnchor(client, plan.placementPos) || anchorCharges(client, plan.placementPos) < 1
+            || !validDoubleAnchorHit(client, plan.hit) || !validDoubleAnchorSupport(client, anchorSupportHit)
+            || !client.player.getInventory().getStack(plan.slot).isOf(Items.RESPAWN_ANCHOR)
+            || !hasDoubleAnchorFinishItems(client)) {
+            interruptDoubleAnchor(client);
+            return;
+        }
+        boolean swapped = logicalSelectedSlot(client.player) != plan.slot;
+        if (!selectOwnedSlot(client, plan.slot)) return;
+        if (swapped && rollTwoTick(plan.swapChance)) {
+            nextAnchorTick = tickCounter + 1;
+            actionUsedThisTick = true;
+            return;
+        }
+        if (!performVanillaUse(client, plan.hit)) {
+            interruptDoubleAnchor(client);
+            return;
+        }
+        doubleAnchorHit = plan.hit;
+        doubleAnchorStep = DoubleAnchorStep.REPLACE;
+        doubleAnchorReplaceTick = tickCounter + 1;
+        nextAnchorTick = doubleAnchorReplaceTick;
+        waitingForAnchor = false;
+        pendingAnchorPlace = null;
+        glowstoneUseTick = Long.MIN_VALUE;
+        ownedAnchors.remove(plan.placementPos);
+        recentAnchorCandidates.remove(plan.placementPos);
+    }
+
+    private void executeDoubleAnchorFollowup(MinecraftClient client, PlannedAction plan) {
+        boolean replacement = plan.kind == ActionKind.DOUBLE_ANCHOR_REPLACE;
+        Item required = replacement ? Items.RESPAWN_ANCHOR
+            : plan.kind == ActionKind.DOUBLE_ANCHOR_GLOWSTONE ? Items.GLOWSTONE : Items.TOTEM_OF_UNDYING;
+        if (!validDoubleAnchorHit(client, plan.hit)
+            || !client.player.getInventory().getStack(plan.slot).isOf(required)
+            || replacement && (tickCounter != doubleAnchorReplaceTick
+                || !validDoubleAnchorSupport(client, plan.hit) || !hasDoubleAnchorFinishItems(client))
+            || !replacement && (!isAnchor(client, plan.hit.getBlockPos())
+                || (plan.kind == ActionKind.DOUBLE_ANCHOR_GLOWSTONE
+                    ? anchorCharges(client, plan.hit.getBlockPos()) != 0
+                    : anchorCharges(client, plan.hit.getBlockPos()) <= 0))) {
+            interruptDoubleAnchor(client);
+            return;
+        }
+        boolean swapped = logicalSelectedSlot(client.player) != plan.slot;
+        if (!selectOwnedSlot(client, plan.slot)) {
+            if (replacement) interruptDoubleAnchor(client);
+            return;
+        }
+        // The replacement's deadline never samples the two-tick swap chance,
+        // including when its anchor has moved to another hotbar slot.
+        if (!replacement && swapped && rollTwoTick(plan.swapChance)) {
+            nextAnchorTick = tickCounter + 1;
+            actionUsedThisTick = true;
+            return;
+        }
+        ActionResult result = performVanillaUseResult(client, plan.hit);
+        if (result == null || !replacement && !result.isAccepted()) {
+            interruptDoubleAnchor(client);
+            return;
+        }
+        if (replacement) {
+            doubleAnchorStep = DoubleAnchorStep.CHARGE;
+            activeAnchorPos = plan.placementPos;
+            doubleAnchorAwaitingReplacement = !result.isAccepted()
+                || !isAnchor(client, plan.placementPos) || anchorCharges(client, plan.placementPos) != 0;
+            if (!doubleAnchorAwaitingReplacement) recentAnchorCandidates.put(plan.placementPos, tickCounter);
+        } else if (plan.kind == ActionKind.DOUBLE_ANCHOR_GLOWSTONE) {
+            doubleAnchorStep = DoubleAnchorStep.EXPLODE;
+        } else {
+            finishAnchorAfterUse(client);
+            return;
+        }
+        nextAnchorTick = tickCounter + 1;
+    }
+
+    private boolean doubleAnchorContextAllowed(MinecraftClient client) {
+        BlockPos target = doubleAnchorHit != null ? doubleAnchorHit.getBlockPos()
+            : activeAnchorPos != null ? activeAnchorPos : pendingAnchorPlace != null ? pendingAnchorPlace
+                : crosshairBlock(client) != null ? crosshairBlock(client).getBlockPos() : null;
+        return enabled("Double Anchor Macro") && enabled(ModuleKind.ANCHOR_MACRO.moduleName)
+            && canRun(client) && client.isWindowFocused()
+            && useHeldAtStart && UseInputLease.physicalDown(client)
+            && !gameplayTakeoverActive(client)
+            && !client.player.shouldCancelInteraction()
+            && !client.player.getOffHandStack().isOf(Items.GLOWSTONE)
+            && target != null
+            && !client.world.getEnvironmentAttributes().getAttributeValue(
+                EnvironmentAttributes.RESPAWN_ANCHOR_WORKS_GAMEPLAY, target);
+    }
+
+    private boolean hasDoubleAnchorFinishItems(MinecraftClient client) {
+        return findHotbar(client.player, stack -> stack.isOf(Items.GLOWSTONE)) >= 0
+            && findHotbar(client.player, stack -> stack.isOf(Items.TOTEM_OF_UNDYING)) >= 0;
+    }
+
+    private boolean validDoubleAnchorHit(MinecraftClient client, BlockHitResult hit) {
+        return hit != null && hit.getType() == HitResult.Type.BLOCK
+            && client.world.getWorldBorder().contains(hit.getBlockPos())
+            && client.world.isChunkLoaded(hit.getBlockPos().getX() >> 4, hit.getBlockPos().getZ() >> 4)
+            && !client.world.getEnvironmentAttributes().getAttributeValue(
+                EnvironmentAttributes.RESPAWN_ANCHOR_WORKS_GAMEPLAY, hit.getBlockPos())
+            && client.player.getEyePos().squaredDistanceTo(hit.getPos())
+                <= BLOCK_INTERACTION_RANGE * BLOCK_INTERACTION_RANGE;
+    }
+
+    private boolean validDoubleAnchorSupport(MinecraftClient client, BlockHitResult hit) {
+        return validDoubleAnchorHit(client, hit) && validAirLiquidSupport(client, hit)
+            && (hit != anchorSupportHit || anchorSupportState == null
+                || client.world.getBlockState(hit.getBlockPos()) == anchorSupportState);
+    }
+
+    private BlockHitResult replacementSupport(MinecraftClient client, BlockPos anchorPos) {
+        if (validDoubleAnchorSupport(client, anchorSupportHit)
+            && anchorSupportHit.getBlockPos().offset(anchorSupportHit.getSide()).equals(anchorPos)
+            && replacementFaceVisible(client, anchorSupportHit, anchorPos)) return anchorSupportHit;
+        for (Direction side : new Direction[]{Direction.UP, Direction.NORTH, Direction.SOUTH,
+            Direction.WEST, Direction.EAST, Direction.DOWN}) {
+            BlockPos support = anchorPos.offset(side.getOpposite());
+            Vec3d point = anchorPos.toCenterPos().add(-side.getOffsetX() * .5,
+                -side.getOffsetY() * .5, -side.getOffsetZ() * .5);
+            BlockHitResult hit = new BlockHitResult(point, side, support, false);
+            // For an anchor placed outside this macro, only infer a support whose
+            // block has vanilla's inert base behavior. A chest/button/dispenser
+            // could consume this click instead of placing the second anchor.
+            if (client.world.getBlockState(support).getBlock().getClass() != Block.class
+                || !validDoubleAnchorSupport(client, hit)) continue;
+            if (replacementFaceVisible(client, hit, anchorPos)) return hit;
+        }
+        return null;
+    }
+
+    private boolean replacementFaceVisible(MinecraftClient client, BlockHitResult support, BlockPos anchorPos) {
+        BlockHitResult obstruction = client.world.raycast(new RaycastContext(client.player.getEyePos(),
+            support.getPos(), RaycastContext.ShapeType.OUTLINE, RaycastContext.FluidHandling.NONE, client.player));
+        return obstruction.getType() == HitResult.Type.MISS || obstruction.getBlockPos().equals(anchorPos)
+            || obstruction.getBlockPos().equals(support.getBlockPos());
+    }
+
+    private static int hotbarCount(ClientPlayerEntity player, Item item) {
+        int count = 0;
+        for (int i = 0; i < 9; i++) if (player.getInventory().getStack(i).isOf(item))
+            count += player.getInventory().getStack(i).getCount();
+        return count;
+    }
+
+    private void interruptDoubleAnchor(MinecraftClient client) {
+        resetAnchorState();
+        anchorFinishedUntilRelease = true;
+        clearPlan();
+        clearOwnedSlot();
+        endSilentTransport(client);
+        retainDoubleAnchorUse(client);
+    }
+
+    private void retainDoubleAnchorUse(MinecraftClient client) {
+        doubleAnchorUseBlocked = true;
+        claimUse();
+        useClaimed = UseInputLease.getInstance().acquire(this, PRIORITY,
+            ActionScheduler.getInstance().tickNumber(), client);
+    }
+
     private void finishAnchorAfterUse(MinecraftClient client) {
+        doubleAnchorUseBlocked = false;
         forgetActiveAnchor();
         resetAnchorState();
         ModuleContext context = context(client, ModuleKind.ANCHOR_MACRO.moduleName);
@@ -823,6 +1151,7 @@ final class CrystalCombatCoordinator {
         if (crystal == null || !crystal.isAlive()) return false;
         try {
             return withLogicalProjection(client, () -> {
+                interactionAttemptSchedulerTick = ActionScheduler.getInstance().tickNumber();
                 client.interactionManager.attackEntity(client.player, crystal);
                 client.player.swingHand(Hand.MAIN_HAND);
                 actionUsedThisTick = true;
@@ -834,9 +1163,17 @@ final class CrystalCombatCoordinator {
     }
 
     private boolean performVanillaUse(MinecraftClient client, BlockHitResult hit) {
+        ActionResult result = performVanillaUseResult(client, hit);
+        return result != null && result.isAccepted();
+    }
+
+    private ActionResult performVanillaUseResult(MinecraftClient client, BlockHitResult hit) {
         try {
-            return withLogicalProjection(client, () -> {
+            ActionResult[] prediction = new ActionResult[1];
+            withLogicalProjection(client, () -> {
+                interactionAttemptSchedulerTick = ActionScheduler.getInstance().tickNumber();
                 ActionResult result = client.interactionManager.interactBlock(client.player, Hand.MAIN_HAND, hit);
+                prediction[0] = result;
                 if (result instanceof ActionResult.Success success
                     && success.swingSource() == ActionResult.SwingSource.CLIENT) {
                     client.player.swingHand(Hand.MAIN_HAND);
@@ -845,8 +1182,9 @@ final class CrystalCombatCoordinator {
                 if (accepted) actionUsedThisTick = true;
                 return accepted;
             });
+            return prediction[0];
         } catch (RuntimeException | LinkageError ignored) {
-            return false;
+            return null;
         }
     }
 
@@ -895,7 +1233,7 @@ final class CrystalCombatCoordinator {
 
     /* Action-time equivalent of Grim AirLiquidPlace's invalid support test. */
     private boolean validAirLiquidSupport(MinecraftClient client, BlockHitResult hit) {
-        if (hit == null) return false;
+        if (hit == null || hit.getType() != HitResult.Type.BLOCK) return false;
         BlockState support = client.world.getBlockState(hit.getBlockPos());
         return !support.isAir() && !(support.getBlock() instanceof FluidBlock);
     }
@@ -1029,7 +1367,12 @@ final class CrystalCombatCoordinator {
 
     private void endSilentTransport(MinecraftClient client) {
         if (silentTransport && SilentSlotManager.getInstance().isOwnedBy(this)
-            && client != null && client.isOnThread()) SilentSlotManager.getInstance().release(this);
+            && client != null && client.isOnThread()) {
+            SilentSlotManager slots = SilentSlotManager.getInstance();
+            if (interactionAttemptSchedulerTick == ActionScheduler.getInstance().tickNumber())
+                slots.releaseAfterAction(this);
+            slots.release(this);
+        }
         clearSilentTransportState();
     }
 
@@ -1095,6 +1438,7 @@ final class CrystalCombatCoordinator {
         observedWorld = null;
         observedPlayer = null;
         useHeldAtStart = false;
+        doubleAnchorUseBlocked = false;
         actionUsedThisTick = false;
         silentTakeoverUntilUseRelease = false;
         clearPlan();
@@ -1130,6 +1474,14 @@ final class CrystalCombatCoordinator {
     }
 
     private void resetAnchorState() {
+        anchorCycleStarted = false;
+        doubleAnchorCycle = false;
+        doubleAnchorStep = DoubleAnchorStep.NONE;
+        doubleAnchorReplaceTick = 0;
+        doubleAnchorAwaitingReplacement = false;
+        anchorSupportHit = null;
+        anchorSupportState = null;
+        doubleAnchorHit = null;
         activeAnchorPos = null;
         anchorGlowstoneUses = 0;
         anchorGlowstoneGoal = 1;

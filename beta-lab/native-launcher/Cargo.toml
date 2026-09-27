@@ -22,13 +22,26 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.10"
 ureq = { version = "2.12", default-features = false, features = ["tls", "json"] }
-winapi = { version = "0.3", features = ["dpapi", "errhandlingapi", "fileapi", "handleapi", "processthreadsapi", "winbase", "wincrypt", "winnt", "winuser"] }
+x25519-dalek = { version = "2.0", features = ["static_secrets"] }
+zeroize = { version = "1.9", features = ["serde"] }
+
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3", features = ["securitybaseapi", "libloaderapi", "combaseapi", "dpapi", "errhandlingapi", "fileapi", "handleapi", "knownfolders", "processthreadsapi", "shlobj", "winbase", "wincrypt", "winnt", "winuser"] }
 winreg = "0.55"
 wmi = "0.17"
-x25519-dalek = { version = "2.0", features = ["static_secrets"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+eframe = { version = "0.32", default-features = false, features = ["x11", "wayland"] }
 
 [profile.release]
-opt-level = "z"
-lto = "thin"
+opt-level = 3
+lto = "fat"
 codegen-units = 1
+panic = "abort"
 strip = "symbols"
+debug = false
+debug-assertions = false
+overflow-checks = false

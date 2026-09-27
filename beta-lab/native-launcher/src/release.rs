@@ -4,5 +4,5 @@ pub const SERVER_KEY: &str = "rhLhkicLy3laX7_Q7rSv9OGVyrSHr1OyEZW8_hJfoKY";
 // do not change when the remotely delivered Celeste payload is repackaged.
 pub const LAUNCHER_CHANNEL_ID: &str = "a39fbbf8e5c344edb39ee82d";
 pub const LAUNCHER_CHANNEL_DIGEST: &str =
-    "aafa32dafbc230d52d5cbfd7c2f9a2ceabbb433bf9bc984046c18db6df433b39";
+    "d779134f7ae0ce556f097057fbf940f266e6029eae21623bd841ca8a2ec4305b";
 pub const LAUNCHER_PROTOCOL_VERSION: &str = "1.0.0";

@@ -1,0 +1,232 @@
+name: Celeste+ platform candidates
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: celeste-plus-platform-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  celeste-plus:
+    name: ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-x64
+            runner: windows-2022
+            rust_target: x86_64-pc-windows-msvc
+            executable: CelestePlus.exe
+          - platform: linux-x64
+            runner: ubuntu-22.04
+            rust_target: x86_64-unknown-linux-gnu
+            executable: CelestePlus
+          - platform: macos-arm64
+            runner: macos-15
+            rust_target: aarch64-apple-darwin
+            executable: CelestePlus
+          - platform: macos-x64
+            runner: macos-15-intel
+            rust_target: x86_64-apple-darwin
+            executable: CelestePlus
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install Java 21
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Install Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+
+      - name: Verify native host toolchain
+        shell: bash
+        env:
+          EXPECTED_TARGET: ${{ matrix.rust_target }}
+        run: |
+          set -euo pipefail
+          actual="$(rustc -vV | sed -n 's/^host: //p' | tr -d '\r')"
+          test "$actual" = "$EXPECTED_TARGET"
+          rustc --version
+          cargo --version
+          java -version
+          python --version
+
+      - name: Install Linux build libraries
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libdbus-1-dev libgtk-3-dev libsecret-tools libxkbcommon-dev \
+            libwayland-dev libx11-dev libxi-dev libxcursor-dev \
+            libxrandr-dev libxinerama-dev libgl1-mesa-dev
+
+      - name: Configure Windows release metadata hygiene
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:RUSTFLAGS -or $env:CARGO_ENCODED_RUSTFLAGS) { throw 'Candidate Rust flags must be explicit.' }
+          rustup component add llvm-tools-preview
+          if ($LASTEXITCODE -ne 0) { throw 'LLVM tools installation failed.' }
+          $taskUserRoot = [Environment]::GetFolderPath('UserProfile')
+          $taskCargoRoot = if ($env:CARGO_HOME) { [IO.Path]::GetFullPath($env:CARGO_HOME) } else { Join-Path $taskUserRoot '.cargo' }
+          $taskRoot = [IO.Path]::GetFullPath($env:GITHUB_WORKSPACE)
+          $taskFlags = @('--remap-path-prefix', "$taskUserRoot=/user", '--remap-path-prefix', "$taskCargoRoot=/cargo", '--remap-path-prefix', "$taskRoot=/src", '-C', 'link-arg=/DEBUG:NONE')
+          @(
+            "CARGO_ENCODED_RUSTFLAGS=$($taskFlags -join [char]31)"
+            'CARGO_PROFILE_RELEASE_DEBUG=false'
+            'CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS=false'
+          ) | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Check candidate packager
+        shell: bash
+        run: python -m unittest tools/qa/test_package_celeste_plus_candidate.py
+
+      - name: Format-check Celeste+ launcher
+        shell: bash
+        run: cargo fmt --manifest-path beta-lab/native-launcher/Cargo.toml -- --check
+
+      - name: Test Celeste+ launcher
+        shell: bash
+        run: cargo test --locked --target '${{ matrix.rust_target }}' --manifest-path beta-lab/native-launcher/Cargo.toml
+
+      - name: Build Celeste+ launcher candidate
+        shell: bash
+        run: cargo build --release --locked --target '${{ matrix.rust_target }}' --manifest-path beta-lab/native-launcher/Cargo.toml
+
+      - name: Strip and verify unsigned Windows candidate metadata
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          BINARY: beta-lab/native-launcher/target/${{ matrix.rust_target }}/release/${{ matrix.executable }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $taskBinary = Get-Item -LiteralPath $env:BINARY
+          if ((Get-AuthenticodeSignature -LiteralPath $taskBinary.FullName).Status -ne 'NotSigned') { throw 'Strip before signing; a candidate must be unsigned.' }
+          $taskSysroot = (& rustc --print sysroot).Trim()
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot locate the Rust sysroot.' }
+          $taskStrip = Join-Path $taskSysroot 'lib/rustlib/x86_64-pc-windows-msvc/bin/llvm-strip.exe'
+          if (-not (Test-Path -LiteralPath $taskStrip -PathType Leaf)) { throw 'LLVM strip is unavailable.' }
+          & $taskStrip --strip-debug --strip-all $taskBinary.FullName
+          if ($LASTEXITCODE -ne 0) { throw 'LLVM stripping failed.' }
+          python tools/packaging/windows_release_metadata.py --binary $taskBinary.FullName --strip-reviewed-debug
+          if ($LASTEXITCODE -ne 0) { throw 'PE debug metadata removal failed.' }
+          $taskUserRoot = [Environment]::GetFolderPath('UserProfile')
+          $taskCargoRoot = if ($env:CARGO_HOME) { [IO.Path]::GetFullPath($env:CARGO_HOME) } else { Join-Path $taskUserRoot '.cargo' }
+          python tools/packaging/windows_release_metadata.py --binary $taskBinary.FullName --forbid-prefix $env:GITHUB_WORKSPACE --forbid-prefix $taskUserRoot --forbid-prefix $taskCargoRoot
+          if ($LASTEXITCODE -ne 0) { throw 'Windows metadata verification failed.' }
+          python -m unittest tools/qa/test_windows_release_metadata.py
+          if ($LASTEXITCODE -ne 0) { throw 'Windows metadata checker tests failed.' }
+
+      - name: Check standalone host, delivery, and lifecycle
+        shell: bash
+        run: bash ./gradlew --no-daemon --console=plain build
+
+      - name: Check runtime overlay and bootstrap protection boundaries
+        shell: bash
+        run: |
+          python -m unittest discover -s tests -p test_prepare_runtime.py
+          python -m unittest discover -s beta-lab/obfuscation -p test_prepare_obfuscation.py
+
+      - name: Record Linux ELF dependency floor
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          BINARY: beta-lab/native-launcher/target/${{ matrix.rust_target }}/release/${{ matrix.executable }}
+        run: |
+          set -euo pipefail
+          mkdir -p build/celeste-plus-abi
+          {
+            readelf -h "$BINARY"
+            readelf -l "$BINARY"
+            readelf -d "$BINARY"
+            readelf --version-info "$BINARY"
+          } > build/celeste-plus-abi/native-abi.txt
+          maximum="$(grep -oE 'GLIBC_[0-9]+(\.[0-9]+)*' build/celeste-plus-abi/native-abi.txt | sort -Vu | tail -n 1)"
+          test -n "$maximum"
+          test "$(printf '%s\n' "$maximum" GLIBC_2.35 | sort -V | tail -n 1)" = GLIBC_2.35
+          printf '\nmaximum referenced GLIBC symbol: %s\n' "$maximum" | tee -a build/celeste-plus-abi/native-abi.txt
+
+      - name: Record macOS binary dependencies
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          BINARY: beta-lab/native-launcher/target/${{ matrix.rust_target }}/release/${{ matrix.executable }}
+        run: |
+          set -euo pipefail
+          mkdir -p build/celeste-plus-abi
+          {
+            file "$BINARY"
+            otool -hv "$BINARY"
+            otool -L "$BINARY"
+            otool -l "$BINARY"
+          } > build/celeste-plus-abi/native-abi.txt
+
+      - name: Record Windows PE identity
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          BINARY: beta-lab/native-launcher/target/${{ matrix.rust_target }}/release/${{ matrix.executable }}
+        run: |
+          New-Item -ItemType Directory -Force -Path build/celeste-plus-abi | Out-Null
+          $binary = Get-Item -LiteralPath $env:BINARY
+          $digest = (Get-FileHash -Algorithm SHA256 -LiteralPath $binary.FullName).Hash.ToLowerInvariant()
+          @(
+            'format: PE x86_64 (validated by the candidate packager)'
+            "size: $($binary.Length)"
+            "sha256: $digest"
+          ) | Set-Content -Encoding ascii -LiteralPath build/celeste-plus-abi/native-abi.txt
+
+      - name: Validate and archive unsigned candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/qa/package_celeste_plus_candidate.py \
+            --binary 'beta-lab/native-launcher/target/${{ matrix.rust_target }}/release/${{ matrix.executable }}' \
+            --platform '${{ matrix.platform }}' \
+            --target '${{ matrix.rust_target }}' \
+            --abi-report build/celeste-plus-abi/native-abi.txt \
+            --output 'build/celeste-plus-ci/${{ matrix.platform }}'
+
+      # These archives are intentionally unsigned CI evidence. Shipping macOS
+      # builds still requires signing/notarization in a separately authorized flow.
+      - name: Save unsigned platform candidate
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: celeste-plus-${{ matrix.platform }}
+          path: build/celeste-plus-ci/${{ matrix.platform }}/
+          if-no-files-found: error
+          retention-days: 7
+
+  auth-and-release-tests:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - name: Install declared service test dependencies
+        run: python -m pip install -r auth-service/requirements.txt
+      - name: Check authentication and native publication gates
+        run: |
+          python -m unittest discover -s tools/qa -p 'test_*.py'
+          python -m unittest discover -s beta-lab/release-package -p 'test_*.py'
+          cd auth-service
+          python -m pytest tests -q

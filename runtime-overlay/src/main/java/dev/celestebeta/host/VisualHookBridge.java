@@ -16,8 +16,20 @@ public final class VisualHookBridge {
         default boolean hideHud(Object hud, Object context, Object counter) { return false; }
         default boolean mediaClick(Object click) { return false; }
         default void applyRotations(Object entity, Object state) { }
+        default void highlightItem(Object entity, Object state) { }
         default boolean replacePlayerModel(Object state) { return false; }
+        default void transformHand(Object player, Object hand, Object matrices) { }
+        /** New prepared methods supply the visible stack, not the next inventory selection. */
+        default void transformHand(Object player, Object hand, Object item, Object matrices) {
+            transformHand(player, hand, matrices);
+        }
+        default HandPass beginHands() { return null; }
+        default Object handDisplayContext(Object original) { return original; }
+        default Object handDisplayContext(Object original, Object item) { return handDisplayContext(original); }
     }
+
+    /** Captured cleanup survives a handler failure/unload between begin and finish. */
+    public interface HandPass { void finish(boolean success); }
 
     private VisualHookBridge() { }
 
@@ -87,6 +99,62 @@ public final class VisualHookBridge {
     public static boolean mediaClick(Object click) { return presentation(2, click, null, null); }
     public static void applyRotations(Object entity, Object state) { presentation(3, entity, state, null); }
     public static boolean replacePlayerModel(Object state) { return presentation(4, state, null, null); }
+    public static void transformHand(Object player, Object hand, Object matrices) { presentation(5, player, hand, matrices); }
+    public static void highlightItem(Object entity, Object state) { presentation(6, entity, state, null); }
+    public static void transformHand(Object player, Object hand, Object item, Object matrices) {
+        synchronized (LOCK) {
+            Registration registration = active();
+            if (registration == null) return;
+            registration.dispatches++;
+            try { registration.handler.transformHand(player, hand, item, matrices); }
+            catch (RuntimeException | LinkageError failure) { registration.failed(failure); }
+            finally { registration.dispatches--; }
+        }
+    }
+
+    public static HandPass beginHands() {
+        synchronized (LOCK) {
+            Registration registration = active();
+            if (registration == null) return null;
+            registration.dispatches++;
+            try { return registration.handler.beginHands(); }
+            catch (RuntimeException | LinkageError failure) { registration.failed(failure); return null; }
+            finally { registration.dispatches--; }
+        }
+    }
+
+    public static Object handDisplayContext(Object original) {
+        return handDisplayContext(original, null, false);
+    }
+
+    public static Object handDisplayContext(Object original, Object item) {
+        return handDisplayContext(original, item, true);
+    }
+
+    private static Object handDisplayContext(Object original, Object item, boolean suppliedItem) {
+        synchronized (LOCK) {
+            Registration registration = active();
+            if (registration == null) return original;
+            registration.dispatches++;
+            try {
+                Object selected = suppliedItem ? registration.handler.handDisplayContext(original, item)
+                    : registration.handler.handDisplayContext(original);
+                if (selected == null || original != null && !original.getClass().isInstance(selected)) {
+                    throw new IllegalStateException("Invalid first-person display context");
+                }
+                return selected;
+            } catch (RuntimeException | LinkageError failure) { registration.failed(failure); return original; }
+            finally { registration.dispatches--; }
+        }
+    }
+
+    public static void finishHands(HandPass pass, boolean success) {
+        if (pass == null) return;
+        // Never re-query active(): cleanup remains mandatory even after another
+        // visual callback failed or the payload registration was disconnected.
+        try { pass.finish(success); }
+        catch (RuntimeException | Error failure) { /* A visual cannot replace a vanilla render exception. */ }
+    }
 
     private static boolean presentation(int operation, Object first, Object second, Object third) {
         synchronized (LOCK) {
@@ -100,6 +168,8 @@ public final class VisualHookBridge {
                     case 2 -> { return registration.handler.mediaClick(first); }
                     case 3 -> registration.handler.applyRotations(first, second);
                     case 4 -> { return registration.handler.replacePlayerModel(first); }
+                    case 5 -> registration.handler.transformHand(first, second, third);
+                    case 6 -> registration.handler.highlightItem(first, second);
                     default -> throw new IllegalArgumentException("Unknown presentation operation");
                 }
                 return false;

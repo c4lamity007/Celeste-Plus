@@ -26,6 +26,9 @@ public final class RotationHookBridge {
         Object glidingVector(Object entity);
         float glidingPitch(Object entity);
         float sprintJumpYaw(Object entity);
+        boolean redirectLook(Object entity, double cursorDeltaX, double cursorDeltaY);
+        boolean keepLocalPlayerControl(Object player);
+        Object renderedCameraFocus(Object vanillaFocus);
         void keyboardTick(Object input);
         /** Null means vanilla; one element means cancel and return that exact value, even null. */
         Object[] selectedStack(Object inventory, Object replacement, boolean set);
@@ -64,6 +67,44 @@ public final class RotationHookBridge {
     public static float movementYaw(Object entity) { return rotation(4, entity); }
     public static float glidingPitch(Object entity) { return rotation(5, entity); }
     public static float sprintJumpYaw(Object entity) { return rotation(6, entity); }
+
+    public static boolean redirectLook(Object entity, double cursorDeltaX, double cursorDeltaY) {
+        synchronized (LOCK) {
+            Registration registration = active();
+            if (registration == null) return false;
+            registration.dispatches++;
+            try { return registration.handler.redirectLook(entity, cursorDeltaX, cursorDeltaY); }
+            finally { registration.dispatches--; }
+        }
+    }
+
+    /** Late transformer adapter: exact vanilla deltas, or zero after Freecam consumed them. */
+    public static double[] lookDeltas(Object entity, double cursorDeltaX, double cursorDeltaY) {
+        return redirectLook(entity, cursorDeltaX, cursorDeltaY)
+            ? new double[] {0.0D, 0.0D} : new double[] {cursorDeltaX, cursorDeltaY};
+    }
+
+    /** HEAD adapter for ClientPlayerEntity.isCamera; false preserves vanilla. */
+    public static boolean keepLocalPlayerControl(Object player) {
+        synchronized (LOCK) {
+            Registration registration = active();
+            if (registration == null) return false;
+            registration.dispatches++;
+            try { return registration.handler.keepLocalPlayerControl(player); }
+            finally { registration.dispatches--; }
+        }
+    }
+
+    /** Expression adapter for the final local-player focus comparison in WorldRenderer. */
+    public static Object renderedCameraFocus(Object vanillaFocus) {
+        synchronized (LOCK) {
+            Registration registration = active();
+            if (registration == null) return vanillaFocus;
+            registration.dispatches++;
+            try { return registration.handler.renderedCameraFocus(vanillaFocus); }
+            finally { registration.dispatches--; }
+        }
+    }
 
     private static float rotation(int operation, Object entity) {
         synchronized (LOCK) {

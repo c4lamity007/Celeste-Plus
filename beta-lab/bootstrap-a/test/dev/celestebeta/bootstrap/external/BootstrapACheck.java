@@ -46,11 +46,23 @@ public final class BootstrapACheck {
     private static final String INTERNAL = "dev.celestebeta.bootstrap.internal.MemoryPayloadBootstrap";
     private static final String BRIDGE = "dev/celestebeta/host/ResourceReloadBridge.class";
     private static int checks;
+    private static java.util.jar.JarFile minecraftSchemas;
     private BootstrapACheck() { }
 
     public static void main(String[] args) throws Exception {
+        if (args.length == 2 && args[0].equals("--minecraft-schema")) {
+            try (var schemas = new java.util.jar.JarFile(Path.of(args[1]).toFile())) {
+                minecraftSchemas = schemas;
+                hooks();
+                hostLifetimes();
+            } finally { minecraftSchemas = null; }
+            System.out.println("PASS actual Minecraft schema gate: " + checks + " checks; hook transactions and host cleanup against supplied class bytes; no Minecraft launch");
+            return;
+        }
         if (args.length != 1) throw new IllegalArgumentException("Expected isolated fixture output directory");
         plusProtocolBoundary();
+        dev.c4lam.celeste.beta.delivery.RuntimeInstallationSignerCheck.run();
+        dev.c4lam.celeste.auth.PortableCredentialProtectionCheck.run();
         interactionApiPresence();
         classIdentity();
         archive();
@@ -62,6 +74,7 @@ public final class BootstrapACheck {
         hooks();
         hostLifetimes();
         System.out.println("PASS bootstrap A: " + checks + " checks; verified B archive, retained support ownership and simulated hook transactions");
+        System.out.println("Actual Minecraft schemas not tested by this task; run betaMinecraftSchemaCheck with -PminecraftSchemaJar for that separate gate.");
     }
 
     private static void plusProtocolBoundary() throws Exception {
@@ -684,7 +697,7 @@ public final class BootstrapACheck {
         }
     }
 
-    /** Synthetic hook-shaped bytes: lifecycle transaction tests need no Minecraft binary. */
+    /** Synthetic hook-shaped bytes for host transactions without a Minecraft binary. */
     private static byte[] transactionSchema(String owner) {
         ClassWriter writer = new ClassWriter(0);
         writer.visit(Opcodes.V21, Opcodes.ACC_PUBLIC, owner, null, "java/lang/Object", null);
@@ -694,6 +707,8 @@ public final class BootstrapACheck {
             MethodVisitor move = writer.visitMethod(Opcodes.ACC_PUBLIC, "updateVelocity", "(FLnet/minecraft/util/math/Vec3d;)V", null, null);
             move.visitCode(); move.visitVarInsn(Opcodes.ALOAD, 0); move.visitMethodInsn(Opcodes.INVOKEVIRTUAL, owner, "getYaw", "()F", false);
             move.visitInsn(Opcodes.POP); move.visitInsn(Opcodes.RETURN); move.visitMaxs(1, 3); move.visitEnd();
+            MethodVisitor look = writer.visitMethod(Opcodes.ACC_PUBLIC, "changeLookDirection", "(DD)V", null, null);
+            look.visitCode(); look.visitInsn(Opcodes.RETURN); look.visitMaxs(0, 5); look.visitEnd();
         } else if (owner.equals("net/minecraft/client/input/KeyboardInput")) {
             MethodVisitor tick = writer.visitMethod(Opcodes.ACC_PUBLIC, "tick", "()V", null, null);
             tick.visitCode(); tick.visitVarInsn(Opcodes.ALOAD, 0); tick.visitInsn(Opcodes.POP); tick.visitInsn(Opcodes.RETURN); tick.visitMaxs(1, 1); tick.visitEnd();
@@ -712,7 +727,12 @@ public final class BootstrapACheck {
             DummyLoader loader = new DummyLoader(); List<Class<?>> classes = new ArrayList<>();
             for (String owner : List.of("net/minecraft/entity/Entity", "net/minecraft/client/input/KeyboardInput")) {
                 Class<?> type = loader.define(owner.replace('/', '.'), tinyClass(owner)); classes.add(type);
-                original.put(type, transactionSchema(owner));
+                if (minecraftSchemas == null) original.put(type, transactionSchema(owner));
+                else {
+                    var entry = minecraftSchemas.getJarEntry(owner + ".class");
+                    if (entry == null) throw new IOException("Missing supplied Minecraft schema " + owner);
+                    try (InputStream input = minecraftSchemas.getInputStream(entry)) { original.put(type, input.readAllBytes()); }
+                }
             }
             target = new MinecraftTarget(classes.getFirst(), loader, List.copyOf(classes)); current.putAll(original);
             proxy = (Instrumentation) Proxy.newProxyInstance(BootstrapACheck.class.getClassLoader(), new Class<?>[] { Instrumentation.class }, (object, method, args) -> {

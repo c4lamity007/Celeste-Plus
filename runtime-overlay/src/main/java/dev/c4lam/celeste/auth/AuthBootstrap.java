@@ -35,7 +35,7 @@ public final class AuthBootstrap {
     private static volatile HardwareFingerprint hardware;
     private static volatile InstallCredential sessionCredential;
     private static volatile String sessionGrant;
-    private static volatile long lastHeartbeatSuccessNanos;
+    private static volatile long sessionDeadlineNanos;
     private static Runnable authorizedInitializer;
     private static Runnable authorizedShutdown;
     private static volatile Consumer<Throwable> lateFailureObserver;
@@ -133,7 +133,14 @@ public final class AuthBootstrap {
     }
 
     public static boolean authorized() {
-        return AUTHORIZED.get() && !LOCKED.get() && !STOPPED.get();
+        if (!AUTHORIZED.get() || LOCKED.get() || STOPPED.get()) return false;
+        // Gameplay checks this even if the network worker is delayed or stops.
+        // A cached boolean must never outlive the verified server session.
+        if (System.nanoTime() - sessionDeadlineNanos >= 0) {
+            lockSession("Authorization expired; reconnect to verify this session");
+            return false;
+        }
+        return true;
     }
 
     public static boolean hasLocalCredential() {
@@ -283,15 +290,33 @@ public final class AuthBootstrap {
         MinecraftClient client,
         AuthServiceClient.Authenticated authenticated,
         InstallCredential credential
-    ) {
+    ) throws Exception {
+        if (STOPPED.get() || LOCKED.get()) return;
+        // Grants authorize delivery; a fresh nonce-bound response authorizes
+        // activation. Replaying a captured startup grant cannot satisfy this.
+        String verifiedSession = service.checkSession(credential, config.releaseDigest(), false);
+        long deadline = System.nanoTime() + service.sessionValidityNanos(verifiedSession);
         client.execute(() -> {
             // A response queued before shutdown/revocation must never reactivate the client.
-            if (STOPPED.get() || LOCKED.get() || !AUTHORIZED.compareAndSet(false, true)) {
+            if (STOPPED.get() || LOCKED.get() || AUTHORIZED.get()) {
+                return;
+            }
+            if (System.nanoTime() - deadline >= 0) {
+                fail(client, "Authorization expired before initialization");
                 return;
             }
             sessionCredential = credential;
-            sessionGrant = authenticated.grant();
-            lastHeartbeatSuccessNanos = System.nanoTime();
+            sessionGrant = verifiedSession;
+            sessionDeadlineNanos = deadline;
+            // Publish the complete session before the worker can observe it.
+            if (!AUTHORIZED.compareAndSet(false, true)) return;
+            if (STOPPED.get() || LOCKED.get()) {
+                AUTHORIZED.set(false);
+                sessionCredential = null;
+                sessionGrant = null;
+                sessionDeadlineNanos = 0;
+                return;
+            }
             try {
                 LicenseIdentity.accept(authenticated.uid());
                 authorizedInitializer.run();
@@ -326,9 +351,10 @@ public final class AuthBootstrap {
                 return;
             }
             String refreshedGrant = currentService.checkSession(credential, observedDigest, false);
+            long deadline = System.nanoTime() + currentService.sessionValidityNanos(refreshedGrant);
             if (authorized()) {
+                sessionDeadlineNanos = deadline;
                 sessionGrant = refreshedGrant;
-                lastHeartbeatSuccessNanos = System.nanoTime();
             }
         } catch (AuthServiceClient.AuthRejectedException exception) {
             if (exception.statusCode() == 401 || exception.statusCode() == 403 || exception.statusCode() == 409) {
@@ -346,10 +372,9 @@ public final class AuthBootstrap {
     }
 
     private static void lockAfterHeartbeatGrace() {
-        long elapsed = System.nanoTime() - lastHeartbeatSuccessNanos;
-        if (elapsed >= TimeUnit.SECONDS.toNanos(95)) {
-            lockSession("Authorization service could not revalidate this session");
-        }
+        // Transport errors cannot extend the server-issued lease. Gameplay
+        // also calls authorized(), independently of this network worker.
+        authorized();
     }
 
     private static void lockSession(String message) {
@@ -363,6 +388,7 @@ public final class AuthBootstrap {
         LOCKED.set(true);
         sessionCredential = null;
         sessionGrant = null;
+        sessionDeadlineNanos = 0;
         status = message;
         MinecraftClient client = MinecraftClient.getInstance();
         client.execute(() -> {
@@ -384,6 +410,7 @@ public final class AuthBootstrap {
         AUTHORIZED.set(false);
         sessionCredential = null;
         sessionGrant = null;
+        sessionDeadlineNanos = 0;
         WORKER.shutdownNow();
         client.execute(() -> {
             try {

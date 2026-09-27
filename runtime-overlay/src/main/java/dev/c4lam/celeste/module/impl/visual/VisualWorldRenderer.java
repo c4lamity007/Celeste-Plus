@@ -9,6 +9,7 @@ import dev.c4lam.celeste.auth.AuthBootstrap;
 import dev.c4lam.celeste.module.impl.visual.expansion.PlayerEchoRenderer;
 import dev.c4lam.celeste.module.impl.visual.expansion.WorldGlowRenderer;
 import dev.c4lam.celeste.module.impl.visual.expansion.UnifiedChamsRenderer;
+import dev.c4lam.celeste.render.WorldOverlayPass;
 import net.fabricmc.fabric.api.client.rendering.v1.RenderStateDataKey;
 import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderContext;
 import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderEvents;
@@ -16,6 +17,7 @@ import net.minecraft.client.gl.RenderPipelines;
 import net.minecraft.client.render.RenderLayer;
 import net.minecraft.client.render.RenderSetup;
 import net.minecraft.client.render.VertexConsumer;
+import net.minecraft.client.render.VertexConsumerProvider;
 import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.math.Box;
@@ -58,7 +60,8 @@ public final class VisualWorldRenderer {
     private VisualWorldRenderer() {
     }
 
-    public static synchronized void initialize(EntityEspFeature entities, HoleEspFeature holes) {
+    public static synchronized void initialize(EntityEspFeature entities, HoleEspFeature holes,
+                                               StorageEspFeature storageEsp, BlockEspFeature blockEsp) {
         if (initialized) {
             return;
         }
@@ -80,13 +83,12 @@ public final class VisualWorldRenderer {
             List<PlayerEchoRenderer.Echo> chams = new ArrayList<>();
             entities.extract(context, boxes, chams);
             holes.extract(context, boxes, glows);
+            storageEsp.extract(context, boxes);
+            blockEsp.extract(context, boxes);
             worldState.setData(FRAME_KEY, boxes.isEmpty() && glows.isEmpty() && chams.isEmpty() ? Frame.EMPTY
                 : new Frame(List.copyOf(boxes), List.copyOf(glows), new PlayerEchoRenderer.Frame(chams)));
         }, WorldRenderEvents.END_EXTRACTION::register);
-        // Fabric 16.2.x invokes BEFORE_DEBUG_RENDER from the outer extraction method,
-        // before WorldRenderContextImpl is prepared for the frame-graph draw pass.
-        BetaSubscriptions.register(WorldRenderEvents.AFTER_ENTITIES, "celeste:world_visuals/draw",
-            WorldRenderEvents.AfterEntities.class, VisualWorldRenderer::draw, WorldRenderEvents.AFTER_ENTITIES::register);
+        WorldOverlayPass.register("celeste:world_visuals/draw", VisualWorldRenderer::draw);
     }
 
     static int argb(float alpha, int rgb) {
@@ -134,6 +136,12 @@ public final class VisualWorldRenderer {
             if ((box.lineColor() >>> 24) != 0) {
                 drawOutline(matrices, lines, box, camera, box.lineColor(), box.lineWidth());
             }
+        }
+        // Finish only these overlays before the private chams/glow composites.
+        // END_MAIN still has the prepared provider; do not flush unrelated world layers.
+        if (consumers instanceof VertexConsumerProvider.Immediate immediate) {
+            immediate.draw(FILLS);
+            immediate.draw(LINES);
         }
         // Each material owns a complete batch; no fallback consumer survives a layer switch.
         UnifiedChamsRenderer.draw(context, frame.chams());

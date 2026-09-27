@@ -19,9 +19,13 @@ import dev.c4lam.celeste.render.font.Font;
 import dev.c4lam.celeste.render.font.Fonts;
 import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
 import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElement;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.texture.Sprite;
+import net.minecraft.client.texture.SpriteAtlasTexture;
 import net.minecraft.client.gui.DrawContext;
+import net.minecraft.client.gui.hud.InGameHud;
 import net.minecraft.client.gui.screen.ChatScreen;
 import net.minecraft.client.network.AbstractClientPlayerEntity;
 
@@ -30,6 +34,8 @@ import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.entity.EquipmentSlot;
 import net.minecraft.entity.effect.StatusEffectInstance;
 import net.minecraft.item.ItemStack;
+import net.minecraft.registry.Registries;
+import net.minecraft.util.Atlases;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.hit.HitResult;
 import net.minecraft.util.math.Vec3d;
@@ -65,35 +71,55 @@ public final class HudManager {
         "textures/gui/icons/media_next.png");
     private static final Identifier MEDIA_SHUFFLE_ICON = Identifier.of(CelesteClient.MOD_ID,
         "textures/gui/icons/media_shuffle.png");
-    private static final float[] MEDIA_BUTTON_CENTERS = {58.0f, 95.0f, 132.0f, 164.0f};
+    private static final Identifier PERFORMANCE_GLYPH = Identifier.of(CelesteClient.MOD_ID,
+        "textures/hud/glyphs/performance.png");
+    private static final Identifier EFFECTS_GLYPH = Identifier.of(CelesteClient.MOD_ID,
+        "textures/hud/glyphs/effects.png");
+    private static final Identifier KEYBINDS_GLYPH = Identifier.of(CelesteClient.MOD_ID,
+        "textures/hud/glyphs/keybinds.png");
+    private static final int MEDIA_BUTTON_COUNT = 4;
     private static final HudManager INSTANCE = new HudManager();
-    private static final Color TEXT = color(250, 244, 250, 255);
-    private static final Color MUTED = color(173, 158, 174, 255);
+    private static Color TEXT = color(247, 247, 250, 255);
+    private static Color MUTED = color(164, 164, 174, 255);
     private static final Color ACCENT = color(255, 43, 143, 255);
-    private static final Color BACKGROUND_TOP = color(31, 18, 31, 244);
-    private static final Color BACKGROUND_BOTTOM = color(14, 10, 17, 249);
-    private static final Color BACKGROUND_HOVER_TOP = color(46, 27, 44, 246);
-    private static final Color BACKGROUND_HOVER_BOTTOM = color(22, 15, 24, 250);
+    // The projected Target HUD intentionally keeps its original scene glass.
+    // Movable HUD cards use HudSurface's current near-black material.
+    private static final Color TARGET_GLASS_TOP = color(31, 18, 31, 244);
+    private static final Color TARGET_GLASS_BOTTOM = color(14, 10, 17, 249);
+    private static final Color DEFAULT_GRADIENT_START = color(255, 79, 163, 255);
+    private static final Color DEFAULT_GRADIENT_END = color(169, 135, 255, 255);
     private static final float ARRAYLIST_FONT = 7.2f;
-    private static final float ARRAYLIST_PAD_X = 7.0f;
-    private static final float ARRAYLIST_ROW_HEIGHT = 13.0f;
-    private static final float ARRAYLIST_CORNER = 4.0f;
-    private static final float ARRAYLIST_ROW_OVERLAP = 1.0f;
+    private static final float ARRAYLIST_PAD_X = 4.5f;
+    private static final float ARRAYLIST_ROW_HEIGHT = 11.5f;
+    private static final dev.c4lam.celeste.render.ArrayListContourRender ARRAYLIST_CONTOUR =
+        new dev.c4lam.celeste.render.ArrayListContourRender();
 
     private final List<HudElementState> elements = new ArrayList<>();
     private final HudTargetTracker targetTracker = HudTargetTracker.getInstance();
     private final Path layoutFile = FabricLoader.getInstance().getConfigDir().resolve("celeste").resolve("hud-layout.properties");
-    private final float[] mediaButtonHover = new float[4];
+    private final float[] mediaButtonHover = new float[MEDIA_BUTTON_COUNT];
     private float renderedMediaProgress;
     private String renderedMediaTimelineKey = "";
     private float renderedMediaArtworkOpacity;
     private float renderedMediaPlaying;
     private float renderedMediaShuffle;
     private float renderedMediaMetadataOpacity = 1.0f;
+    private final DynamicIslandRenderer island = new DynamicIslandRenderer();
+    private final DynamicIslandClicks islandClicks = new DynamicIslandClicks();
+    private final DynamicIslandPlaybackClock mediaPlaybackClock = new DynamicIslandPlaybackClock();
+    private Object islandClickScreen;
+    private final HudNetworkClock networkClock = new HudNetworkClock();
+    private int lastViewportWidth;
+    private int lastViewportHeight;
     private String renderedArtworkKey = "";
     private float frameSeconds = 1.0f / 60.0f;
     private final Map<String, Float> moduleEntrance = new HashMap<>();
     private List<String> frameModuleNames = List.of();
+    private List<StatusEffectInstance> frameEffects = List.of();
+    private final EffectsHudPresentation effectsPresentation = new EffectsHudPresentation();
+    private EffectsHudPresentation.Layout frameEffectsLayout = effectsPresentation.update(List.of(), 0.0F);
+    private Map<String, StatusEffectInstance> frameEffectsById = Map.of();
+    private List<HudBind> frameBinds = List.of();
     private long lastPresentationUpdate;
     private boolean initialized;
     private boolean closed;
@@ -110,14 +136,13 @@ public final class HudManager {
           elements.add(new HudElementState(HudElementType.WATERMARK, 8, 8, true, false));
           elements.add(new HudElementState(HudElementType.COORDINATES, 8, 44, true, false));
           elements.add(new HudElementState(HudElementType.FPS, 8, 80, false, false));
-          elements.add(new HudElementState(HudElementType.TPS, 80, 80, false, false));
           elements.add(new HudElementState(HudElementType.ARRAYLIST, 8, 113, false, false));
           elements.add(new HudElementState(HudElementType.TARGET_HUD, 218, 134, false, false));
           elements.add(new HudElementState(HudElementType.EFFECTS, 8, 182, false, false));
           elements.add(new HudElementState(HudElementType.ARMOR, 218, 188, false, false));
           elements.add(new HudElementState(HudElementType.KEYBINDS, 8, 238, false, false));
-          elements.add(new HudElementState(HudElementType.COOLDOWNS, 218, 232, false, false));
-          elements.add(new HudElementState(HudElementType.SPOTIFY, 218, 278, false, false));
+          elements.add(new HudElementState(HudElementType.SPOTIFY, 116, 48, false, false));
+          elements.add(new HudElementState(HudElementType.DYNAMIC_ISLAND, 0, 8, true, false));
          isSelecting = false;
      }
 
@@ -131,12 +156,28 @@ public final class HudManager {
             return;
         }
         loadLayout();
+        updateMediaLyricsDemand();
         initialized = true;
+        BetaSubscriptions.register(ClientTickEvents.END_CLIENT_TICK, "celeste:hud/lifecycle",
+            ClientTickEvents.EndTick.class, client -> {
+                if (client.world == null || client.player == null) {
+                    if (island.active()) island.reset();
+                    effectsPresentation.reset();
+                    networkClock.setEnabled(false);
+                }
+                updateIslandClicks(client);
+                ModuleToggleSounds.tick(client, !closed && CelesteClient.active());
+            }, ClientTickEvents.END_CLIENT_TICK::register);
         BetaSubscriptions.register(HudElementRegistry.class, LAYER_ID.toString(), HudElement.class, (context, tickCounter) -> {
             if (closed || !CelesteClient.active()) {
                 return;
             }
             MinecraftClient client = MinecraftClient.getInstance();
+            if (client.world == null || client.player == null) {
+                island.reset();
+                networkClock.setEnabled(false);
+                return;
+            }
             if (client.currentScreen == null || client.currentScreen instanceof SilentInventoryScreen) {
                 render(context, -1, -1, false, null, false);
             } else if (client.currentScreen instanceof ChatScreen) {
@@ -145,12 +186,24 @@ public final class HudManager {
                 int mouseY = Math.round((float) (client.mouse.getY()
                     * client.getWindow().getScaledHeight() / Math.max(1, client.getWindow().getHeight())));
                 render(context, mouseX, mouseY, false, null, true);
+            } else if (!(client.currentScreen instanceof HudEditorScreen)
+                    && !(client.currentScreen instanceof dev.c4lam.celeste.gui.CelesteScreen)) {
+                renderIslandOverlay(context);
             }
         }, proxy -> HudElementRegistry.addLast(LAYER_ID, proxy));
     }
 
     public synchronized void close() {
         closed = true;
+        island.reset();
+        effectsPresentation.reset();
+        frameEffectsById = Map.of();
+        frameEffects = List.of();
+        frameEffectsLayout = effectsPresentation.update(List.of(), 0.0F);
+        cancelIslandClick();
+        mediaPlaybackClock.reset();
+        networkClock.close();
+        ModuleToggleSounds.reset();
         isSelecting = false;
         for (HudElementState element : selectedElements) {
             element.setSelected(false);
@@ -158,6 +211,9 @@ public final class HudManager {
         selectedElements.clear();
         moduleEntrance.clear();
         frameModuleNames = List.of();
+        frameEffects = List.of();
+        frameBinds = List.of();
+        SystemMediaService.getInstance().setMediaHudLyricsEnabled(false);
     }
 
     public List<HudElementState> elements() {
@@ -191,6 +247,14 @@ public final class HudManager {
         GuiModule module = moduleFor(type);
         if (module != null) {
             module.setEnabled(enabled);
+        }
+        if (type == HudElementType.DYNAMIC_ISLAND) {
+            if (!enabled) {
+                island.reset();
+                cancelIslandClick();
+            }
+            networkClock.setEnabled(enabled);
+            updateMediaLyricsDemand();
         }
         saveLayout();
     }
@@ -306,17 +370,30 @@ public final class HudManager {
             float x = parseFloat(values.getProperty(prefix + "x"), state.x());
             float y = parseFloat(values.getProperty(prefix + "y"), state.y());
             float uniform = parseFloat(values.getProperty(prefix + "scale"), 1.0f);
-            state.setScaleX(parseFloat(values.getProperty(prefix + "scale_x"), uniform));
-            state.setScaleY(parseFloat(values.getProperty(prefix + "scale_y"), uniform));
+            state.setScale(HudLayoutPolicy.importedUniformScale(uniform,
+                parseFloat(values.getProperty(prefix + "scale_x"), uniform),
+                parseFloat(values.getProperty(prefix + "scale_y"), uniform)));
             state.moveImmediately(x, y);
         }
+        // Keep existing classic cards, but migrate the old Media HUD island to its own widget.
+        if (values.getProperty("hud.dynamic_island.enabled",
+                values.getProperty("dynamic_island.enabled")) == null) {
+            String legacyStyle = values.getProperty("hud.spotify.style",
+                values.getProperty("spotify.style", "DYNAMIC_ISLAND"));
+            if ("DYNAMIC_ISLAND".equalsIgnoreCase(legacyStyle)
+                    && state(HudElementType.SPOTIFY).enabled()) {
+                state(HudElementType.SPOTIFY).setEnabled(false);
+                state(HudElementType.DYNAMIC_ISLAND).setEnabled(true);
+            }
+        }
+        state(HudElementType.DYNAMIC_ISLAND).setScale(1.0f);
+        updateMediaLyricsDemand();
     }
 
     public HudElementState hit(double mouseX, double mouseY) {
-        syncDynamicSizes();
         for (int index = elements.size() - 1; index >= 0; index--) {
             HudElementState state = elements.get(index);
-            if (state.enabled() && state.contains(mouseX, mouseY)) {
+            if (!state.type().fixed() && state.enabled() && state.contains(mouseX, mouseY)) {
                 return state;
             }
         }
@@ -325,19 +402,27 @@ public final class HudManager {
 
     /** Runs a media transport action when a visible control is clicked. */
     public boolean handleMediaClick(double mouseX, double mouseY) {
+        HudViewport viewport = HudViewport.current();
+        double hudX = viewport.screenToHud(mouseX);
+        double hudY = viewport.screenToHud(mouseY);
+        if (handleIslandClickHud(hudX, hudY)) return true;
+        cancelIslandClick();
         HudElementState media = state(HudElementType.SPOTIFY);
-        if (!media.enabled() || !media.contains(mouseX, mouseY)) {
+        if (!media.enabled() || !media.contains(hudX, hudY)) {
             return false;
         }
-        float localX = ((float) mouseX - media.displayX()) / media.scaleX();
-        float localY = ((float) mouseY - media.displayY()) / media.scaleY();
-        if (localY < 57.0f || localY > 77.0f) {
+        SystemMediaService service = SystemMediaService.getInstance();
+        MediaPlaybackSnapshot snapshot = service.snapshot();
+        float localX = ((float) hudX - media.displayX()) / media.scaleX();
+        float localY = ((float) hudY - media.displayY()) / media.scaleY();
+        if (localY < HudPolishPolicy.MEDIA_CONTROL_HIT_TOP
+                || localY > HudPolishPolicy.MEDIA_CONTROL_HIT_TOP + HudPolishPolicy.MEDIA_CONTROL_HIT_HEIGHT) {
             return false;
         }
 
         int button = -1;
-        for (int index = 0; index < MEDIA_BUTTON_CENTERS.length; index++) {
-            if (Math.abs(localX - MEDIA_BUTTON_CENTERS[index]) <= 14.0f) {
+        for (int index = 0; index < MEDIA_BUTTON_COUNT; index++) {
+            if (Math.abs(localX - HudPolishPolicy.mediaButton(index, media.intrinsicWidth())) <= 14.0f) {
                 button = index;
                 break;
             }
@@ -346,8 +431,6 @@ public final class HudManager {
             return false;
         }
 
-        SystemMediaService service = SystemMediaService.getInstance();
-        MediaPlaybackSnapshot snapshot = service.snapshot();
         switch (button) {
             case 0 -> {
                 if (snapshot.canPrevious()) service.previous();
@@ -367,20 +450,72 @@ public final class HudManager {
         return true;
     }
 
+    /** The fixed island is clickable in chat and the editors, but never draggable. */
+    public boolean handleIslandClick(double mouseX, double mouseY) {
+        HudViewport viewport = HudViewport.current();
+        return handleIslandClickHud(viewport.screenToHud(mouseX), viewport.screenToHud(mouseY));
+    }
+
+    private boolean handleIslandClickHud(double mouseX, double mouseY) {
+        MinecraftClient client = MinecraftClient.getInstance();
+        HudElementState fixed = state(HudElementType.DYNAMIC_ISLAND);
+        if (!islandControlsAvailable(client) || !island.active()
+                || !DynamicIslandClicks.contains(mouseX, mouseY, fixed.x(), fixed.y(),
+                    fixed.width(), fixed.height())) {
+            cancelIslandClick();
+            return false;
+        }
+        MediaPlaybackSnapshot snapshot = SystemMediaService.getInstance().snapshot();
+        if (!snapshot.available() || (!snapshot.canToggle() && !snapshot.canNext())) return false;
+        if (islandClickScreen != client.currentScreen) cancelIslandClick();
+        islandClickScreen = client.currentScreen;
+        island.clicked();
+        dispatchIslandAction(islandClicks.click(System.nanoTime(), islandTrack(snapshot)), snapshot);
+        return true;
+    }
+
+    private void updateIslandClicks(MinecraftClient client) {
+        if (!islandClicks.pending()) return;
+        if (!islandControlsAvailable(client) || islandClickScreen != client.currentScreen) {
+            cancelIslandClick();
+            return;
+        }
+        MediaPlaybackSnapshot snapshot = SystemMediaService.getInstance().snapshot();
+        dispatchIslandAction(islandClicks.poll(System.nanoTime(), islandTrack(snapshot)), snapshot);
+    }
+
+    private boolean islandControlsAvailable(MinecraftClient client) {
+        return !closed && CelesteClient.active() && client.world != null && client.player != null
+            && !client.options.hudHidden && state(HudElementType.DYNAMIC_ISLAND).enabled()
+            && (client.currentScreen instanceof ChatScreen || client.currentScreen instanceof HudEditorScreen
+                || client.currentScreen instanceof dev.c4lam.celeste.gui.CelesteScreen);
+    }
+
+    private static String islandTrack(MediaPlaybackSnapshot snapshot) {
+        return snapshot.available() ? snapshot.sourceId() + '\u0000' + snapshot.title() + '\u0000'
+            + snapshot.artist() + '\u0000' + snapshot.durationMs() : "";
+    }
+
+    private static void dispatchIslandAction(DynamicIslandClicks.Action action, MediaPlaybackSnapshot snapshot) {
+        SystemMediaService service = SystemMediaService.getInstance();
+        if (action == DynamicIslandClicks.Action.TOGGLE && snapshot.canToggle()) service.togglePlayback();
+        else if (action == DynamicIslandClicks.Action.NEXT && snapshot.canNext()) service.next();
+    }
+
+    private void cancelIslandClick() {
+        islandClicks.reset();
+        islandClickScreen = null;
+    }
+
     /** Keeps persisted absolute positions reachable after GUI-scale or window-size changes. */
     public boolean clampToViewport(int viewportWidth, int viewportHeight) {
-        syncDynamicSizes();
         boolean changed = false;
         for (HudElementState state : elements) {
-            float fittingScaleX = viewportWidth / Math.max(1.0f, state.intrinsicWidth());
-            float fittingScaleY = viewportHeight / Math.max(1.0f, state.intrinsicHeight());
-            // Match the state's minimum: asking for a smaller scale is ignored
-            // and would otherwise mark the layout dirty on every tiny-window frame.
-            float safeScaleX = Math.max(HudElementState.MIN_SCALE, Math.min(state.scaleX(), fittingScaleX));
-            float safeScaleY = Math.max(HudElementState.MIN_SCALE, Math.min(state.scaleY(), fittingScaleY));
-            if (safeScaleX != state.scaleX() || safeScaleY != state.scaleY()) {
-                state.setScaleX(safeScaleX);
-                state.setScaleY(safeScaleY);
+            if (state.type().fixed()) continue;
+            float safeScale = HudLayoutPolicy.fittingUniformScale(state.scale(), state.intrinsicWidth(),
+                state.intrinsicHeight(), viewportWidth, viewportHeight);
+            if (safeScale != state.scale()) {
+                state.setScale(safeScale);
                 changed = true;
             }
             float maximumX = Math.max(0.0f, viewportWidth - state.width());
@@ -399,6 +534,29 @@ public final class HudManager {
         render(context, mouseX, mouseY, true, dragging, false);
     }
 
+    /** Screen overlays use only the fixed island, never the movable HUD/editor controls. */
+    public void renderIslandOverlay(DrawContext context) {
+        MinecraftClient client = MinecraftClient.getInstance();
+        if (closed || !CelesteClient.active() || client.options.hudHidden
+                || client.world == null || client.player == null) return;
+        frameSeconds = presentationSeconds();
+        TEXT = new Color(InterfaceConfig.hudTextRgb());
+        HudViewport viewport = HudViewport.current();
+        updateIsland(client, viewport);
+        HudElementState fixed = state(HudElementType.DYNAMIC_ISLAND);
+        fixed.updateVisuals(false, false, true);
+        if (!fixed.visuallyPresent(true)) return;
+        MatrixStack matrices = RenderUtil.matrices();
+        matrices.loadIdentity();
+        matrices.push();
+        viewport.apply(matrices);
+        try {
+            drawWidget(context, matrices, fixed, false, false, -1, -1, false, false, null);
+        } finally {
+            matrices.pop();
+        }
+    }
+
     private void render(DrawContext context, int mouseX, int mouseY, boolean editor, HudElementState dragging,
                         boolean chatMediaMode) {
         MinecraftClient client = MinecraftClient.getInstance();
@@ -407,20 +565,37 @@ public final class HudManager {
             return;
         }
         frameSeconds = presentationSeconds();
-        if (clampToViewport(context.getScaledWindowWidth(), context.getScaledWindowHeight())) {
-            // A GUI-scale/window change may otherwise leave the persisted copy
-            // offscreen again on the next launch. This branch runs only when a
-            // position actually changes, never once per frame.
+        TEXT = new Color(InterfaceConfig.hudTextRgb());
+        MUTED = blend(TEXT, color(30, 30, 36, 255), .36f);
+        HudViewport viewport = HudViewport.current();
+        syncDynamicSizes(viewport.width());
+        int viewportWidth = Math.max(1, Math.round(viewport.width()));
+        int viewportHeight = Math.max(1, Math.round(viewport.height()));
+        int hudMouseX = mouseX < 0 ? mouseX : Math.round(viewport.screenToHud(mouseX));
+        int hudMouseY = mouseY < 0 ? mouseY : Math.round(viewport.screenToHud(mouseY));
+        boolean viewportChanged = viewportWidth != lastViewportWidth || viewportHeight != lastViewportHeight;
+        lastViewportWidth = viewportWidth;
+        lastViewportHeight = viewportHeight;
+        boolean clamped = clampToViewport(viewportWidth, viewportHeight);
+        if (clamped && viewportChanged) {
+            // Content animation must not perform disk writes every frame.
             saveLayout();
         }
         MatrixStack matrices = RenderUtil.matrices();
         matrices.loadIdentity();
         GuiRenderer.getInstance().clearScissors();
+        matrices.push();
+        viewport.apply(matrices);
+        var guiMatrices = context.getMatrices();
+        guiMatrices.pushMatrix();
+        guiMatrices.scale(viewport.renderScale(), viewport.renderScale());
+
+        try {
 
         for (HudElementState state : elements) {
-            boolean presentationVisible = !chatMediaMode || state.type() == HudElementType.SPOTIFY;
+            boolean presentationVisible = presentationVisible(state, editor, chatMediaMode);
             boolean interactive = editor || (chatMediaMode && state.type() == HudElementType.SPOTIFY);
-            boolean hovered = interactive && state.enabled() && state.contains(mouseX, mouseY);
+            boolean hovered = interactive && state.enabled() && state.contains(hudMouseX, hudMouseY);
             state.updateVisuals(hovered, state == dragging, presentationVisible);
         }
 
@@ -435,34 +610,44 @@ public final class HudManager {
             ? projectTarget(context, targetPresentation)
             : null;
 
-        // One explicit world capture is shared by every HUD surface this frame.
-        // Do not run the full-screen blur chain for an enabled Target HUD that
-        // currently has no target and therefore draws no panel.
-        boolean hasVisibleSurface = editor || elements.stream().anyMatch(state -> {
-            boolean presentationVisible = !chatMediaMode || state.type() == HudElementType.SPOTIFY;
-            return state.visuallyPresent(presentationVisible)
-                && (state.type() != HudElementType.TARGET_HUD
-                    || (targetAboveEntity ? projectedTarget != null : targetPresentation != null));
-        });
-        if (hasVisibleSurface) {
-            RenderUtil.captureBlur();
-        }
+        // HUD panels are flat surfaces and never capture the world for glass/blur.
         for (HudElementState state : elements) {
-            boolean presentationVisible = !chatMediaMode || state.type() == HudElementType.SPOTIFY;
+            boolean presentationVisible = presentationVisible(state, editor, chatMediaMode);
             boolean interactive = editor || (chatMediaMode && state.type() == HudElementType.SPOTIFY);
-            boolean hovered = interactive && state.enabled() && state.contains(mouseX, mouseY);
+            boolean hovered = interactive && state.enabled() && state.contains(hudMouseX, hudMouseY);
             if (!state.visuallyPresent(presentationVisible)) {
                 continue;
             }
             if (targetAboveEntity && state.type() == HudElementType.TARGET_HUD) {
                 continue;
             }
-            drawWidget(context, matrices, state, hovered, state == dragging, mouseX, mouseY, editor,
+            drawWidget(context, matrices, state, hovered, state == dragging, hudMouseX, hudMouseY, editor,
                 interactive, targetPresentation);
         }
         if (projectedTarget != null) {
+            RenderUtil.captureBlur();
             drawProjectedTarget(matrices, targetState, targetPresentation, projectedTarget);
         }
+        } finally {
+            guiMatrices.popMatrix();
+            matrices.pop();
+        }
+    }
+
+    private boolean presentationVisible(HudElementState state, boolean editor, boolean chatMediaMode) {
+        if (editor) {
+            return true;
+        }
+        if (chatMediaMode && !state.type().visibleInChat()) {
+            return false;
+        }
+        return switch (state.type()) {
+            case ARRAYLIST -> !frameModuleNames.isEmpty();
+            case EFFECTS -> !frameEffectsLayout.items().isEmpty();
+            case KEYBINDS -> !frameBinds.isEmpty();
+            case SPOTIFY -> SystemMediaService.getInstance().snapshot().available();
+            default -> true;
+        };
     }
 
     private ProjectedTarget projectTarget(DrawContext context, HudTargetTracker.Presentation presentation) {
@@ -490,8 +675,9 @@ public final class HudManager {
             return null;
         }
 
-        float viewportWidth = context.getScaledWindowWidth();
-        float viewportHeight = context.getScaledWindowHeight();
+        HudViewport viewport = HudViewport.current();
+        float viewportWidth = viewport.width();
+        float viewportHeight = viewport.height();
         float screenX = (float) ((projected.x + 1.0D) * 0.5D * viewportWidth);
         float screenY = (float) ((1.0D - projected.y) * 0.5D * viewportHeight);
         HudElementState state = state(HudElementType.TARGET_HUD);
@@ -547,9 +733,9 @@ public final class HudManager {
         matrices.translate(x, y, 0.0F);
         matrices.scale(scaleX, scaleY, 1.0F);
         matrices.translate(-x, -y, 0.0F);
-        RenderUtil.BLUR_RECT.draw(matrices, x, y, baseWidth, baseHeight, new Vector4f(9),
-            withAlpha(BACKGROUND_TOP, visibility), withAlpha(BACKGROUND_TOP, visibility),
-            withAlpha(BACKGROUND_BOTTOM, visibility), withAlpha(BACKGROUND_BOTTOM, visibility),
+        RenderUtil.BLUR_RECT.draw(matrices, x, y, baseWidth, baseHeight, new Vector4f(9.0F),
+            withAlpha(TARGET_GLASS_TOP, visibility), withAlpha(TARGET_GLASS_TOP, visibility),
+            withAlpha(TARGET_GLASS_BOTTOM, visibility), withAlpha(TARGET_GLASS_BOTTOM, visibility),
             InterfaceConfig.glassTintMix());
         drawTarget(matrices, x, y, baseWidth, visibility, presentation);
         matrices.pop();
@@ -559,6 +745,21 @@ public final class HudManager {
                             boolean dragging, int mouseX, int mouseY, boolean editor, boolean interactive,
                             HudTargetTracker.Presentation frameTarget) {
         float visibility = state.visibility();
+        if (state.type() == HudElementType.DYNAMIC_ISLAND) {
+            island.draw(matrices, state.x(), state.y(), TEXT, visibility);
+            String time = networkClock.text();
+            float clockWidth = Fonts.semibold().width(time, 6.7f);
+            float clockX = state.x() - 7.0f - clockWidth;
+            if (!clockSpaceAvailable(clockX, state.y(), clockWidth, state.height())) {
+                clockX = state.x() + state.width() + 7.0f;
+            }
+            if (clockSpaceAvailable(clockX, state.y(), clockWidth, state.height())) {
+                Fonts.semibold().draw(matrices, time, clockX,
+                    state.y() + (state.height() - Fonts.semibold().height(6.7f)) * .5f,
+                    6.7f, withAlpha(TEXT, visibility));
+            }
+            return;
+        }
         HudTargetTracker.Presentation targetPresentation = null;
         float targetVisibility = 1.0f;
         if (state.type() == HudElementType.TARGET_HUD) {
@@ -598,30 +799,22 @@ public final class HudManager {
         matrices.scale(scaleX, scaleY, 1.0f);
         matrices.translate(-x, -y, 0.0f);
 
-        Color top = withAlpha(blend(BACKGROUND_TOP, BACKGROUND_HOVER_TOP, hover), visibility);
-        Color bottom = withAlpha(blend(BACKGROUND_BOTTOM, BACKGROUND_HOVER_BOTTOM, hover), visibility);
-        if (state.type() != HudElementType.ARRAYLIST) {
-            RenderUtil.BLUR_RECT.draw(matrices, x, y, baseWidth, baseHeight, new Vector4f(9),
-                top, top, bottom, bottom, InterfaceConfig.glassTintMix());
+        float corner = HudSurface.radius(state.type(), baseWidth, baseHeight);
+        if (state.type() != HudElementType.ARRAYLIST && state.type() != HudElementType.ARMOR
+            && state.type() != HudElementType.EFFECTS && state.type() != HudElementType.KEYBINDS) {
+            RenderUtil.RECT.draw(matrices, x, y, baseWidth, baseHeight, corner, HudSurface.color(visibility));
         }
-        if (selection > 0.002f) {
-            Color selectionTop = withAlpha(color(205, 205, 211, 30), visibility * selection);
-            Color selectionBottom = withAlpha(color(92, 92, 100, 42), visibility * selection);
-            RenderUtil.BLUR_RECT.draw(matrices, x, y, baseWidth, baseHeight, new Vector4f(9),
-                selectionTop, selectionTop, selectionBottom, selectionBottom,
-                InterfaceConfig.glassTintMix());
+        if (selection > 0.002f && state.type() != HudElementType.ARRAYLIST && state.type() != HudElementType.ARMOR
+            && state.type() != HudElementType.EFFECTS && state.type() != HudElementType.KEYBINDS) {
+            RenderUtil.RECT.draw(matrices, x, y, baseWidth, baseHeight, corner,
+                withAlpha(color(255, 255, 255, 12), visibility * selection));
         }
-        if (editor && state.type() != HudElementType.ARRAYLIST && (hover > 0.015f || dragging)) {
-            float indicatorWidth = 18.0f + 10.0f * drag;
-            RenderUtil.RECT.draw(matrices, centerX - indicatorWidth / 2.0f, y + 2.5f,
-                indicatorWidth, 1.5f, 0.75f, withAlpha(ACCENT, visibility * Math.max(hover, drag) * 0.78f));
-        }
-
          switch (state.type()) {
+             case DYNAMIC_ISLAND -> { }
              case WATERMARK -> drawWatermark(matrices, x, y, baseWidth, visibility);
              case COORDINATES -> drawCoordinates(matrices, x, y, baseWidth, visibility);
              case TARGET_HUD -> drawTarget(matrices, x, y, baseWidth, visibility, targetPresentation);
-             case EFFECTS -> drawEffects(matrices, x, y, baseWidth, visibility);
+             case EFFECTS -> drawEffects(matrices, x, y, visibility);
              case ARMOR -> {
                  var gui = context.getMatrices();
                  gui.pushMatrix();
@@ -631,60 +824,54 @@ public final class HudManager {
                  gui.translate(x, y);
                  gui.scale(scaleX, scaleY);
                  gui.translate(-x, -y);
+                 dev.c4lam.celeste.render.VanillaItemSurface.drawSmooth(context, x, y, baseWidth, baseHeight,
+                     corner, HudSurface.color(visibility));
                  drawArmor(context, matrices, x, y, visibility);
                  gui.popMatrix();
              }
              case KEYBINDS -> drawKeybinds(matrices, x, y, baseWidth, visibility);
-             case COOLDOWNS -> drawCooldowns(matrices, x, y, baseWidth, visibility);
              case ARRAYLIST -> drawArraylist(matrices, x, y, baseWidth, visibility);
-             case TPS -> drawMetric(matrices, x, y, baseWidth, "TPS",
-                 ServerTickRateTracker.getInstance().formatted(MinecraftClient.getInstance().world), visibility);
-             case FPS -> drawMetric(matrices, x, y, baseWidth, "FPS", String.valueOf(MinecraftClient.getInstance().getCurrentFps()), visibility);
+             case FPS -> drawPerformanceMetric(matrices, x, y, baseWidth, visibility);
              case SPOTIFY -> drawMedia(matrices, x, y, baseWidth, visibility,
                  Math.round(x + (mouseX - x) / scaleX),
                  Math.round(y + (mouseY - y) / scaleY), interactive);
          }
         if (selection > 0.002f) {
             RenderUtil.SELECTION_OUTLINE.draw(matrices, x, y, baseWidth, baseHeight,
-                9.0f, 1.2f, selectionPhase(), visibility * selection);
+                corner, 1.2f, selectionPhase(), visibility * selection);
         }
         matrices.pop();
     }
 
+    private boolean clockSpaceAvailable(float x, float y, float width, float height) {
+        if (x < 2 || x + width > HudViewport.current().width() - 2) return false;
+        for (HudElementState other : elements) {
+            if (other.type().fixed() || !other.enabled() || !other.visuallyPresent(true)) continue;
+            if (x < other.displayX() + other.width() + 3 && x + width + 3 > other.displayX()
+                && y < other.displayY() + other.height() && y + height > other.displayY()) return false;
+        }
+        return true;
+    }
+
     private void drawWatermark(MatrixStack matrices, float x, float y, float width, float opacity) {
         String brand = "Celeste";
-        String suffix = " Client";
-        float brandWidth = Fonts.semibold().width(brand, 8.0f);
-        float fullWidth = brandWidth + Fonts.semibold().width(suffix, 8.0f);
+        String suffix = "  UID " + LicenseIdentity.uid();
+        float brandWidth = Fonts.semibold().width(brand, 7.2f);
+        float fullWidth = brandWidth + Fonts.regular().width(suffix, 6.2f);
         float textX = x + (width - fullWidth) * 0.5f;
-        Fonts.semibold().draw(matrices, brand, textX, y + 5, 8.0f,
-            withAlpha(blend(TEXT, ACCENT, 0.20f), opacity));
-        Fonts.semibold().draw(matrices, suffix, textX + brandWidth, y + 5, 8.0f,
-            withAlpha(TEXT, opacity * 0.87f));
-        Fonts.regular().drawCenteredText(matrices, "UID " + LicenseIdentity.uid(),
-            x + width / 2.0f, y + 18, 5.6f, withAlpha(MUTED, opacity));
+        Fonts.semibold().draw(matrices, brand, textX, y + (20 - Fonts.semibold().height(7.2f)) * .5f, 7.2f,
+            withAlpha(TEXT, opacity));
+        Fonts.regular().draw(matrices, suffix, textX + brandWidth, y + (20 - Fonts.regular().height(6.2f)) * .5f, 6.2f,
+            withAlpha(MUTED, opacity));
     }
 
     private void drawCoordinates(MatrixStack matrices, float x, float y, float width, float opacity) {
-        MinecraftClient client = MinecraftClient.getInstance();
-        String[] axes = {"X ", "Y ", "Z "};
-        String[] values = client.player == null ? new String[] {"0", "0", "0"}
-            : new String[] {Integer.toString((int) Math.floor(client.player.getX())),
-                Integer.toString((int) Math.floor(client.player.getY())),
-                Integer.toString((int) Math.floor(client.player.getZ()))};
-        float size = 7.2f;
-        String full = axes[0] + values[0] + "   " + axes[1] + values[1] + "   " + axes[2] + values[2];
-        float measured = Fonts.semibold().width(full, size);
-        size *= Math.min(1.0f, (width - 14.0f) / Math.max(1.0f, measured));
-        float cursor = x + (width - Fonts.semibold().width(full, size)) * 0.5f;
-        Fonts.regular().drawCenteredText(matrices, "XYZ", x + width / 2.0f, y + 4, 5.6f, withAlpha(MUTED, opacity));
-        for (int axis = 0; axis < axes.length; axis++) {
-            Fonts.semibold().draw(matrices, axes[axis], cursor, y + 15, size,
-                withAlpha(blend(MUTED, ACCENT, axis == 1 ? 0.12f : 0.34f), opacity));
-            cursor += Fonts.semibold().width(axes[axis], size);
-            Fonts.semibold().draw(matrices, values[axis], cursor, y + 15, size, withAlpha(TEXT, opacity));
-            cursor += Fonts.semibold().width(values[axis] + "   ", size);
-        }
+        String text = coordinateText();
+        float textWidth = Fonts.semibold().width(text, 7.0F);
+        Fonts.semibold().draw(matrices, text,
+            x + (width - textWidth) * 0.5F,
+            y + (15.0F - Fonts.semibold().height(7.0F)) * 0.5F,
+            7.0F, withAlpha(TEXT, opacity));
     }
 
     private void drawTarget(MatrixStack matrices, float x, float y, float width, float opacity,
@@ -715,7 +902,8 @@ public final class HudManager {
                 8.0f / 64.0f, 8.0f / 64.0f, GuiTextures.view(skin), GuiTextures.nearest(), true);
         } else {
             String initial = presentation.name().isEmpty()
-                ? "?" : presentation.name().substring(0, 1).toUpperCase(Locale.ROOT);
+                ? "?" : presentation.name().substring(0, presentation.name().offsetByCodePoints(0, 1))
+                    .toUpperCase(Locale.ROOT);
             float initialY = headY + (headSize - Fonts.bold().height(9.0f)) * 0.5f;
             Fonts.bold().drawCenteredText(matrices, initial, headCenterX, initialY, 9.0f,
                 withAlpha(ACCENT, opacity * content));
@@ -774,7 +962,7 @@ public final class HudManager {
         if (font.width(text, size) <= maximumWidth) {
             return text;
         }
-        String suffix = "...";
+        String suffix = "…";
         if (font.width(suffix, size) > maximumWidth) {
             return "";
         }
@@ -800,31 +988,75 @@ public final class HudManager {
             : String.format(Locale.ROOT, "%.1f", value);
     }
 
-    private void drawEffects(MatrixStack matrices, float x, float y, float width, float opacity) {
-        MinecraftClient client = MinecraftClient.getInstance();
-        Fonts.semibold().drawCenteredText(matrices, "Effects", x + width / 2.0f, y + 6, 7.4f, withAlpha(TEXT, opacity));
-        List<StatusEffectInstance> active = client.player == null ? List.of()
-            : client.player.getStatusEffects().stream()
-                .sorted(Comparator.comparingInt(effect -> effect.getDuration() < 0 ? Integer.MAX_VALUE : effect.getDuration()))
-                .limit(2).toList();
-        if (active.isEmpty()) {
-            Fonts.regular().drawCenteredText(matrices, "No active effects", x + width / 2.0f, y + 24, 6.2f,
-                withAlpha(MUTED, opacity * 0.84f));
-            return;
+    private void drawEffects(MatrixStack matrices, float x, float y, float opacity) {
+        EffectsHudPresentation.Layout layout = frameEffectsLayout;
+        float surfaceWidth = layout.surfaceWidth();
+        float surfaceHeight = layout.surfaceHeight();
+        drawEffectsSurface(matrices, x, y, surfaceWidth, surfaceHeight, opacity);
+        drawHudGlyph(matrices, EFFECTS_GLYPH, x + 5.0F,
+            y + (EffectsHudPresentation.TITLE_HEIGHT - 9.0F) * 0.5F,
+            9.0F, withAlpha(MUTED, opacity));
+        Fonts.semibold().draw(matrices, "Effects", x + 18.0F,
+            y + (EffectsHudPresentation.TITLE_HEIGHT - Fonts.semibold().height(7.0F)) * 0.5F,
+            7.0F, withAlpha(TEXT, opacity));
+        if (layout.stripOpacity() > 0.002F) {
+            RenderUtil.RECT.draw(matrices, x + 5.0F, y + EffectsHudPresentation.TITLE_HEIGHT - 0.5F,
+                surfaceWidth - 10.0F, 0.5F, 0.25F,
+                withAlpha(color(255, 255, 255, 16), opacity * layout.stripOpacity()));
         }
-        for (int index = 0; index < active.size(); index++) {
-            StatusEffectInstance effect = active.get(index);
-            int remaining = (int) ((Math.max(0L, effect.getDuration()) + 19L) / 20L);
-            String duration = effect.getDuration() < 0 ? "--:--" : remaining / 60 + ":" + String.format(Locale.ROOT, "%02d", remaining % 60);
-            float durationWidth = Fonts.regular().width(duration, 5.6f);
-            String name = effectName(effect) + (effect.getAmplifier() > 0 ? " " + (effect.getAmplifier() + 1) : "");
-            float rowY = y + 21 + index * 11;
-            Color timerColor = remaining <= 10 && effect.getDuration() >= 0 ? color(255, 190, 113, 255) : MUTED;
-            Fonts.regular().draw(matrices, trimToWidth(name, width - 24 - durationWidth, 6.0f, Fonts.regular()),
-                x + 9, rowY, 6.0f, withAlpha(TEXT, opacity * 0.91f));
-            Fonts.regular().draw(matrices, duration, x + width - 9 - durationWidth, rowY + .3f,
-                5.6f, withAlpha(timerColor, opacity));
+        for (EffectsHudPresentation.Item item : layout.items()) {
+            float cardAlpha = opacity * item.reveal() * item.opacity();
+            if (cardAlpha <= 0.002F) continue;
+            drawEffectsSurface(matrices, x + item.x(), y + item.y(), item.cardWidth(),
+                EffectsHudPresentation.WARNING_HEIGHT, cardAlpha);
         }
+        // The sprites share Celeste's queue with these surfaces. Vanilla's GUI
+        // queue flushes first and would leave icons underneath the black cards.
+        SpriteAtlasTexture atlas = MinecraftClient.getInstance().getAtlasManager().getAtlasTexture(Atlases.GUI);
+        long nowNanos = System.nanoTime();
+        float nameSize = 6.7F;
+        float timerSize = 6.7F;
+        for (EffectsHudPresentation.Item item : layout.items()) {
+            StatusEffectInstance effect = frameEffectsById.get(item.key());
+            if (effect == null) continue;
+            float alpha = opacity * item.opacity();
+            if (alpha <= 0.002F) continue;
+            Sprite sprite = atlas.getSprite(InGameHud.getEffectTexture(effect.getEffectType()));
+            float iconSize = EffectsHudPresentation.ICON_SIZE * item.iconScale();
+            RenderUtil.TEXTURE_RECT.draw(matrices, x + item.iconX(), y + item.iconY(), iconSize, iconSize,
+                new Vector4f(0.0F), withAlpha(Color.WHITE, alpha), sprite.getMinU(), sprite.getMinV(),
+                sprite.getMaxU() - sprite.getMinU(), sprite.getMaxV() - sprite.getMinV(),
+                atlas.getGlTextureView(), GuiTextures.nearest(), true);
+            float contentAlpha = alpha * item.textAlpha();
+            if (contentAlpha <= 0.002F) continue;
+            String name = effectName(effect) + (effect.getAmplifier() > 0
+                ? " " + (effect.getAmplifier() + 1) : "");
+            String countdown = EffectsHudPresentation.warningCountdown(item.ticks());
+            float countdownWidth = Fonts.semibold().width(countdown, timerSize);
+            float cardX = x + item.x();
+            float cardY = y + item.y();
+            float countdownX = cardX + item.cardWidth() - EffectsHudPresentation.RIGHT_PADDING - countdownWidth;
+            float availableName = Math.max(0.0F, countdownX - cardX
+                - EffectsHudPresentation.WARNING_NAME_X - EffectsHudPresentation.WARNING_TIMER_GAP);
+            if (availableName < 1.0F) continue;
+            String visibleName = trimToWidth(name, availableName, nameSize, Fonts.semibold());
+            float pulse = EffectsHudPresentation.pulse(item.ticks(), nowNanos);
+            Color warningColor = blend(TEXT, color(255, 218, 110, 255), pulse);
+            Fonts.semibold().draw(matrices, visibleName, cardX + EffectsHudPresentation.WARNING_NAME_X,
+                cardY + (EffectsHudPresentation.WARNING_HEIGHT - Fonts.semibold().height(nameSize)) * 0.5F,
+                nameSize, withAlpha(warningColor, contentAlpha));
+            Fonts.semibold().draw(matrices, countdown, countdownX,
+                cardY + (EffectsHudPresentation.WARNING_HEIGHT - Fonts.semibold().height(timerSize)) * 0.5F,
+                timerSize, withAlpha(warningColor, contentAlpha));
+        }
+    }
+
+    private static void drawEffectsSurface(MatrixStack matrices, float x, float y, float width,
+                                           float height, float opacity) {
+        RenderUtil.RECT.draw(matrices, x, y, width, height, 6.0F,
+            withAlpha(color(255, 255, 255, 12), opacity));
+        RenderUtil.RECT.draw(matrices, x + 0.5F, y + 0.5F, width - 1.0F, height - 1.0F, 5.5F,
+            HudSurface.color(opacity));
     }
 
     private String effectName(StatusEffectInstance effect) {
@@ -834,11 +1066,11 @@ public final class HudManager {
     private void drawArmor(DrawContext context, MatrixStack matrices, float x, float y, float opacity) {
         MinecraftClient client = MinecraftClient.getInstance();
         EquipmentSlot[] slots = {EquipmentSlot.HEAD, EquipmentSlot.CHEST, EquipmentSlot.LEGS, EquipmentSlot.FEET};
-        float itemSize = 18.0f;
-        GuiRenderer.getInstance().flush();
+        float itemSize = HudGlyphLayout.ARMOR_ITEM_SIZE;
         for (int index = 0; index < slots.length; index++) {
-            float itemX = x + 10 + index * 34;
-            float itemY = y + (34.0f - itemSize) * 0.5f;
+            float itemX = HudGlyphLayout.armorItemX(x, HudElementType.ARMOR.width(), index);
+            float groupHeight = Math.max(itemSize, itemSize - 3 + Fonts.bold().height(6.2f) + .6f);
+            float itemY = y + (34.0f - groupHeight) * 0.5f;
             ItemStack stack = client.player == null ? ItemStack.EMPTY : client.player.getEquippedStack(slots[index]);
             if (stack.isEmpty()) {
                 RenderUtil.RECT.draw(matrices, itemX, itemY, itemSize, itemSize, 4,
@@ -858,15 +1090,8 @@ public final class HudManager {
             float ratio = stack.getMaxDamage() <= 0 ? 1.0f
                 : Math.max(0.0f, Math.min(1.0f, remaining / (float) stack.getMaxDamage()));
             Color value = ratio > 0.45f ? TEXT : ratio > 0.2f ? color(255, 196, 92, 255) : color(255, 92, 108, 255);
-            Color durability = blend(color(255, 105, 119, 255), color(179, 226, 211, 255), Math.min(1.0f, ratio * 1.5f));
-            RenderUtil.RECT.draw(matrices, itemX, y + 31.0f, itemSize, 1.2f, .6f,
-                withAlpha(Color.WHITE, opacity * .10f));
-            if (ratio > 0.001f) {
-                RenderUtil.RECT.draw(matrices, itemX, y + 31.0f, itemSize * ratio, 1.2f, .6f,
-                    withAlpha(durability, opacity * .88f));
-            }
             float centerX = itemX + itemSize * 0.5f;
-            float labelY = itemY + itemSize - 1.0f;
+            float labelY = itemY + itemSize - 3.0f;
             Fonts.bold().drawCenteredText(matrices, Integer.toString(remaining), centerX + 0.6f, labelY + 0.6f, 6.2f,
                 color(0, 0, 0, Math.round(170 * opacity)));
             Fonts.bold().drawCenteredText(matrices, Integer.toString(remaining), centerX, labelY, 6.2f,
@@ -875,57 +1100,53 @@ public final class HudManager {
     }
 
     private void drawKeybinds(MatrixStack matrices, float x, float y, float width, float opacity) {
-        Fonts.semibold().drawCenteredText(matrices, "Keybinds", x + width / 2.0f, y + 6, 7.4f, withAlpha(TEXT, opacity));
-        List<HudBind> bound = GuiCatalog.modules().stream()
-            .flatMap(module -> module.settings().stream()
-                .filter(GuiSetting.Keybind.class::isInstance)
-                .map(GuiSetting.Keybind.class::cast)
-                .filter(keybind -> keybind.keyCode() != GLFW.GLFW_KEY_UNKNOWN)
-                .map(keybind -> new HudBind(module.name(), keyName(keybind.keyCode()), module.enabled())))
-            .sorted(Comparator.comparing(HudBind::active).reversed())
-            .limit(2)
-            .toList();
-        if (bound.isEmpty()) {
-            Fonts.regular().drawCenteredText(matrices, "No configured binds", x + width / 2.0f, y + 25, 6.2f,
-                withAlpha(MUTED, opacity));
-            return;
+        List<HudBind> bound = frameBinds;
+        KeybindsHudLayout.Layout layout = keybindLayout(HudViewport.current().width());
+        RenderUtil.RECT.draw(matrices, x, y, layout.width(), layout.height(), 6.0F,
+            color(255, 255, 255, Math.round(12 * opacity)));
+        RenderUtil.RECT.draw(matrices, x + 0.5F, y + 0.5F, layout.width() - 1, layout.height() - 1,
+            5.5F, HudSurface.color(opacity));
+        drawHudGlyph(matrices, KEYBINDS_GLYPH, x + KeybindsHudLayout.GLYPH_LEFT,
+            y + (KeybindsHudLayout.HEADER_HEIGHT - KeybindsHudLayout.GLYPH_SIZE) * 0.5F,
+            KeybindsHudLayout.GLYPH_SIZE, withAlpha(MUTED, opacity * 0.82F));
+        Fonts.semibold().draw(matrices, KeybindsHudLayout.TITLE, x + KeybindsHudLayout.TITLE_LEFT,
+            y + (KeybindsHudLayout.HEADER_HEIGHT - Fonts.semibold().height(KeybindsHudLayout.TITLE_FONT)) * 0.5F,
+            KeybindsHudLayout.TITLE_FONT, withAlpha(TEXT, opacity));
+        if (!bound.isEmpty()) {
+            RenderUtil.RECT.draw(matrices, x + KeybindsHudLayout.LABEL_LEFT,
+                y + KeybindsHudLayout.HEADER_HEIGHT - 0.5F,
+                layout.width() - KeybindsHudLayout.LABEL_LEFT - KeybindsHudLayout.RIGHT_PADDING, 0.5F,
+                0.25F, color(255, 255, 255, Math.round(16 * opacity)));
         }
         for (int index = 0; index < bound.size(); index++) {
             HudBind bind = bound.get(index);
-            String key = trimToWidth(bind.key(), 31.0f, 5.5f);
-            float chipWidth = Fonts.semibold().width(key, 5.5f) + 7.0f;
-            float rowY = y + 21 + index * 11;
-            float chipX = x + width - 9 - chipWidth;
-            RenderUtil.RECT.draw(matrices, chipX, rowY - 0.5f, chipWidth, 9.0f, 2.5f,
-                withAlpha(bind.active() ? ACCENT : Color.WHITE, opacity * (bind.active() ? .13f : .055f)));
-            Fonts.semibold().drawCenteredText(matrices, key, chipX + chipWidth * .5f, rowY + .3f, 5.5f,
-                withAlpha(bind.active() ? blend(TEXT, ACCENT, .28f) : MUTED, opacity));
-            Fonts.regular().draw(matrices, trimToWidth(bind.module(), width - chipWidth - 25, 6.0f, Fonts.regular()),
-                x + 9, rowY, 6.0f, withAlpha(bind.active() ? TEXT : MUTED, opacity));
+            String key = trimToWidth(bind.key(), 31.0F, KeybindsHudLayout.KEY_FONT);
+            float keyWidth = Fonts.semibold().width(key, KeybindsHudLayout.KEY_FONT);
+            float keycapX = layout.keycapX(x, index, keyWidth);
+            float keycapY = layout.keycapY(y, index);
+            float keycapWidth = KeybindsHudLayout.keycapWidth(keyWidth);
+            RenderUtil.RECT.draw(matrices, keycapX, keycapY, keycapWidth, KeybindsHudLayout.KEYCAP_HEIGHT, 3.0F,
+                color(255, 255, 255, Math.round(17 * opacity)));
+            Fonts.regular().draw(matrices, trimToWidth(KeybindsHudLayout.compactLabel(bind.module()),
+                    layout.availableLabelWidth(index, keyWidth), KeybindsHudLayout.LABEL_FONT, Fonts.regular()),
+                layout.labelX(x), layout.rowTextY(y, index, Fonts.regular().height(KeybindsHudLayout.LABEL_FONT)),
+                KeybindsHudLayout.LABEL_FONT, withAlpha(TEXT, opacity * 0.9F));
+            Fonts.semibold().draw(matrices, key, layout.keyX(x, index, keyWidth),
+                layout.rowTextY(y, index, Fonts.semibold().height(KeybindsHudLayout.KEY_FONT)),
+                KeybindsHudLayout.KEY_FONT, withAlpha(MUTED, opacity));
         }
     }
 
-    private void drawCooldowns(MatrixStack matrices, float x, float y, float width, float opacity) {
-        MinecraftClient client = MinecraftClient.getInstance();
-        float partialTick = client.gameRenderer.getCamera().getLastTickProgress();
-        float attack = client.player == null ? 1.0f
-            : Math.max(0.0f, Math.min(1.0f, client.player.getAttackCooldownProgress(partialTick)));
-        boolean ready = attack >= .999f;
-        String value = ready ? "Ready" : Math.round(attack * 100.0f) + "%";
-        Color progressColor = blend(ACCENT, color(183, 228, 214, 255), Math.max(0, (attack - .85f) / .15f));
-        Fonts.semibold().draw(matrices, "Attack cooldown", x + 12, y + 7, 6.2f, withAlpha(TEXT, opacity));
-        Fonts.semibold().draw(matrices, value, x + width - 12 - Fonts.semibold().width(value, 5.8f),
-            y + 7.5f, 5.8f, withAlpha(ready ? progressColor : MUTED, opacity));
-        float trackWidth = width - 24;
-        RenderUtil.RECT.draw(matrices, x + 12, y + 23, trackWidth, 3, 1.5f,
-            color(62, 47, 62, Math.round(230 * opacity)));
-        if (attack > .001f) {
-            RenderUtil.RECT.draw(matrices, x + 12, y + 23, trackWidth * attack, 3, 1.5f,
-                withAlpha(progressColor, opacity));
-            float cap = Math.min(3.0f, trackWidth * attack);
-            RenderUtil.RECT.draw(matrices, x + 12 + trackWidth * attack - cap, y + 23,
-                cap, 3, 1.5f, withAlpha(Color.WHITE, opacity * .35f));
+    private KeybindsHudLayout.Layout keybindLayout(float viewportWidth) {
+        float[] labelWidths = new float[frameBinds.size()];
+        float[] keyWidths = new float[frameBinds.size()];
+        for (int index = 0; index < frameBinds.size(); index++) {
+            HudBind bind = frameBinds.get(index);
+            labelWidths[index] = Fonts.regular().width(KeybindsHudLayout.compactLabel(bind.module()), KeybindsHudLayout.LABEL_FONT);
+            keyWidths[index] = Fonts.semibold().width(trimToWidth(bind.key(), 31.0F, KeybindsHudLayout.KEY_FONT), KeybindsHudLayout.KEY_FONT);
         }
+        return KeybindsHudLayout.measure(labelWidths, keyWidths, viewportWidth,
+            Fonts.semibold().width(KeybindsHudLayout.TITLE, KeybindsHudLayout.TITLE_FONT));
     }
 
     private List<String> enabledModuleNames() {
@@ -938,111 +1159,203 @@ public final class HudManager {
             .toList();
     }
 
+    private List<StatusEffectInstance> activeEffects() {
+        MinecraftClient client = MinecraftClient.getInstance();
+        return client.player == null ? List.of()
+            : EffectsHudOrder.all(client.player.getStatusEffects(), StatusEffectInstance::getDuration);
+    }
+
+    private List<HudBind> configuredBinds() {
+        return GuiCatalog.modules().stream()
+            .flatMap(module -> module.settings().stream()
+                .filter(GuiSetting.Keybind.class::isInstance)
+                .map(GuiSetting.Keybind.class::cast)
+                .filter(keybind -> keybind.keyCode() != GLFW.GLFW_KEY_UNKNOWN)
+                .map(keybind -> new HudBind(bindingName(module.name(), keybind.label()),
+                    keyName(keybind.keyCode()))))
+            .sorted(Comparator.comparing(HudBind::module, String.CASE_INSENSITIVE_ORDER)
+                .thenComparing(HudBind::key, String.CASE_INSENSITIVE_ORDER))
+            .toList();
+    }
+
+    private static String bindingName(String module, String setting) {
+        return "Bind".equalsIgnoreCase(setting) || "Keybind".equalsIgnoreCase(setting)
+            || "Action".equalsIgnoreCase(setting) ? module : module + " · " + setting;
+    }
+
     private float arraylistContentWidth(List<String> names) {
-        float max = Fonts.semibold().width("No modules", ARRAYLIST_FONT);
+        float max = 27.0f;
         for (String name : names) {
             max = Math.max(max, Fonts.semibold().width(name, ARRAYLIST_FONT));
         }
         return Math.max(36.0f, max + ARRAYLIST_PAD_X * 2.0f);
     }
 
-    private void syncDynamicSizes() {
+    private void syncDynamicSizes(float viewportWidth) {
         frameModuleNames = enabledModuleNames();
-        HudElementState arraylist = state(HudElementType.ARRAYLIST);
-        float oldWidth = arraylist.width();
-        float right = arraylist.x() + oldWidth;
-        arraylist.setContentSize(arraylistContentWidth(frameModuleNames),
-            Math.max(1, frameModuleNames.size()) * ARRAYLIST_ROW_HEIGHT);
-        float newWidth = arraylist.width();
-        if (Math.abs(newWidth - oldWidth) > 0.25f) {
-            arraylist.moveImmediately(right - newWidth, arraylist.y());
+        frameEffects = activeEffects();
+        frameBinds = configuredBinds();
+        MinecraftClient client = MinecraftClient.getInstance();
+        viewportWidth = Float.isFinite(viewportWidth) ? Math.max(1.0F, viewportWidth) : 1.0F;
+
+        resizeSideAware(state(HudElementType.ARRAYLIST), arraylistContentWidth(frameModuleNames),
+            Math.max(1, frameModuleNames.size()) * ARRAYLIST_ROW_HEIGHT, viewportWidth);
+        resizeSideAware(state(HudElementType.COORDINATES),
+            Fonts.semibold().width(coordinateText(), 7.0f) + 8.0f, 15.0f, viewportWidth);
+        float watermarkWidth = Fonts.semibold().width("Celeste", 7.2f)
+            + Fonts.regular().width("  UID " + LicenseIdentity.uid(), 6.2f);
+        resizeSideAware(state(HudElementType.WATERMARK),
+            watermarkWidth + 12.0f, 20.0f, viewportWidth);
+
+        List<EffectsHudPresentation.Effect> effectSamples = new ArrayList<>();
+        Map<String, StatusEffectInstance> effectLookup = new HashMap<>();
+        for (StatusEffectInstance effect : frameEffects) {
+            String key = Registries.STATUS_EFFECT.getId(effect.getEffectType().value()).toString();
+            effectLookup.put(key, effect);
+            String name = effectName(effect) + (effect.getAmplifier() > 0 ? " " + (effect.getAmplifier() + 1) : "");
+            effectSamples.add(new EffectsHudPresentation.Effect(key, effect.getDuration(),
+                Fonts.semibold().width(name, 6.7F), Fonts.semibold().width("10s", 6.7F)));
         }
+        frameEffectsLayout = effectsPresentation.update(effectSamples, frameSeconds,
+            18.0F + Fonts.semibold().width("Effects", 7.0F) + 5.0F);
+        // Keep a departing sprite/name only until its row has finished fading.
+        for (EffectsHudPresentation.Item item : frameEffectsLayout.items()) {
+            if (!effectLookup.containsKey(item.key())) {
+                StatusEffectInstance departing = frameEffectsById.get(item.key());
+                if (departing != null) effectLookup.put(item.key(), departing);
+            }
+        }
+        frameEffectsById = effectLookup;
+        resizeSideAware(state(HudElementType.EFFECTS), frameEffectsLayout.width(),
+            frameEffectsLayout.height(), viewportWidth);
+        KeybindsHudLayout.Layout bindLayout = keybindLayout(viewportWidth);
+        resizeSideAware(state(HudElementType.KEYBINDS), bindLayout.width(),
+            bindLayout.height(), viewportWidth);
+        resizeSideAware(state(HudElementType.FPS),
+            HudGlyphLayout.inlineWidth(Fonts.semibold().width(performanceMetricText(client), 6.7f)),
+            17.0f, viewportWidth);
+        MediaPlaybackSnapshot media = SystemMediaService.getInstance().snapshot();
+        float mediaWidth = HudPolishPolicy.mediaWidth(Fonts.semibold().width(mediaTitle(media), 8.4f),
+            Fonts.regular().width(media.artist(), 7.0f));
+        resizeSideAware(state(HudElementType.SPOTIFY), mediaWidth, HudPolishPolicy.MEDIA_HEIGHT, viewportWidth);
+
+        updateIsland(client, HudViewport.current());
+    }
+
+    private void updateIsland(MinecraftClient client, HudViewport viewport) {
+        float viewportWidth = viewport.width();
+        HudElementState fixed = state(HudElementType.DYNAMIC_ISLAND);
+        island.update(client, fixed.enabled(), SystemMediaService.getInstance().snapshot(),
+            frameSeconds, viewportWidth);
+        networkClock.setEnabled(fixed.enabled());
+        fixed.setScale(1.0f);
+        fixed.setContentSize(island.width(), island.height());
+        fixed.moveImmediately((viewportWidth - fixed.width()) * .5f, 8.0f);
+        double mouseX = viewport.rawMouseToHud(client.mouse.getX(), client.getWindow().getWidth(),
+            client.getWindow().getFramebufferWidth());
+        double mouseY = viewport.rawMouseToHud(client.mouse.getY(), client.getWindow().getHeight(),
+            client.getWindow().getFramebufferHeight());
+        island.hovered(islandControlsAvailable(client) && DynamicIslandClicks.contains(mouseX, mouseY,
+            fixed.x(), fixed.y(), fixed.width(), fixed.height()));
+    }
+
+    private static void resizeSideAware(HudElementState state, float width, float height, float viewportWidth) {
+        float oldWidth = state.width();
+        boolean right = HudLayoutPolicy.alignsRight(state.x(), oldWidth, viewportWidth);
+        state.setContentSize(width, height);
+        float newX = HudLayoutPolicy.anchoredX(state.x(), oldWidth, state.width(), right);
+        if (Math.abs(newX - state.x()) > 0.01f) {
+            state.shiftForContentResize(newX - state.x());
+        }
+    }
+
+    private static String coordinateText() {
+        MinecraftClient client = MinecraftClient.getInstance();
+        if (client.player == null) return "0, 0, 0";
+        return HudLayoutPolicy.coordinates((int) Math.floor(client.player.getX()),
+            (int) Math.floor(client.player.getY()), (int) Math.floor(client.player.getZ()));
     }
 
     private static float arraylistRowWidth(String name) {
         return Fonts.semibold().width(name, ARRAYLIST_FONT) + ARRAYLIST_PAD_X * 2.0f;
     }
 
-    private static Vector4f arraylistRowRadius(int index, int count, float rowWidth, float previousWidth,
-                                               float nextWidth) {
-        boolean first = index == 0;
-        boolean last = index == count - 1;
-        float slack = 1.25f;
-        boolean previousDiffers = !first && Math.abs(previousWidth - rowWidth) > slack;
-        boolean nextDiffers = !last && Math.abs(nextWidth - rowWidth) > slack;
-        float topLeft = first || previousDiffers ? ARRAYLIST_CORNER : 0.0f;
-        float topRight = first ? ARRAYLIST_CORNER : 0.0f;
-        float bottomLeft = last || nextDiffers ? ARRAYLIST_CORNER : 0.0f;
-        float bottomRight = last ? ARRAYLIST_CORNER : 0.0f;
-        return new Vector4f(topLeft, topRight, bottomLeft, bottomRight);
-    }
-
     private void drawArraylist(MatrixStack matrices, float x, float y, float width, float opacity) {
         List<String> enabled = frameModuleNames;
         moduleEntrance.keySet().retainAll(enabled);
-        float right = x + width;
         if (enabled.isEmpty()) {
-            String empty = "No modules";
-            float rowWidth = arraylistRowWidth(empty);
-            float rowX = right - rowWidth;
-            RenderUtil.BLUR_RECT.draw(matrices, rowX, y, rowWidth, ARRAYLIST_ROW_HEIGHT, ARRAYLIST_CORNER,
-                withAlpha(BACKGROUND_TOP, opacity), InterfaceConfig.glassTintMix());
-            Fonts.semibold().drawText(matrices, empty, rowX + ARRAYLIST_PAD_X, y + 2.4f, ARRAYLIST_FONT,
-                withAlpha(MUTED, opacity));
             return;
         }
-        Color top = withAlpha(BACKGROUND_TOP, opacity);
-        Color bottom = withAlpha(BACKGROUND_BOTTOM, opacity);
+        float viewportWidth = HudViewport.current().width();
+        HudElementState arrayState = state(HudElementType.ARRAYLIST);
+        boolean rightAligned = HudLayoutPolicy.alignsRight(arrayState.displayX(), arrayState.width(), viewportWidth);
+        Color start = withAlpha(arraylistColor("Gradient start", DEFAULT_GRADIENT_START), opacity);
+        Color end = withAlpha(arraylistColor("Gradient end", DEFAULT_GRADIENT_END), opacity);
+        Color glint = withAlpha(color(244, 238, 255, 255), opacity);
+        long animationTime = System.nanoTime();
         int count = enabled.size();
+        float[] rowWidths = new float[count];
+        for (int index = 0; index < count; index++) rowWidths[index] = arraylistRowWidth(enabled.get(index));
+        ARRAYLIST_CONTOUR.draw(matrices, rightAligned ? x + width - rowWidths[0] : x, y,
+            rowWidths, ARRAYLIST_ROW_HEIGHT, rightAligned, HudSurface.color(opacity));
         for (int index = 0; index < count; index++) {
             String name = enabled.get(index);
             float entrance = damp(moduleEntrance.getOrDefault(name, 0.0f), 1.0f, 16.0f, frameSeconds);
             moduleEntrance.put(name, entrance);
-            float rowWidth = arraylistRowWidth(name);
-            float previousWidth = index > 0 ? arraylistRowWidth(enabled.get(index - 1)) : rowWidth;
-            float nextWidth = index + 1 < count ? arraylistRowWidth(enabled.get(index + 1)) : rowWidth;
-            float rowX = right - rowWidth;
+            float rowWidth = rowWidths[index];
+            float rowX = HudLayoutPolicy.rowX(x, width, rowWidth, rightAligned);
             float rowY = y + index * ARRAYLIST_ROW_HEIGHT;
-            float rowHeight = ARRAYLIST_ROW_HEIGHT + (index + 1 < count ? ARRAYLIST_ROW_OVERLAP : 0.0f);
-            RenderUtil.BLUR_RECT.draw(matrices, rowX, rowY, rowWidth, rowHeight,
-                arraylistRowRadius(index, count, rowWidth, previousWidth, nextWidth),
-                top, top, bottom, bottom, InterfaceConfig.glassTintMix());
-            Color rowText = blend(TEXT, ACCENT, .07f + .11f * (1.0f - entrance));
-            Fonts.semibold().drawText(matrices, name, rowX + ARRAYLIST_PAD_X + (1.0f - entrance) * 2.0f,
-                rowY + 2.4f, ARRAYLIST_FONT, withAlpha(rowText, opacity * entrance));
+            float slide = (1.0f - entrance) * (rightAligned ? 2.0f : -2.0f);
+            Fonts.semibold().drawGradient(matrices, name, rowX + ARRAYLIST_PAD_X + slide,
+                rowY + 1.7f, ARRAYLIST_FONT, withAlpha(start, entrance), withAlpha(end, entrance),
+                withAlpha(glint, entrance), HudLayoutPolicy.glintPhase(animationTime, index), .72f);
         }
     }
 
-    private void drawMetric(MatrixStack matrices, float x, float y, float width, String label, String value, float opacity) {
-        Color metricColor = TEXT;
-        try {
-            float numeric = Float.parseFloat(value);
-            if ("TPS".equals(label)) {
-                metricColor = numeric >= 19.0f ? color(187, 229, 215, 255)
-                    : numeric >= 16.0f ? color(255, 204, 132, 255) : color(255, 123, 143, 255);
-            } else if (numeric < 60.0f) {
-                metricColor = numeric >= 30.0f ? color(255, 218, 166, 255) : color(255, 144, 159, 255);
-            }
-        } catch (NumberFormatException ignored) {
-            metricColor = MUTED;
+    private void drawPerformanceMetric(MatrixStack matrices, float x, float y, float width, float opacity) {
+        String text = performanceMetricText(MinecraftClient.getInstance());
+        float textWidth = Fonts.semibold().width(text, 6.7F);
+        float contentX = HudGlyphLayout.inlineX(x, width, textWidth);
+        drawHudGlyph(matrices, PERFORMANCE_GLYPH, contentX,
+            HudGlyphLayout.centeredY(y, 17.0F, HudGlyphLayout.INLINE_SIZE),
+            HudGlyphLayout.INLINE_SIZE, withAlpha(MUTED, opacity));
+        Fonts.semibold().draw(matrices, text,
+            contentX + HudGlyphLayout.INLINE_SIZE + HudGlyphLayout.INLINE_GAP,
+            y + (17.0F - Fonts.semibold().height(6.7F)) * 0.5F,
+            6.7F, withAlpha(TEXT, opacity));
+    }
+
+    private static void drawHudGlyph(MatrixStack matrices, Identifier texture, float x, float y,
+                                     float size, Color tint) {
+        HudGlyphLayout.GlyphQuad quad = HudGlyphLayout.glyphQuad(x, y, size);
+        RenderUtil.TEXTURE_RECT.draw(matrices, quad.x(), quad.y(), quad.size(), quad.size(), 0.0F, tint,
+            0.0F, 0.0F, 1.0F, 1.0F, texture);
+    }
+
+    private static String performanceMetricText(MinecraftClient client) {
+        double blocksPerSecond = 0.0D;
+        if (client.player != null) {
+            Vec3d velocity = client.player.getVelocity();
+            blocksPerSecond = Math.hypot(velocity.x, velocity.z) * 20.0D;
         }
-        String fittedValue = trimToWidth(value, width - 26.0f, 8.0f);
-        float labelWidth = Fonts.regular().width(label, 5.8f);
-        float valueWidth = Fonts.semibold().width(fittedValue, 8.0f);
-        float start = x + (width - labelWidth - valueWidth - 5.0f) * .5f;
-        Fonts.regular().draw(matrices, label, start, y + 9.1f, 5.8f, withAlpha(MUTED, opacity));
-        Fonts.semibold().draw(matrices, fittedValue, start + labelWidth + 5.0f, y + 7.4f,
-            8.0f, withAlpha(metricColor, opacity));
+        return HudLayoutPolicy.performance(client.getCurrentFps(), blocksPerSecond,
+            ServerTickRateTracker.getInstance().formatted(client.world));
     }
 
     private void drawMedia(MatrixStack matrices, float x, float y, float width, float opacity,
                            int mouseX, int mouseY, boolean interactive) {
         MediaPlaybackSnapshot snapshot = SystemMediaService.getInstance().snapshot();
+        updateMediaPresentation(snapshot);
+        drawClassicMedia(matrices, snapshot, x, y, width, opacity, mouseX, mouseY, interactive);
+    }
+
+    private void updateMediaPresentation(MediaPlaybackSnapshot snapshot) {
         float seconds = frameSeconds;
         String timelineKey = snapshot.sourceId() + '\u0000' + snapshot.title() + '\u0000'
             + snapshot.artist() + '\u0000' + snapshot.durationMs();
+        long positionMs = mediaPlaybackClock.positionMs(snapshot);
         float targetProgress = snapshot.durationMs() <= 0 ? 0
-            : Math.min(1, snapshot.estimatedProgressMs() / (float) snapshot.durationMs());
+            : Math.min(1, positionMs / (float) snapshot.durationMs());
         if (!timelineKey.equals(renderedMediaTimelineKey)) {
             renderedMediaTimelineKey = timelineKey;
             renderedMediaProgress = targetProgress;
@@ -1055,77 +1368,79 @@ public final class HudManager {
         renderedMediaMetadataOpacity = damp(renderedMediaMetadataOpacity, 1.0f, 13.0f, seconds);
         renderedMediaPlaying = damp(renderedMediaPlaying, snapshot.playing() ? 1.0f : 0.0f, 18.0f, seconds);
         renderedMediaShuffle = damp(renderedMediaShuffle, snapshot.shuffle() ? 1.0f : 0.0f, 18.0f, seconds);
-        String title = snapshot.available() ? snapshot.title() : "Media";
-        String artist = snapshot.available() ? snapshot.artist() : snapshot.message();
-        if (artist.isBlank()) {
-            artist = snapshot.available() ? snapshot.source() : "Start playback in a media app";
-        }
+    }
+
+    private void drawClassicMedia(MatrixStack matrices, MediaPlaybackSnapshot snapshot,
+                                  float x, float y, float width, float opacity,
+                                  int mouseX, int mouseY, boolean interactive) {
+        float seconds = frameSeconds;
+        String title = snapshot.available() ? snapshot.title() : "Nothing playing";
+        String artist = snapshot.available() ? snapshot.artist() : "Play a song";
+        if (artist.isBlank()) artist = snapshot.source();
 
         Identifier artwork = MediaArtwork.getInstance().texture(snapshot);
         if (!snapshot.artworkKey().equals(renderedArtworkKey)) {
             renderedArtworkKey = snapshot.artworkKey();
             renderedMediaArtworkOpacity = 0.0f;
         }
-        renderedMediaArtworkOpacity = artwork == null
-            ? 0.0f
+        renderedMediaArtworkOpacity = artwork == null ? 0.0f
             : damp(renderedMediaArtworkOpacity, 1.0f, 11.0f, seconds);
-        float fallbackOpacity = opacity * (1.0f - renderedMediaArtworkOpacity);
-        RenderUtil.RECT.draw(matrices, x + 9, y + 9, 35, 35, 7,
-            color(55, 30, 50, Math.round(235 * Math.max(fallbackOpacity, artwork == null ? opacity : 0.0f))));
-        String sourceGlyph = snapshot.source().isBlank()
-            ? "M"
-            : snapshot.source().substring(0, 1).toUpperCase(Locale.ROOT);
-        Fonts.bold().drawCenteredText(matrices, sourceGlyph, x + 26.5f, y + 18, 10,
-            color(255, 90, 169, Math.round(255 * Math.max(fallbackOpacity, artwork == null ? opacity : 0.0f))));
+        RenderUtil.RECT.draw(matrices, x + 8, y + 8, 30, 30, 6,
+            withAlpha(color(24, 24, 29, 255), opacity));
         if (artwork != null) {
-            RenderUtil.TEXTURE_RECT.draw(matrices, x + 9, y + 9, 35, 35, new Vector4f(7),
-                color(255, 255, 255, Math.round(255 * opacity * renderedMediaArtworkOpacity)),
-                0, 0, 1, 1, GuiTextures.view(artwork), GuiTextures.linear(), true);
+            var view = GuiTextures.view(artwork);
+            if (view != null && !view.isClosed() && view.getWidth(0) > 0 && view.getHeight(0) > 0) {
+                float aspect = view.getWidth(0) / (float) view.getHeight(0);
+                float u = aspect > 1.0f ? (1.0f - 1.0f / aspect) * 0.5f : 0.0f;
+                float v = aspect < 1.0f ? (1.0f - aspect) * 0.5f : 0.0f;
+                RenderUtil.TEXTURE_RECT.draw(matrices, x + 8, y + 8, 30, 30, new Vector4f(6),
+                    color(255, 255, 255, Math.round(255 * opacity * renderedMediaArtworkOpacity)),
+                    u, v, 1.0f - 2.0f * u, 1.0f - 2.0f * v, view, GuiTextures.linear(), true);
+            }
         }
-        float metadataCenter = x + 49 + (width - 56) / 2.0f;
         float metadataOpacity = opacity * renderedMediaMetadataOpacity;
-        Fonts.semibold().drawCenteredText(matrices, trimToWidth(title, width - 62.0f, 8.0f), metadataCenter, y + 10, 8.0f,
+        float textWidth = width - 54;
+        float titleSize = HudPolishPolicy.fontSize(Fonts.semibold().width(title, 8.4f), textWidth, 7.4f, 8.4f);
+        float artistSize = HudPolishPolicy.fontSize(Fonts.regular().width(artist, 7.0f), textWidth, 6.1f, 7.0f);
+        Fonts.semibold().draw(matrices, trimToWidth(title, textWidth, titleSize), x + 46, y + 10, titleSize,
             withAlpha(TEXT, metadataOpacity));
-        String subtitle = artist.isBlank() ? snapshot.source() : artist;
-        // The native session is the only lyric source. Unsupported songs keep the normal artist row.
-        if (!snapshot.lyrics().lines().isEmpty()) {
-            String lyric = snapshot.lyrics().cue(snapshot.estimatedProgressMs(), snapshot.durationMs()).current();
-            if (!lyric.isBlank()) subtitle = lyric;
-        }
-        Fonts.regular().drawCenteredText(matrices, trimToWidth(subtitle, width - 62.0f, 6.1f, Fonts.regular()), metadataCenter, y + 25, 6.1f,
-            withAlpha(MUTED, metadataOpacity));
-        if (snapshot.available() && snapshot.durationMs() > 0) {
-            Fonts.regular().draw(matrices, mediaTime(snapshot.estimatedProgressMs()), x + 51, y + 39.5f,
-                4.6f, withAlpha(MUTED, opacity * .84f));
-            String duration = mediaTime(snapshot.durationMs());
-            Fonts.regular().draw(matrices, duration, x + width - 10 - Fonts.regular().width(duration, 4.6f),
-                y + 39.5f, 4.6f, withAlpha(MUTED, opacity * .84f));
-        }
-        float trackWidth = width - 22;
-        RenderUtil.RECT.draw(matrices, x + 11, y + 51, trackWidth, 3, 1.5f,
-            color(69, 70, 70, Math.round(220 * opacity)));
-        RenderUtil.RECT.draw(matrices, x + 11, y + 51, trackWidth * renderedMediaProgress, 3, 1.5f,
-            color(220, 226, 220, Math.round(255 * opacity)));
-        if (renderedMediaProgress > 0.005f) {
-            RenderUtil.RECT.draw(matrices, x + 9 + trackWidth * renderedMediaProgress, y + 50, 5, 5, 2.5f,
-                color(244, 247, 244, Math.round(255 * opacity)));
-        }
+        Fonts.regular().draw(matrices, trimToWidth(artist, textWidth, artistSize, Fonts.regular()),
+            x + 46, y + 23, artistSize, withAlpha(MUTED, metadataOpacity));
+
+        long progress = snapshot.durationMs() > 0 ? Math.round(renderedMediaProgress * snapshot.durationMs()) : 0L;
+        String elapsed = mediaTime(progress);
+        String remaining = "-" + mediaTime(Math.max(0L, snapshot.durationMs() - progress));
+        float elapsedWidth = Fonts.regular().width(elapsed, 4.8f);
+        float remainingWidth = Fonts.regular().width(remaining, 4.8f);
+        Fonts.regular().draw(matrices, elapsed, x + 8, y + 43, 4.8f, withAlpha(MUTED, opacity));
+        Fonts.regular().draw(matrices, remaining, x + width - 8 - remainingWidth, y + 43, 4.8f,
+            withAlpha(MUTED, opacity));
+        float trackX = x + 12 + elapsedWidth;
+        float trackWidth = Math.max(1, width - 24 - elapsedWidth - remainingWidth);
+        RenderUtil.RECT.draw(matrices, trackX, y + 45, trackWidth, 2.5f, 1.25f,
+            color(57, 57, 63, Math.round(235 * opacity)));
+        RenderUtil.RECT.draw(matrices, trackX, y + 45, trackWidth * renderedMediaProgress, 2.5f, 1.25f,
+            withAlpha(TEXT, opacity));
 
         boolean[] buttonEnabled = {
             snapshot.canPrevious(), snapshot.canToggle(), snapshot.canNext(), snapshot.canShuffle()
         };
-        for (int index = 0; index < MEDIA_BUTTON_CENTERS.length; index++) {
+        float controlCell = HudPolishPolicy.mediaButtonCell(width);
+        for (int index = 0; index < MEDIA_BUTTON_COUNT; index++) {
             boolean buttonHovered = buttonEnabled[index] && interactive && inside(mouseX, mouseY,
-                x + MEDIA_BUTTON_CENTERS[index] - 14, y + 57, 28, 20);
+                x + HudPolishPolicy.mediaButton(index, width) - controlCell * 0.5F,
+                y + HudPolishPolicy.MEDIA_CONTROL_HIT_TOP,
+                controlCell, HudPolishPolicy.MEDIA_CONTROL_HIT_HEIGHT);
             mediaButtonHover[index] = damp(mediaButtonHover[index], buttonHovered ? 1.0f : 0.0f,
                 buttonHovered ? 22.0f : 14.0f, seconds);
             float hover = mediaButtonHover[index];
-            float selected = index == 3 ? renderedMediaShuffle : 0.0f;
-            if (hover > 0.01f || selected > 0.01f) {
-                Color buttonColor = blend(Color.WHITE, ACCENT, selected);
-                float buttonOpacity = Math.max(hover * 0.078f, selected * 0.105f);
-                RenderUtil.RECT.draw(matrices, x + MEDIA_BUTTON_CENTERS[index] - 13, y + 57.5f, 26, 18, 7,
-                    withAlpha(buttonColor, opacity * buttonOpacity));
+            if (hover > 0.01f) {
+                RenderUtil.RECT.draw(matrices,
+                    x + HudPolishPolicy.mediaButton(index, width) - controlCell * 0.5F + 1.0F,
+                    y + HudPolishPolicy.MEDIA_CONTROL_HIT_TOP + 1.0F,
+                    Math.max(1.0F, controlCell - 2.0F),
+                    HudPolishPolicy.MEDIA_CONTROL_HIT_HEIGHT - 2.0F, 6,
+                    withAlpha(Color.WHITE, opacity * hover * 0.08f));
             }
         }
 
@@ -1133,17 +1448,27 @@ public final class HudManager {
         float toggleOpacity = opacity * controlOpacity(buttonEnabled[1], mediaButtonHover[1]);
         float nextOpacity = opacity * controlOpacity(buttonEnabled[2], mediaButtonHover[2]);
         float shuffleOpacity = opacity * controlOpacity(buttonEnabled[3], mediaButtonHover[3]);
-        drawMediaIcon(matrices, MEDIA_PREVIOUS_ICON, x + MEDIA_BUTTON_CENTERS[0], y + 66.5f, 11.5f,
+        drawWeightedMediaIcon(matrices, MEDIA_PREVIOUS_ICON,
+            x + HudPolishPolicy.mediaButton(0, width), y + HudPolishPolicy.MEDIA_CONTROL_Y,
+            HudPolishPolicy.mediaIconSize(0),
             withAlpha(TEXT, previousOpacity));
-        drawMediaIcon(matrices, MEDIA_PLAY_ICON, x + MEDIA_BUTTON_CENTERS[1], y + 66.5f, 11.5f,
+        drawMediaIcon(matrices, MEDIA_PLAY_ICON, x + HudPolishPolicy.mediaButton(1, width),
+            y + HudPolishPolicy.MEDIA_CONTROL_Y,
+            HudPolishPolicy.mediaIconSize(1),
             withAlpha(TEXT, toggleOpacity * (1.0f - renderedMediaPlaying)));
-        drawMediaIcon(matrices, MEDIA_PAUSE_ICON, x + MEDIA_BUTTON_CENTERS[1], y + 66.5f, 11.5f,
+        drawMediaIcon(matrices, MEDIA_PAUSE_ICON, x + HudPolishPolicy.mediaButton(1, width),
+            y + HudPolishPolicy.MEDIA_CONTROL_Y,
+            HudPolishPolicy.mediaIconSize(1),
             withAlpha(TEXT, toggleOpacity * renderedMediaPlaying));
-        drawMediaIcon(matrices, MEDIA_NEXT_ICON, x + MEDIA_BUTTON_CENTERS[2], y + 66.5f, 11.5f,
+        drawWeightedMediaIcon(matrices, MEDIA_NEXT_ICON,
+            x + HudPolishPolicy.mediaButton(2, width), y + HudPolishPolicy.MEDIA_CONTROL_Y,
+            HudPolishPolicy.mediaIconSize(2),
             withAlpha(TEXT, nextOpacity));
-        drawMediaIcon(matrices, MEDIA_SHUFFLE_ICON, x + MEDIA_BUTTON_CENTERS[3], y + 66.5f, 11.0f,
-            withAlpha(blend(MUTED, ACCENT, renderedMediaShuffle), shuffleOpacity));
-     }
+        drawMediaIcon(matrices, MEDIA_SHUFFLE_ICON, x + HudPolishPolicy.mediaButton(3, width),
+            y + HudPolishPolicy.MEDIA_CONTROL_Y,
+            HudPolishPolicy.mediaIconSize(3),
+            withAlpha(blend(MUTED, TEXT, renderedMediaShuffle), shuffleOpacity));
+    }
 
      private static void drawMediaIcon(MatrixStack matrices, Identifier texture, float centerX, float centerY,
                                        float size, Color tint) {
@@ -1151,8 +1476,57 @@ public final class HudManager {
             size, size, 0, tint, 0, 0, 1, 1, texture);
     }
 
+    private static void drawWeightedMediaIcon(MatrixStack matrices, Identifier texture,
+                                              float centerX, float centerY, float size, Color tint) {
+        Color shoulder = withAlpha(tint, 0.62F);
+        drawMediaIcon(matrices, texture, centerX - 0.34F, centerY, size, shoulder);
+        drawMediaIcon(matrices, texture, centerX + 0.34F, centerY, size, shoulder);
+        drawMediaIcon(matrices, texture, centerX, centerY, size, tint);
+    }
+
     private static float controlOpacity(boolean enabled, float hover) {
         return enabled ? 0.82f + 0.18f * hover : 0.32f;
+    }
+
+    private void updateMediaLyricsDemand() {
+        SystemMediaService.getInstance().setMediaHudLyricsEnabled(
+            state(HudElementType.DYNAMIC_ISLAND).enabled());
+    }
+
+    private static String mediaLyric(MediaPlaybackSnapshot snapshot) {
+        if (snapshot == null || snapshot.lyrics().lines().isEmpty()) {
+            return "";
+        }
+        return snapshot.lyrics().cue(snapshot.estimatedProgressMs(), snapshot.durationMs()).current();
+    }
+
+    private static String mediaTitle(MediaPlaybackSnapshot snapshot) {
+        if (snapshot == null || !snapshot.available()) {
+            return "Media";
+        }
+        if (!snapshot.title().isBlank()) {
+            return snapshot.title();
+        }
+        return snapshot.source().isBlank() ? "Now playing" : snapshot.source();
+    }
+
+    private static String mediaTrackLine(MediaPlaybackSnapshot snapshot) {
+        String artist = snapshot.artist().strip();
+        return artist.isEmpty() ? mediaTitle(snapshot) : mediaTitle(snapshot) + " - " + artist;
+    }
+
+    private static Color arraylistColor(String label, Color fallback) {
+        GuiModule module = moduleFor(HudElementType.ARRAYLIST);
+        if (module == null) {
+            return fallback;
+        }
+        return module.settings().stream()
+            .filter(GuiSetting.ColorPick.class::isInstance)
+            .map(GuiSetting.ColorPick.class::cast)
+            .filter(setting -> setting.label().equals(label))
+            .findFirst()
+            .map(setting -> new Color(setting.rgb()))
+            .orElse(fallback);
     }
 
     private static String mediaTime(long milliseconds) {
@@ -1252,6 +1626,6 @@ public final class HudManager {
     private record ProjectedTarget(float x, float y) {
     }
 
-    private record HudBind(String module, String key, boolean active) {
+    private record HudBind(String module, String key) {
     }
 }

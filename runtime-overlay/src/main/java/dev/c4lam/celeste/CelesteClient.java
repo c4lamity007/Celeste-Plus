@@ -165,7 +165,7 @@ public final class CelesteClient implements ClientModInitializer {
                 }
                 boolean pressed = InputUtil.isKeyPressed(client.getWindow(), InterfaceConfig.menuKey());
                 if (pressed && !menuKeyDown && client.currentScreen == null) {
-                    client.setScreen(new CelesteScreen());
+                    client.setScreen(new CelesteScreen(lateMode));
                 }
                 menuKeyDown = pressed;
             };

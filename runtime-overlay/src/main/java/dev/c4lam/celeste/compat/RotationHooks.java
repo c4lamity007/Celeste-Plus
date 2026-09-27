@@ -1,6 +1,9 @@
 package dev.c4lam.celeste.compat;
 
 import dev.c4lam.celeste.module.expansion.inventory.SilentInventoryScreen;
+import dev.c4lam.celeste.module.impl.movement.FreecamFeature;
+import dev.c4lam.celeste.module.impl.movement.FreecamInputPolicy;
+import dev.c4lam.celeste.rotation.ElytraSilentAim;
 import dev.c4lam.celeste.rotation.MoveFix;
 import dev.c4lam.celeste.rotation.MoveFixMode;
 import dev.c4lam.celeste.rotation.RotationManager;
@@ -44,6 +47,7 @@ public final class RotationHooks {
     }
     public static Vec3d glidingVector(LivingEntity entity) {
         RotationManager rotations = RotationManager.getInstance();
+        if (rotations.glidingPhysics()) return ElytraSilentAim.physicsVector(entity);
         if (MinecraftClient.getInstance().player != entity || !rotations.isActive() || rotations.moveFixMode() == MoveFixMode.OFF) {
             return entity.getRotationVector();
         }
@@ -51,6 +55,7 @@ public final class RotationHooks {
     }
     public static float glidingPitch(LivingEntity entity) {
         RotationManager rotations = RotationManager.getInstance();
+        if (rotations.glidingPhysics()) return ElytraSilentAim.physicsPitch(entity);
         if (MinecraftClient.getInstance().player != entity || !rotations.isActive() || rotations.moveFixMode() == MoveFixMode.OFF) {
             return entity.getPitch();
         }
@@ -64,11 +69,23 @@ public final class RotationHooks {
         if (client.player != entity || !rotations.isActive() || mode == MoveFixMode.OFF) return cameraYaw;
         return MoveFix.sprintJumpYaw(cameraYaw, rotations.serverRotation().yaw(), mode);
     }
+    public static boolean redirectLook(Entity entity, double cursorDeltaX, double cursorDeltaY) {
+        return FreecamFeature.redirectPlayerLook(entity, cursorDeltaX, cursorDeltaY);
+    }
+    public static boolean keepLocalPlayerControl(ClientPlayerEntity player) {
+        return FreecamFeature.keepsLocalPlayerControl(player);
+    }
+    public static Entity renderedCameraFocus(Entity vanillaFocus) {
+        return FreecamFeature.renderedCameraFocus(vanillaFocus);
+    }
 
-    /** Null leaves both input fields unchanged. Inventory blocking takes priority over all movement guards. */
+    /** Null leaves both input fields unchanged. Inventory blocking retains first priority. */
     public static MoveFix.Correction keyboardCorrection(Input input, Vec2f movement, PlayerInput keys) {
         MinecraftClient client = MinecraftClient.getInstance();
         if (SilentInventoryScreen.blocksMovement(client)) return new MoveFix.Correction(Vec2f.ZERO, PlayerInput.DEFAULT);
+        MoveFix.Correction freecam = FreecamInputPolicy.correction(
+            FreecamFeature.blocksPlayerInput(input), movement, keys);
+        if (freecam != null) return freecam;
         if (client.player == null || client.player.input != input || client.player.hasVehicle()) return null;
         RotationManager rotations = RotationManager.getInstance();
         MoveFixMode mode = rotations.moveFixMode();

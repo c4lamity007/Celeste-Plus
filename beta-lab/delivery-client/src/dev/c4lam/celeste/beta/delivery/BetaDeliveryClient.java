@@ -7,6 +7,7 @@ import com.google.gson.JsonPrimitive;
 import com.google.gson.Strictness;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonToken;
+import dev.c4lam.celeste.auth.DpopProofSigner;
 import java.io.IOException;
 import java.io.StringReader;
 import java.net.URI;
@@ -17,6 +18,7 @@ import java.security.GeneralSecurityException;
 import java.security.KeyFactory;
 import java.security.MessageDigest;
 import java.security.PublicKey;
+import java.security.SecureRandom;
 import java.security.Signature;
 import java.security.spec.X509EncodedKeySpec;
 import java.time.Clock;
@@ -39,11 +41,12 @@ public final class BetaDeliveryClient {
     static final int MAX_MANIFEST_RESPONSE_BYTES = 20_480;
     static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(25);
     static final List<String> IDS = List.of("bootstrap-a", "bootstrap-b", "payload-a", "payload-b");
+    private static final SecureRandom REQUEST_RANDOM = new SecureRandom();
     private static final Set<String> CATALOG_KEYS = Set.of("schema", "release_id", "client_version", "runtime_sha256", "artifacts");
     private static final Set<String> MANIFEST_KEYS = Set.of("product", "aud", "sub", "device", "iat", "nbf", "exp",
-        "installer_jti", "installer_sha256", "catalog_sha256", "schema", "release_id", "client_version", "runtime_sha256", "artifacts");
+        "installer_jti", "installer_sha256", "catalog_sha256", "schema", "release_id", "client_version", "runtime_sha256", "artifacts", "cnf", "request_nonce");
     private static final Set<String> INSTALLER_KEYS = Set.of("product", "aud", "sub", "device", "iat", "nbf", "exp", "jti",
-        "release", "client_sha256", "payload_release", "payload_sha256", "bootstrap", "bootstrap_sha256");
+        "release", "client_sha256", "payload_release", "payload_sha256", "bootstrap", "bootstrap_sha256", "cnf");
     private final URI origin;
     private final PublicKey pinnedKey;
     private final String installerToken;
@@ -51,15 +54,16 @@ public final class BetaDeliveryClient {
     private final long expectedUid;
     private final Clock clock;
     private final Transport transport;
+    private final DpopProofSigner proofSigner;
 
     public BetaDeliveryClient(URI origin, byte[] pinnedEd25519Key, String installerToken,
-                              String expectedDevice, long expectedUid) throws GeneralSecurityException {
-        this(origin, pinnedEd25519Key, installerToken, expectedDevice, expectedUid, Clock.systemUTC(), new HttpsTransport());
+                              String expectedDevice, long expectedUid, DpopProofSigner proofSigner) throws GeneralSecurityException {
+        this(origin, pinnedEd25519Key, installerToken, expectedDevice, expectedUid, proofSigner, Clock.systemUTC(), new HttpsTransport());
     }
 
     /** Package-local offline seam. Production construction always uses bounded, nonredirecting HTTPS. */
     BetaDeliveryClient(URI origin, byte[] pinnedEd25519Key, String installerToken, String expectedDevice,
-                       long expectedUid, Clock clock, Transport transport) throws GeneralSecurityException {
+                       long expectedUid, DpopProofSigner proofSigner, Clock clock, Transport transport) throws GeneralSecurityException {
         if (origin == null || !"https".equalsIgnoreCase(origin.getScheme()) || origin.getHost() == null
             || origin.getRawUserInfo() != null || origin.getRawQuery() != null || origin.getRawFragment() != null
             || !(origin.getRawPath().isEmpty() || origin.getRawPath().equals("/"))
@@ -67,15 +71,14 @@ public final class BetaDeliveryClient {
         if (pinnedEd25519Key == null || pinnedEd25519Key.length != 32 || expectedUid <= 0
             || expectedDevice == null || !expectedDevice.matches("[A-Za-z0-9_-]{32,48}")) throw invalid("Invalid trust context");
         this.origin = origin.resolve("/");
-        byte[] encoded = new byte[44];
-        System.arraycopy(HexFormat.of().parseHex("302a300506032b6570032100"), 0, encoded, 0, 12);
-        System.arraycopy(pinnedEd25519Key, 0, encoded, 12, 32);
-        pinnedKey = KeyFactory.getInstance("Ed25519").generatePublic(new X509EncodedKeySpec(encoded));
+        pinnedKey = publicKey(pinnedEd25519Key);
         this.installerToken = installerToken;
         this.expectedDevice = expectedDevice;
         this.expectedUid = expectedUid;
         this.clock = java.util.Objects.requireNonNull(clock, "clock");
         this.transport = java.util.Objects.requireNonNull(transport, "transport");
+        if (proofSigner == null) throw invalid("Installation proof signer is required");
+        this.proofSigner = proofSigner;
         installer();
     }
 
@@ -126,11 +129,15 @@ public final class BetaDeliveryClient {
         }
     }
 
-    public VerifiedCatalog verifyManifest(String manifestToken) throws GeneralSecurityException {
+    VerifiedCatalog verifyManifest(String manifestToken, String expectedNonce) throws GeneralSecurityException {
+        if (expectedNonce == null || !expectedNonce.matches("[A-Za-z0-9_-]{32}") || decode(expectedNonce).length != 24)
+            throw invalid("Manifest request nonce is invalid");
         JsonObject installer = installer();
         JsonObject claims = signed(manifestToken, "celeste-beta-manifest");
         exact(claims, MANIFEST_KEYS);
+        if (!text(claims, "request_nonce").equals(expectedNonce)) throw invalid("Manifest does not answer the current request");
         identity(claims);
+        proofSigner.requireBinding(claims);
         long now = clock.instant().getEpochSecond();
         long issued = integer(claims, "iat"), expires = integer(claims, "exp");
         if (issued > now || integer(claims, "nbf") != issued || expires <= now || expires <= issued
@@ -172,12 +179,26 @@ public final class BetaDeliveryClient {
 
     public VerifiedCatalog fetchCatalog() throws IOException, InterruptedException, GeneralSecurityException {
         installer();
-        byte[] body = fetch("/v1/beta/manifest", null, MAX_MANIFEST_RESPONSE_BYTES, "application/json");
+        byte[] random = new byte[24];
+        REQUEST_RANDOM.nextBytes(random);
+        String nonce = Base64.getUrlEncoder().withoutPadding().encodeToString(random);
+        Arrays.fill(random, (byte) 0);
+        byte[] body = fetch("/v1/beta/manifest", null, nonce, MAX_MANIFEST_RESPONSE_BYTES, "application/json");
         try {
             JsonObject wrapper = object(body);
             exact(wrapper, Set.of("manifest"));
-            return verifyManifest(text(wrapper, "manifest"));
+            return verifyManifest(text(wrapper, "manifest"), nonce);
         } finally { Arrays.fill(body, (byte) 0); }
+    }
+
+    /** A new signed server response is required at each loading boundary. */
+    public void revalidate(VerifiedCatalog catalog) throws IOException, InterruptedException, GeneralSecurityException {
+        current(catalog);
+        VerifiedCatalog fresh = fetchCatalog();
+        if (!fresh.catalogSha256.equals(catalog.catalogSha256) || !fresh.releaseId.equals(catalog.releaseId)
+            || !fresh.runtimeSha256.equals(catalog.runtimeSha256) || !fresh.clientVersion.equals(catalog.clientVersion)
+            || !fresh.artifacts.equals(catalog.artifacts)) throw invalid("Beta release changed during preparation. Authenticate again.");
+        current(catalog);
     }
 
     public MemoryRelease download(VerifiedCatalog catalog) throws IOException, InterruptedException, GeneralSecurityException {
@@ -187,7 +208,7 @@ public final class BetaDeliveryClient {
         try {
             for (Artifact artifact : catalog.artifacts) {
                 current(catalog);
-                byte[] body = fetch(artifact.url(), catalog.token, artifact.size(), "application/octet-stream");
+                byte[] body = fetch(artifact.url(), catalog.token, null, artifact.size(), "application/octet-stream");
                 bytes.put(artifact.id(), body);
                 if (body.length != artifact.size() || !sha256(body).equals(artifact.sha256())) throw invalid("Artifact integrity mismatch");
                 current(catalog);
@@ -203,14 +224,16 @@ public final class BetaDeliveryClient {
         if (catalog.expiresAt <= clock.instant().getEpochSecond()) throw invalid("Beta manifest expired");
     }
 
-    private byte[] fetch(String path, String manifest, int limit, String mediaType)
+    private byte[] fetch(String path, String manifest, String nonce, int limit, String mediaType)
         throws IOException, InterruptedException, GeneralSecurityException {
         URI uri = origin.resolve(path);
         Map<String, String> headers = new LinkedHashMap<>();
-        headers.put("Authorization", "Bearer " + installerToken);
+        headers.put("Authorization", "DPoP " + installerToken);
+        headers.put("DPoP", proofSigner.proof("GET", uri, installerToken));
         headers.put("Accept", mediaType);
         headers.put("Cache-Control", "no-store");
         if (manifest != null) headers.put("X-Celeste-Beta-Manifest", manifest);
+        if (nonce != null) headers.put("X-Celeste-Request-Nonce", nonce);
         Reply reply = transport.get(uri, Map.copyOf(headers), limit, REQUEST_TIMEOUT);
         byte[] body = reply.body();
         boolean accepted = false;
@@ -243,6 +266,7 @@ public final class BetaDeliveryClient {
         JsonObject claims = signed(installerToken, "celeste-installer");
         exact(claims, INSTALLER_KEYS);
         identity(claims);
+        proofSigner.requireBinding(claims);
         long now = clock.instant().getEpochSecond();
         if (integer(claims, "iat") > now + 5 || integer(claims, "nbf") > now + 5
             || integer(claims, "exp") <= now || !text(claims, "jti").matches("[A-Za-z0-9_-]{16,128}"))
@@ -260,6 +284,18 @@ public final class BetaDeliveryClient {
     }
 
     private JsonObject signed(String token, String audience) throws GeneralSecurityException {
+        return signed(token, audience, pinnedKey);
+    }
+
+    static PublicKey publicKey(byte[] raw) throws GeneralSecurityException {
+        if (raw == null || raw.length != 32) throw invalid("Invalid Ed25519 public key");
+        byte[] encoded = new byte[44];
+        System.arraycopy(HexFormat.of().parseHex("302a300506032b6570032100"), 0, encoded, 0, 12);
+        System.arraycopy(raw, 0, encoded, 12, 32);
+        return KeyFactory.getInstance("Ed25519").generatePublic(new X509EncodedKeySpec(encoded));
+    }
+
+    static JsonObject signed(String token, String audience, PublicKey pinnedKey) throws GeneralSecurityException {
         if (token == null || token.length() > MAX_TOKEN_BYTES) throw invalid("Invalid signed token");
         String[] parts = token.split("\\.", -1);
         if (parts.length != 3) throw invalid("Invalid signed token");
@@ -331,7 +367,7 @@ public final class BetaDeliveryClient {
     private static void exact(JsonObject object, Set<String> keys) throws GeneralSecurityException {
         if (!object.keySet().equals(keys)) throw invalid("Unexpected metadata fields");
     }
-    private static String text(JsonObject object, String key) throws GeneralSecurityException {
+    static String text(JsonObject object, String key) throws GeneralSecurityException {
         JsonElement value = object.get(key);
         if (value == null || !value.isJsonPrimitive() || !value.getAsJsonPrimitive().isString()) throw invalid("Expected text metadata");
         return value.getAsString();
@@ -341,7 +377,7 @@ public final class BetaDeliveryClient {
         if (!value.matches("[0-9a-f]{64}")) throw invalid("Invalid SHA-256 metadata");
         return value;
     }
-    private static long integer(JsonObject object, String key) throws GeneralSecurityException {
+    static long integer(JsonObject object, String key) throws GeneralSecurityException {
         JsonElement value = object.get(key);
         if (value == null || !value.isJsonPrimitive() || !value.getAsJsonPrimitive().isNumber()) throw invalid("Expected integer metadata");
         return value.getAsLong();

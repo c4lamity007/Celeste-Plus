@@ -2,7 +2,9 @@ package dev.celestebeta.bootstrap.external;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import dev.c4lam.celeste.auth.EnvironmentGate;
 import dev.c4lam.celeste.beta.delivery.BetaDeliveryClient;
+import dev.c4lam.celeste.beta.delivery.RuntimeInstallationSigner;
 import dev.c4lam.celeste.beta.memory.TwoPartMemoryClassLoader;
 import java.io.IOException;
 import java.io.InputStream;
@@ -56,18 +58,21 @@ public final class BootstrapHost {
         Path observedDirectory = Path.of(MinecraftTarget.describe(instrumentation).get("game_directory"));
         if (!Files.isSameFile(expectedDirectory, observedDirectory)) throw new IOException("Selected launcher instance and running Minecraft directory differ");
         current = start(instrumentation, value.get("installer").getAsString(), value.get("device").getAsString(), uid,
-            Path.of(value.get("support_directory").getAsString()), residentDigest,
+            expectedDirectory, Path.of(value.get("support_directory").getAsString()), residentDigest,
             value.get("expected_release").getAsString(), value.get("expected_catalog_sha256").getAsString());
         return new com.google.gson.Gson().toJson(current.status());
     }
 
-    private static Session start(Instrumentation instrumentation, String installer, String device, long uid, Path supportRoot, String residentDigest,
+    private static Session start(Instrumentation instrumentation, String installer, String device, long uid, Path verifiedGameDirectory, Path supportRoot, String residentDigest,
                                  String expectedRelease, String expectedCatalog) throws Exception {
+        EnvironmentGate.requireAllowed();
         MinecraftTarget target = MinecraftTarget.inspect(instrumentation);
         java.util.function.Consumer<Runnable> retirementQueue = retirementQueue(target.client());
         JsonObject trust = validatedTrust(resourceObject("META-INF/celeste-beta/bootstrap-trust.json", BootstrapHost.class.getClassLoader()));
+        byte[] serverKey = Base64.getUrlDecoder().decode(trust.get("server_key").getAsString());
+        var signer = RuntimeInstallationSigner.load(verifiedGameDirectory, target.loader(), serverKey, device, uid);
         BetaDeliveryClient delivery = new BetaDeliveryClient(URI.create(trust.get("origin").getAsString()),
-            Base64.getUrlDecoder().decode(trust.get("server_key").getAsString()), installer, device, uid);
+            serverKey, installer, device, uid, signer);
         BetaDeliveryClient.VerifiedCatalog catalog = delivery.fetchCatalog();
         if (!catalog.releaseId().equals(expectedRelease) || !catalog.catalogSha256().equals(expectedCatalog)) {
             throw new IOException("Beta release changed after launcher verification. Authenticate again before attaching.");
@@ -83,7 +88,9 @@ public final class BootstrapHost {
         ResidentSupport support = null;
         boolean enteredPayload = false;
         Throwable startupFailure = null;
+        boolean[] readinessRejected = {false};
         try (BetaDeliveryClient.MemoryRelease release = delivery.download(catalog)) {
+            delivery.revalidate(catalog);
             byte[] b = copy(release.artifact("bootstrap-b"));
             try { internal = new VerifiedBootstrapLoader(b, artifact(catalog, "bootstrap-b").sha256(), BootstrapHost.class.getClassLoader()); }
             finally { Arrays.fill(b, (byte) 0); }
@@ -118,8 +125,15 @@ public final class BootstrapHost {
             Object preparedGame = Proxy.newProxyInstance(internal, new Class<?>[] { capability }, (proxy, method, arguments) -> {
                 return switch (method.getName()) {
                     case "verifyReadyForPayload" -> {
-                        checkedHooks.verifyReady();
-                        if (catalog.expiresAt() <= Instant.now().getEpochSecond()) throw new IOException("Beta delivery expired during preparation");
+                        try {
+                            delivery.revalidate(catalog);
+                            checkedHooks.verifyReady();
+                            if (catalog.expiresAt() <= Instant.now().getEpochSecond()) throw new IOException("Beta delivery expired during preparation");
+                        } catch (Exception | LinkageError denied) {
+                            // B calls this before opening/initializing any payload class.
+                            readinessRejected[0] = true;
+                            throw denied;
+                        }
                         yield null;
                     }
                     case "runtimeParent" -> checkedSupport.loader();
@@ -140,7 +154,7 @@ public final class BootstrapHost {
             startupFailure = failure;
             throw failure;
         } finally {
-            if (!enteredPayload) rollbackPreparation(hooks, internal, support, startupFailure);
+            if (!enteredPayload || readinessRejected[0]) rollbackPreparation(hooks, internal, support, startupFailure);
         }
     }
 

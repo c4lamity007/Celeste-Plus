@@ -1,5 +1,6 @@
 package dev.c4lam.celeste.mixin;
 
+import com.llamalad7.mixinextras.injector.ModifyReturnValue;
 import dev.c4lam.celeste.compat.RotationHooks;
 import net.minecraft.client.network.ClientPlayerEntity;
 import org.spongepowered.asm.mixin.Mixin;
@@ -8,6 +9,11 @@ import org.spongepowered.asm.mixin.injection.Redirect;
 
 @Mixin(ClientPlayerEntity.class)
 public abstract class ClientPlayerEntityRotationMixin {
+    @ModifyReturnValue(method = "isCamera", at = @At("RETURN"))
+    private boolean celeste$freecamKeepsLocalPlayerLive(boolean vanilla) {
+        return vanilla || RotationHooks.keepLocalPlayerControl((ClientPlayerEntity) (Object) this);
+    }
+
     @Redirect(
         method = "tick",
         at = @At(

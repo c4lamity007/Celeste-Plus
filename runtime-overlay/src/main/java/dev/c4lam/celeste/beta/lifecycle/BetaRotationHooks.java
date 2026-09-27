@@ -33,6 +33,15 @@ public final class BetaRotationHooks implements RotationHookBridge.Handler, Auto
     public Object glidingVector(Object entity) { return RotationHooks.glidingVector((LivingEntity) entity); }
     public float glidingPitch(Object entity) { return RotationHooks.glidingPitch((LivingEntity) entity); }
     public float sprintJumpYaw(Object entity) { return RotationHooks.sprintJumpYaw((LivingEntity) entity); }
+    public boolean redirectLook(Object entity, double cursorDeltaX, double cursorDeltaY) {
+        return RotationHooks.redirectLook((Entity) entity, cursorDeltaX, cursorDeltaY);
+    }
+    public boolean keepLocalPlayerControl(Object player) {
+        return RotationHooks.keepLocalPlayerControl((ClientPlayerEntity) player);
+    }
+    public Object renderedCameraFocus(Object vanillaFocus) {
+        return RotationHooks.renderedCameraFocus((Entity) vanillaFocus);
+    }
     public void keyboardTick(Object value) {
         Input input = (Input) value;
         var correction = RotationHooks.keyboardCorrection(input, input.getMovementInput(), input.playerInput);

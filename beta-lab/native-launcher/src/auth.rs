@@ -1,8 +1,15 @@
-// Existing native verifier protocol and Windows-protected credential primitives.
-// Snapshot copied 2026-09-06; no production launcher modules are referenced.
+// Product-scoped protocol with account-protected credential storage. Portable
+// hardware/key-store implementations are shared with the standard launcher so
+// an existing Both activation preserves the exact same installation identity.
 #![allow(dead_code)]
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
+#[path = "../../native-shared/src/portable_hardware.rs"]
+mod portable_hardware;
+#[cfg(test)]
+#[path = "../../../shared-auth/secret_buffer_tests.rs"]
+mod secret_buffer_tests;
 use crate::{atomic_store, release};
-use aes_gcm::aead::{Aead, Payload};
+use aes_gcm::aead::AeadInPlace;
 use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
 use anyhow::{Context, Result, anyhow, bail};
 use base64::Engine;
@@ -14,21 +21,17 @@ use rand::rngs::OsRng;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-use std::env;
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::ptr;
-use std::slice;
-
-use winapi::shared::minwindef::DWORD;
-use winapi::um::dpapi::{CRYPTPROTECT_UI_FORBIDDEN, CryptProtectData, CryptUnprotectData};
-use winapi::um::winbase::LocalFree;
-use winapi::um::wincrypt::DATA_BLOB;
+#[cfg(windows)]
 use winreg::RegKey;
+#[cfg(windows)]
 use winreg::enums::{HKEY_LOCAL_MACHINE, KEY_READ, KEY_WOW64_64KEY};
+#[cfg(windows)]
 use wmi::{COMLibrary, WMIConnection};
 use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret};
+use zeroize::Zeroizing;
 
 const STORE_MAGIC: &[u8; 4] = b"CST1";
 const TICKET_MAGIC: &[u8; 4] = b"CLT1";
@@ -41,9 +44,9 @@ const TOKEN_INFO: &[u8] = b"celeste-install-token-v1";
 struct InstallCredential {
     device_id: String,
     uid: u64,
-    signing_private: String,
-    encryption_private: String,
-    token_seed: String,
+    signing_private: Zeroizing<String>,
+    encryption_private: Zeroizing<String>,
+    token_seed: Zeroizing<String>,
     certificate: String,
     game_uuid: String,
     game_name: String,
@@ -57,6 +60,7 @@ struct HardwareProfile {
     monitors: Vec<String>,
 }
 
+#[cfg(windows)]
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 struct ComputerSystem {
@@ -64,18 +68,21 @@ struct ComputerSystem {
     model: Option<String>,
 }
 
+#[cfg(windows)]
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 struct ComputerProduct {
     uuid: Option<String>,
 }
 
+#[cfg(windows)]
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 struct Bios {
     serial_number: Option<String>,
 }
 
+#[cfg(windows)]
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 struct BaseBoard {
@@ -85,6 +92,7 @@ struct BaseBoard {
     serial_number: Option<String>,
 }
 
+#[cfg(windows)]
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 struct Processor {
@@ -127,7 +135,10 @@ fn http_failure(status: u16, path: &str, detail: &str) -> anyhow::Error {
     .into()
 }
 
+#[cfg(windows)]
 fn collect_hardware() -> Result<HardwareProfile> {
+    crate::environment_guard::require_allowed()?;
+    crate::native_manifest::require_current("celeste_plus")?;
     let com = COMLibrary::new().context("Windows hardware services are unavailable")?;
     let wmi = WMIConnection::new(com).context("Could not connect to Windows hardware services")?;
     let systems: Vec<ComputerSystem> =
@@ -179,6 +190,13 @@ fn collect_hardware() -> Result<HardwareProfile> {
     })
 }
 
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn collect_hardware() -> Result<HardwareProfile> {
+    crate::environment_guard::require_allowed()?;
+    crate::native_manifest::require_current("celeste_plus")?;
+    portable_hardware::collect()
+}
+
 fn canonical(values: &[Option<&str>]) -> String {
     values
         .iter()
@@ -194,6 +212,7 @@ fn canonical(values: &[Option<&str>]) -> String {
         .join("\n")
 }
 
+#[cfg(windows)]
 fn monitor_edids() -> Vec<Vec<u8>> {
     let mut values = Vec::new();
     let root = RegKey::predef(HKEY_LOCAL_MACHINE);
@@ -226,6 +245,22 @@ fn monitor_edids() -> Vec<Vec<u8>> {
 }
 
 fn enroll(license: &str, hardware: &HardwareProfile) -> Result<InstallCredential> {
+    // Check this account's OS key store and durable storage before consuming a device slot.
+    enroll_after_preflight(
+        || crate::credential_protection::preflight(&user_cache()?),
+        || enroll_remote(license, hardware),
+    )
+}
+
+fn enroll_after_preflight<T>(
+    preflight: impl FnOnce() -> Result<()>,
+    enroll_remote: impl FnOnce() -> Result<T>,
+) -> Result<T> {
+    preflight().context("Activation storage is unavailable; no new device was enrolled")?;
+    enroll_remote()
+}
+
+fn enroll_remote(license: &str, hardware: &HardwareProfile) -> Result<InstallCredential> {
     let signing = SigningKey::generate(&mut OsRng);
     let encryption = StaticSecret::random_from_rng(OsRng);
     let encryption_public = X25519PublicKey::from(&encryption);
@@ -245,7 +280,7 @@ fn enroll(license: &str, hardware: &HardwareProfile) -> Result<InstallCredential
         }),
     ).map_err(|error| {
         if error.downcast_ref::<HttpFailure>().is_some_and(|failure| failure.status == 409) {
-            error.context("This license is already activated. Select its original instance and Windows account, or contact support if the saved activation was lost")
+            error.context("This license is already activated. Select its original instance and account, or contact support if the saved activation was lost")
         } else {
             error.context("License activation failed")
         }
@@ -255,15 +290,17 @@ fn enroll(license: &str, hardware: &HardwareProfile) -> Result<InstallCredential
     if required_text(&transcript, "/product")? != "celeste_plus" {
         bail!("Authentication challenge belongs to another product");
     }
-    let complete = post_json(
+    let complete = post_json_with_dpop(
         "/v1/enroll/complete",
         &json!({
             "challenge_id": required_text(&start, "/challenge_id")?,
             "install_signature": encode(&signing.sign(&message).to_bytes()),
         }),
+        Some(&signing),
     )?;
     let certificate = required_text(&complete, "/device_certificate")?.to_owned();
     let certificate_claims = verify_token(&certificate, "celeste-installation")?;
+    crate::dpop::require_binding(&certificate_claims, &signing)?;
     let device_id = required_text(&complete, "/device_id")?.to_owned();
     let uid = complete
         .pointer("/uid")
@@ -286,9 +323,9 @@ fn enroll(license: &str, hardware: &HardwareProfile) -> Result<InstallCredential
     Ok(InstallCredential {
         device_id,
         uid,
-        signing_private: encode(signing.as_bytes()),
-        encryption_private: encode(encryption.as_bytes()),
-        token_seed: encode(&seed),
+        signing_private: encode(signing.as_bytes()).into(),
+        encryption_private: encode(encryption.as_bytes()).into(),
+        token_seed: encode(&seed[..]).into(),
         certificate,
         game_uuid: INSTALLER_UUID.to_owned(),
         game_name: INSTALLER_NAME.to_owned(),
@@ -321,16 +358,18 @@ fn authenticate_installer(
     if required_text(&transcript, "/product")? != "celeste_plus" {
         bail!("Authentication challenge belongs to another product");
     }
-    let complete = post_json(
+    let complete = post_json_with_dpop(
         "/v1/installer/complete",
         &json!({
             "challenge_id": required_text(&start, "/challenge_id")?,
             "install_signature": encode(&signing.sign(&message).to_bytes()),
             "token_signature": encode(&token.sign(&message).to_bytes()),
         }),
+        Some(&signing),
     )?;
     let grant = required_text(&complete, "/grant")?;
     let claims = verify_token(grant, "celeste-installer")?;
+    crate::dpop::require_binding(&claims, &signing)?;
     let bootstrap_url = required_text(&complete, "/bootstrap/url")?;
     let bootstrap_id = bootstrap_url.rsplit('/').next().unwrap_or("");
     let bootstrap_sha = required_text(&complete, "/bootstrap/sha256")?;
@@ -347,13 +386,17 @@ fn authenticate_installer(
     Ok(complete)
 }
 
-fn decrypt_token(envelope: &Value, private: &StaticSecret, message: &[u8]) -> Result<[u8; 32]> {
+fn decrypt_token(
+    envelope: &Value,
+    private: &StaticSecret,
+    message: &[u8],
+) -> Result<Zeroizing<[u8; 32]>> {
     let ephemeral = fixed_32(&decode(required_text(envelope, "/ephemeral_key")?)?)?;
     let nonce = decode(required_text(envelope, "/nonce")?)?;
     if nonce.len() != 12 {
         bail!("Token envelope nonce is invalid");
     }
-    let ciphertext = decode(required_text(envelope, "/ciphertext")?)?;
+    let mut plain = Zeroizing::new(decode(required_text(envelope, "/ciphertext")?)?);
     let transcript: Value = serde_json::from_slice(message)?;
     let salt = decode(required_text(&transcript, "/nonce")?)?;
     if salt.len() != 32 {
@@ -361,34 +404,41 @@ fn decrypt_token(envelope: &Value, private: &StaticSecret, message: &[u8]) -> Re
     }
     let shared = private.diffie_hellman(&X25519PublicKey::from(ephemeral));
     let hkdf = Hkdf::<Sha256>::new(Some(&salt), shared.as_bytes());
-    let mut wrapping = [0u8; 32];
-    hkdf.expand(TOKEN_INFO, &mut wrapping)
+    let mut wrapping = Zeroizing::new([0u8; 32]);
+    hkdf.expand(TOKEN_INFO, &mut wrapping[..])
         .map_err(|_| anyhow!("Token key derivation failed"))?;
-    let cipher = Aes256Gcm::new_from_slice(&wrapping)
+    let cipher = Aes256Gcm::new_from_slice(&wrapping[..])
         .map_err(|_| anyhow!("Token cipher could not start"))?;
-    let plain = cipher
-        .decrypt(
-            Nonce::from_slice(&nonce),
-            Payload {
-                msg: &ciphertext,
-                aad: message,
-            },
-        )
+    cipher
+        .decrypt_in_place(Nonce::from_slice(&nonce), message, &mut *plain)
         .map_err(|_| anyhow!("Installation token envelope was rejected"))?;
-    fixed_32(&plain)
+    if plain.len() != 32 {
+        bail!("Expected a 32-byte key");
+    }
+    let mut seed = Zeroizing::new([0u8; 32]);
+    seed.copy_from_slice(&plain);
+    Ok(seed)
 }
 
 fn post_json(path: &str, body: &Value) -> Result<Value> {
+    post_json_with_dpop(path, body, None)
+}
+
+fn post_json_with_dpop(path: &str, body: &Value, signing: Option<&SigningKey>) -> Result<Value> {
     let url = endpoint(path)?;
     let agent = ureq::AgentBuilder::new()
+        .https_only(true)
         .redirects(0)
         .timeout(std::time::Duration::from_secs(25))
         .build();
-    let result = agent
+    let mut request = agent
         .post(&url)
         .set("Content-Type", "application/json")
-        .set("Accept", "application/json")
-        .send_json(body.clone());
+        .set("Accept", "application/json");
+    if let Some(signing) = signing {
+        request = request.set("DPoP", &crate::dpop::proof(signing, "POST", &url, None)?);
+    }
+    let result = request.send_json(body.clone());
     match result {
         Ok(response) => {
             let mut bytes = Vec::new();
@@ -418,6 +468,7 @@ fn endpoint(path: &str) -> Result<String> {
         || !path.starts_with("/v1/")
         || path.contains("://")
         || path.contains("..")
+        || path.contains(['?', '#', '%', '\\'])
     {
         bail!("Server response referenced an untrusted endpoint");
     }
@@ -454,9 +505,12 @@ fn verify_token(token: &str, audience: &str) -> Result<Value> {
 }
 
 fn signing_key(encoded: &str) -> Result<SigningKey> {
-    let value = decode(encoded)?;
+    let mut value = Zeroizing::new(Vec::new());
+    URL_SAFE_NO_PAD
+        .decode_vec(encoded, &mut value)
+        .context("Invalid base64url value")?;
     if value.len() == 32 {
-        return Ok(SigningKey::from_bytes(&fixed_32(&value)?));
+        return Ok(SigningKey::from_bytes(value.as_slice().try_into()?));
     }
     SigningKey::from_pkcs8_der(&value).context("Saved signing key is invalid")
 }
@@ -466,7 +520,7 @@ fn load_credential(path: &Path) -> Result<InstallCredential> {
     if stored.len() <= STORE_MAGIC.len() || &stored[..STORE_MAGIC.len()] != STORE_MAGIC {
         bail!("Credential envelope is invalid");
     }
-    let plain = dpapi_unprotect(&stored[STORE_MAGIC.len()..])?;
+    let plain = Zeroizing::new(unprotect_credential(&stored[STORE_MAGIC.len()..])?);
     let credential: InstallCredential = serde_json::from_slice(&plain)?;
     if credential.device_id.len() < 32 || credential.uid == 0 || credential.certificate.is_empty() {
         bail!("Credential data is incomplete");
@@ -474,6 +528,11 @@ fn load_credential(path: &Path) -> Result<InstallCredential> {
     let signing = signing_key(&credential.signing_private)?;
     signing_key(&credential.token_seed)?;
     let claims = verify_token(&credential.certificate, "celeste-installation")?;
+    // Existing signed install_key certificates remain reusable; fresh grants
+    // always require cnf and cannot fall back to bearer authorization.
+    if claims.get("cnf").is_some() {
+        crate::dpop::require_binding(&claims, &signing)?;
+    }
     let public_key = encode(signing.verifying_key().as_bytes());
     if required_text(&claims, "/sub")? != credential.uid.to_string()
         || required_text(&claims, "/device")? != credential.device_id
@@ -485,8 +544,14 @@ fn load_credential(path: &Path) -> Result<InstallCredential> {
 }
 
 fn save_credential(path: &Path, credential: &InstallCredential) -> Result<()> {
-    let plain = serde_json::to_vec(credential)?;
-    let protected = dpapi_protect(&plain)?;
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    crate::user_profile::ensure_private_activation_dir(
+        path.parent()
+            .ok_or_else(|| anyhow!("Credential storage has no parent directory"))?,
+    )?;
+    let mut plain = Zeroizing::new(Vec::new());
+    serde_json::to_writer(&mut *plain, credential)?;
+    let protected = protect_credential(&plain)?;
     let mut stored = Vec::with_capacity(STORE_MAGIC.len() + protected.len());
     stored.extend_from_slice(STORE_MAGIC);
     stored.extend_from_slice(&protected);
@@ -494,7 +559,7 @@ fn save_credential(path: &Path, credential: &InstallCredential) -> Result<()> {
 }
 
 fn save_launch_ticket(path: &Path, ticket: &str) -> Result<()> {
-    let protected = dpapi_protect(ticket.as_bytes())?;
+    let protected = protect_credential(ticket.as_bytes())?;
     let mut stored = Vec::with_capacity(TICKET_MAGIC.len() + protected.len());
     stored.extend_from_slice(TICKET_MAGIC);
     stored.extend_from_slice(&protected);
@@ -505,54 +570,12 @@ fn atomic_write(path: &Path, value: &[u8]) -> Result<()> {
     atomic_store::atomic_write(path, value)
 }
 
-fn dpapi_protect(value: &[u8]) -> Result<Vec<u8>> {
-    unsafe {
-        let mut input = DATA_BLOB {
-            cbData: value.len() as DWORD,
-            pbData: value.as_ptr() as *mut u8,
-        };
-        let mut output: DATA_BLOB = std::mem::zeroed();
-        if CryptProtectData(
-            &mut input,
-            ptr::null(),
-            ptr::null_mut(),
-            ptr::null_mut(),
-            ptr::null_mut(),
-            CRYPTPROTECT_UI_FORBIDDEN,
-            &mut output,
-        ) == 0
-        {
-            bail!("Windows could not protect the device credential");
-        }
-        let result = slice::from_raw_parts(output.pbData, output.cbData as usize).to_vec();
-        LocalFree(output.pbData as *mut _);
-        Ok(result)
-    }
+fn protect_credential(value: &[u8]) -> Result<Vec<u8>> {
+    crate::credential_protection::protect(value)
 }
 
-fn dpapi_unprotect(value: &[u8]) -> Result<Vec<u8>> {
-    unsafe {
-        let mut input = DATA_BLOB {
-            cbData: value.len() as DWORD,
-            pbData: value.as_ptr() as *mut u8,
-        };
-        let mut output: DATA_BLOB = std::mem::zeroed();
-        if CryptUnprotectData(
-            &mut input,
-            ptr::null_mut(),
-            ptr::null_mut(),
-            ptr::null_mut(),
-            ptr::null_mut(),
-            CRYPTPROTECT_UI_FORBIDDEN,
-            &mut output,
-        ) == 0
-        {
-            bail!("Windows rejected the saved device credential");
-        }
-        let result = slice::from_raw_parts(output.pbData, output.cbData as usize).to_vec();
-        LocalFree(output.pbData as *mut _);
-        Ok(result)
-    }
+fn unprotect_credential(value: &[u8]) -> Result<Vec<u8>> {
+    crate::credential_protection::unprotect(value)
 }
 
 fn required_text<'a>(value: &'a Value, pointer: &str) -> Result<&'a str> {
@@ -624,6 +647,114 @@ fn short_detail(value: &str, request: &Value) -> String {
 mod error_tests {
     use super::*;
     #[test]
+    fn failed_storage_preflight_makes_zero_enrollment_requests() {
+        let requests = std::cell::Cell::new(0);
+        let failure = enroll_after_preflight(
+            || Err(std::io::Error::from_raw_os_error(3).into()),
+            || {
+                requests.set(requests.get() + 1);
+                Ok(())
+            },
+        )
+        .unwrap_err();
+        assert_eq!(requests.get(), 0);
+        assert!(failure.to_string().contains("no new device was enrolled"));
+        assert_eq!(
+            failure
+                .downcast_ref::<std::io::Error>()
+                .unwrap()
+                .raw_os_error(),
+            Some(3)
+        );
+    }
+
+    #[test]
+    fn successful_storage_preflight_precedes_the_only_enrollment_request() {
+        let calls = std::cell::RefCell::new(Vec::new());
+        enroll_after_preflight(
+            || {
+                calls.borrow_mut().push("preflight");
+                Ok(())
+            },
+            || {
+                calls.borrow_mut().push("enroll");
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert_eq!(*calls.borrow(), ["preflight", "enroll"]);
+    }
+
+    #[test]
+    fn failed_optional_profile_discovery_preserves_direct_recovery_candidates() {
+        let original = PathBuf::from(r"D:\Redirected AppData\Celeste\auth\uid-7.bin");
+        let mut paths = vec![original.clone()];
+        let failure = append_recovery_bindings(
+            &mut paths,
+            Err(anyhow!("Modrinth database is temporarily unavailable")),
+        );
+        assert_eq!(paths, [original]);
+        assert!(
+            failure
+                .unwrap()
+                .to_string()
+                .contains("temporarily unavailable")
+        );
+    }
+
+    #[test]
+    fn legacy_bindings_follow_explicit_profile_location_not_appdata_spelling() {
+        let game = PathBuf::from(r"D:\Minecraft games\Casual ç”¨æˆ·\instance");
+        let mut paths = Vec::new();
+        assert!(
+            append_recovery_bindings(
+                &mut paths,
+                Ok(vec![crate::platform::GameProfile {
+                    name: "Fixture only".to_owned(),
+                    game: game.clone(),
+                }]),
+            )
+            .is_none()
+        );
+        assert_eq!(paths.len(), 3);
+        assert!(paths.iter().all(|path| path.starts_with(&game)));
+        assert_eq!(
+            paths[0],
+            game.join("config")
+                .join("celeste")
+                .join("auth")
+                .join("celeste_plus")
+                .join("device.bin")
+        );
+    }
+
+    #[test]
+    fn protection_failure_survives_mixed_corrupt_candidate_order() {
+        for protection_first in [true, false] {
+            let mut protection = None;
+            let mut other = None;
+            let protected_store_error =
+                unprotect_credential(b"not a protected envelope").unwrap_err();
+            let malformed = anyhow!("Credential envelope is invalid");
+            let failures = if protection_first {
+                [protected_store_error, malformed]
+            } else {
+                [malformed, protected_store_error]
+            };
+            for error in failures {
+                remember_local_failure(error, &mut protection, &mut other);
+            }
+            assert!(
+                protection
+                    .unwrap()
+                    .downcast_ref::<crate::credential_protection::ProtectionError>()
+                    .is_some()
+            );
+            assert!(other.is_some());
+        }
+    }
+    #[cfg(windows)]
+    #[test]
     fn original_shared_owner_cache_path_is_reused_without_beta_suffix() {
         let cache = shared_cache_under(Path::new(r"C:\Users\fixture\AppData\Local")).unwrap();
         assert_eq!(
@@ -634,6 +765,61 @@ mod error_tests {
             ))
         );
         assert!(shared_cache_under(Path::new("relative-user-root")).is_err());
+        for redirected in [
+            r"D:\Roaming data\ãƒ¦ãƒ¼ã‚¶ãƒ¼\Local",
+            r"C:\Users\DESKTOP-QJDBQ2D$\Casual\AppData\Local",
+            r"\\profile-server\Current user\Local",
+        ] {
+            let cache = shared_cache_under(Path::new(redirected)).unwrap();
+            assert_eq!(
+                cache,
+                Path::new(redirected)
+                    .join("Celeste")
+                    .join("auth")
+                    .join(release::LAUNCHER_CHANNEL_ID)
+            );
+        }
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn portable_cache_reuses_standard_identity_but_keeps_plus_selection_distinct() {
+        for root in [
+            "/home/fixture/.local/share",
+            "/Users/fixture/Library/Application Support",
+        ] {
+            let cache = shared_cache_under(Path::new(root)).unwrap();
+            assert_eq!(
+                cache,
+                Path::new(root)
+                    .join("Celeste")
+                    .join("auth")
+                    .join(release::LAUNCHER_CHANNEL_ID)
+            );
+            assert_ne!(
+                cache.join("celeste-plus-active.bin"),
+                cache.join("celeste-active.bin")
+            );
+        }
+        assert!(shared_cache_under(Path::new("relative-user-root")).is_err());
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn relative_credential_destination_is_rejected_before_opening_key_store() {
+        let credential = InstallCredential {
+            device_id: "public-fixture-not-an-activation".into(),
+            uid: 7,
+            signing_private: Zeroizing::default(),
+            encryption_private: Zeroizing::default(),
+            token_seed: Zeroizing::default(),
+            certificate: String::new(),
+            game_uuid: INSTALLER_UUID.into(),
+            game_name: INSTALLER_NAME.into(),
+        };
+        let error =
+            save_credential(Path::new("relative-auth/device.bin"), &credential).unwrap_err();
+        assert!(error.to_string().contains("absolute account directory"));
     }
     #[test]
     fn authentication_errors_redact_request_secrets_before_truncation() {
@@ -657,17 +843,14 @@ pub(crate) struct Session {
 }
 
 fn user_cache() -> Result<PathBuf> {
-    let root = env::var_os("LOCALAPPDATA")
-        .map(PathBuf::from)
-        .filter(|path| path.is_absolute())
-        .ok_or_else(|| anyhow!("Windows LOCALAPPDATA is unavailable"))?;
+    let root = crate::user_profile::current_local_app_data()?;
     shared_cache_under(&root)
 }
 
 // Exact existing native-verifier/main.rs user_binding_dir layout, not a beta cache.
 fn shared_cache_under(root: &Path) -> Result<PathBuf> {
     if !root.is_absolute() {
-        bail!("Shared activation cache requires an absolute Windows user directory");
+        bail!("Shared activation cache requires an absolute account directory");
     }
     Ok(root
         .join("Celeste")
@@ -675,58 +858,206 @@ fn shared_cache_under(root: &Path) -> Result<PathBuf> {
         .join(release::LAUNCHER_CHANNEL_ID))
 }
 
-/// Reuse only this product's selected binding and our Windows-protected identity cache.
+/// Reuse only this product's selected binding and our account-protected identity cache.
 /// Generic device certificates can serve a Both key; every grant is product scoped.
 pub(crate) fn authenticate(game: &Path, license: &str) -> Result<Session> {
+    authenticate_for_setup(Some(game), license)
+}
+
+/// Activation is independent of Minecraft being installed or running.
+/// The UI gate only controls setup; every later Load still authenticates afresh.
+pub(crate) fn activate(license: &str) -> Result<bool> {
+    match authenticate_for_setup(None, license) {
+        Ok(_) => Ok(true),
+        Err(error) if error.downcast_ref::<NoSavedActivation>().is_some() => Ok(false),
+        Err(error) => Err(error),
+    }
+}
+
+#[derive(Debug)]
+struct NoSavedActivation;
+impl std::fmt::Display for NoSavedActivation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Enter your Celeste+ or Both license to activate this computer")
+    }
+}
+impl std::error::Error for NoSavedActivation {}
+
+fn authenticate_for_setup(game: Option<&Path>, license: &str) -> Result<Session> {
     let license = license.trim();
     if !license.is_empty() && !(20..=96).contains(&license.len()) {
         bail!("Enter the complete license key");
     }
-    let auth_dir = game.join("config").join("celeste").join("auth");
     let cache = user_cache()?;
-    let mut paths = vec![auth_dir.join("celeste_plus").join("device.bin"),
-        auth_dir.join("installer.bin"), auth_dir.join("device.bin")];
+    let active_path = cache.join("celeste-plus-active.bin");
+    let pinned = license.is_empty() && active_path.is_file();
+    let mut paths = vec![active_path.clone()];
+    if let Some(game) = game {
+        let auth_dir = game.join("config").join("celeste").join("auth");
+        paths.extend([
+            auth_dir.join("celeste_plus").join("device.bin"),
+            auth_dir.join("installer.bin"),
+            auth_dir.join("device.bin"),
+        ]);
+    }
     if cache.is_dir() {
-        let mut saved = fs::read_dir(&cache)?.filter_map(Result::ok)
-            .map(|entry| entry.path()).filter(|path| {
-                path.file_name().and_then(|name| name.to_str()).is_some_and(|name| {
-                    name.strip_prefix("uid-").and_then(|s| s.strip_suffix(".bin"))
-                        .is_some_and(|s| s.parse::<u64>().is_ok_and(|uid| uid > 0))
-                }) && path.is_file()
-            }).collect::<Vec<_>>();
+        let mut saved = fs::read_dir(&cache)?
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .filter(|path| {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| {
+                        name.strip_prefix("uid-")
+                            .and_then(|s| s.strip_suffix(".bin"))
+                            .is_some_and(|s| s.parse::<u64>().is_ok_and(|uid| uid > 0))
+                    })
+                    && path.is_file()
+            })
+            .collect::<Vec<_>>();
         saved.sort();
         paths.extend(saved);
+    }
+    let discovery_failure = if pinned {
+        // Reopening or changing Minecraft profiles must not silently choose a
+        // different license. A replacement key is an explicit setup action.
+        paths.truncate(1);
+        None
+    } else {
+        // Earlier versions could save only inside a Minecraft profile. Migrate
+        // those signed bindings before considering a new enrollment so an
+        // existing customer is not sent back to an already-consumed key.
+        append_recovery_bindings(&mut paths, crate::platform::modrinth_profiles())
+    };
+    // A first-time user can enter their key before hardware/profile/process setup.
+    if license.is_empty() && !paths.iter().any(|path| path.is_file()) {
+        return Err(NoSavedActivation.into());
     }
     let hardware = collect_hardware()?;
     let mut seen = std::collections::HashSet::new();
     let mut rejected = None;
+    let mut local_failure = None;
+    let mut protection_failure = None;
+    #[cfg(target_os = "macos")]
+    let mut runtime_reader_verified = false;
     for path in paths.into_iter().filter(|path| path.is_file()) {
         let credential = match load_credential(&path) {
             Ok(value) => value,
-            Err(_) => continue,
+            Err(error) => {
+                remember_local_failure(error, &mut protection_failure, &mut local_failure);
+                continue;
+            }
         };
-        if !seen.insert(credential.device_id.clone()) { continue; }
+        if !seen.insert(credential.device_id.clone()) {
+            continue;
+        }
+        #[cfg(target_os = "macos")]
+        if !runtime_reader_verified {
+            // A native read alone does not prove Minecraft's fixed OS reader
+            // has permission. Check before server auth or declaring setup ready.
+            crate::credential_protection::validate_runtime_reader()?;
+            runtime_reader_verified = true;
+        }
         match authenticate_installer(&credential, &hardware, license) {
-            Ok(value) => return product_session(credential, value),
+            Ok(value) => {
+                let session = product_session(credential, value)?;
+                save_setup_binding(&cache, &session.credential)?;
+                return Ok(session);
+            }
             Err(error) if is_unauthorized(&error) => rejected = Some(error),
             Err(error) => return Err(error),
         }
+    }
+    if let Some(error) = discovery_failure {
+        // A redirected/unavailable Modrinth database must not prevent reuse of
+        // an already valid account cache. If reuse failed, however, do not
+        // consume another device slot with an incomplete recovery search.
+        return Err(error.context(
+            "Could not check existing profile activations. Restore access to this account's Modrinth data and retry; no new device was enrolled",
+        ));
     }
     if license.is_empty() {
         if let Some(error) = rejected {
             return Err(error.context("Saved activation is unavailable for Celeste+. Enter a current Celeste+ or Both license"));
         }
-        bail!("Enter your Celeste+ or Both license to activate this PC");
+        if let Some(error) = protection_failure.or(local_failure) {
+            return Err(error.context("Saved activation could not be opened. Use the account that activated this computer, or enter a current license"));
+        }
+        return Err(NoSavedActivation.into());
+    }
+    if let Some(error) = protection_failure {
+        return Err(error.context("The operating system could not open a saved activation. Sign in to the account that created it and unlock its password store before retrying; no new device was enrolled"));
     }
     let credential = enroll(license, &hardware)?;
-    save_credential(&cache.join(format!("uid-{}.bin", credential.uid)), &credential)?;
+    save_credential(
+        &cache.join(format!("uid-{}.bin", credential.uid)),
+        &credential,
+    )?;
     let value = authenticate_installer(&credential, &hardware, license)?;
-    product_session(credential, value)
+    let session = product_session(credential, value)?;
+    save_setup_binding(&cache, &session.credential)?;
+    Ok(session)
+}
+
+fn append_profile_bindings(paths: &mut Vec<PathBuf>, game: &Path) {
+    let root = game.join("config").join("celeste").join("auth");
+    paths.extend([
+        root.join("celeste_plus").join("device.bin"),
+        root.join("installer.bin"),
+        root.join("device.bin"),
+    ]);
+}
+
+fn append_recovery_bindings(
+    paths: &mut Vec<PathBuf>,
+    profiles: Result<Vec<crate::platform::GameProfile>>,
+) -> Option<anyhow::Error> {
+    match profiles {
+        Ok(profiles) => {
+            for profile in profiles {
+                append_profile_bindings(paths, &profile.game);
+            }
+            None
+        }
+        Err(error) => Some(error),
+    }
+}
+
+fn remember_local_failure(
+    error: anyhow::Error,
+    protection: &mut Option<anyhow::Error>,
+    other: &mut Option<anyhow::Error>,
+) {
+    if error
+        .downcast_ref::<crate::credential_protection::ProtectionError>()
+        .is_some()
+    {
+        if protection.is_none() {
+            *protection = Some(error);
+        }
+    } else if other.is_none() {
+        *other = Some(error);
+    }
+}
+
+fn save_setup_binding(cache: &Path, credential: &InstallCredential) -> Result<()> {
+    save_credential(
+        &cache.join(format!("uid-{}.bin", credential.uid)),
+        credential,
+    )
+    .context("Could not save this account's activation")?;
+    save_credential(&cache.join("celeste-plus-active.bin"), credential)
+        .context("Could not remember this Celeste+ activation")
+}
+
+pub(crate) fn needs_activation(error: &anyhow::Error) -> bool {
+    is_unauthorized(error) || error.downcast_ref::<NoSavedActivation>().is_some()
 }
 
 fn product_session(credential: InstallCredential, value: Value) -> Result<Session> {
     let grant = required_text(&value, "/grant")?.to_owned();
     let claims = verify_token(&grant, "celeste-installer")?;
+    crate::dpop::require_binding(&claims, &signing_key(&credential.signing_private)?)?;
     if credential.uid == 0
         || required_text(&claims, "/sub")? != credential.uid.to_string()
         || required_text(&claims, "/product")? != "celeste_plus"
@@ -734,17 +1065,36 @@ fn product_session(credential: InstallCredential, value: Value) -> Result<Sessio
     {
         bail!("Installer authorization does not match this Celeste+ activation");
     }
-    Ok(Session { grant, uid: credential.uid, device: credential.device_id.clone(), credential })
+    Ok(Session {
+        grant,
+        uid: credential.uid,
+        device: credential.device_id.clone(),
+        credential,
+    })
 }
 
 impl Session {
+    /// Only the proof leaves this capability; no installation key is handed to
+    /// delivery code or added to attach IPC, logs, or a new credential file.
+    pub(crate) fn delivery_proof(&self, method: &str, url: &str) -> Result<String> {
+        let key = signing_key(&self.credential.signing_private)?;
+        let claims = verify_token(&self.grant, "celeste-installer")?;
+        crate::dpop::require_binding(&claims, &key)?;
+        crate::dpop::proof(&key, method, url, Some(&self.grant))
+    }
+
     /// Caller must first verify the selected PID's canonical game directory.
     pub fn prepare_runtime_credential(&self, game: &Path) -> Result<()> {
-        let target = game.join("config").join("celeste").join("auth")
-            .join("celeste_plus").join("device.bin");
+        let target = game
+            .join("config")
+            .join("celeste")
+            .join("auth")
+            .join("celeste_plus")
+            .join("device.bin");
         // Only a freshly server-authorized identity may update this product's binding.
         // The standard Celeste binding and generic cached identities remain independent.
-        save_credential(&target, &self.credential)
-            .context("Could not save the Windows-protected Celeste+ activation in the selected instance")
+        save_credential(&target, &self.credential).context(
+            "Could not save the account-protected Celeste+ activation in the selected instance",
+        )
     }
 }

@@ -2,12 +2,15 @@ package dev.c4lam.celeste.module;
 
 import dev.c4lam.celeste.module.impl.combat.AnchorAuraFeature;
 import dev.c4lam.celeste.module.impl.combat.AnchorMacroFeature;
+import dev.c4lam.celeste.module.impl.combat.DoubleAnchorMacroFeature;
+import dev.c4lam.celeste.module.impl.combat.SafeAnchorFeature;
 import dev.c4lam.celeste.module.impl.combat.AutoTrapFeature;
 import dev.c4lam.celeste.module.impl.combat.AutoCrystalAuraFeature;
 import dev.c4lam.celeste.module.impl.combat.AutoCrystalFeature;
 import dev.c4lam.celeste.module.impl.combat.AutoHitCrystalFeature;
 import dev.c4lam.celeste.module.impl.combat.AutoSwordFeature;
 import dev.c4lam.celeste.module.impl.combat.CatchFeature;
+import dev.c4lam.celeste.module.impl.combat.HorizontalPearlCatchFeature;
 import dev.c4lam.celeste.module.impl.combat.CombatOverlayRenderer;
 import dev.c4lam.celeste.module.impl.combat.DamageRenderFeature;
 import dev.c4lam.celeste.module.impl.combat.FakeLagFeature;
@@ -53,6 +56,7 @@ public final class BuiltInFeatures {
         modules.register(new MaceAuraFeature());
         modules.register(new WindChargeFeature());
         modules.register(new CatchFeature());
+        modules.register(new HorizontalPearlCatchFeature());
         MaceSwapFeature maceSwap = new MaceSwapFeature();
         modules.register(maceSwap);
         SwordAttackCoordinator.installMaceSwap(maceSwap);
@@ -67,18 +71,26 @@ public final class BuiltInFeatures {
         modules.register(new AutoCrystalFeature());
         modules.register(new AutoHitCrystalFeature());
         modules.register(new AnchorMacroFeature());
+        modules.register(new DoubleAnchorMacroFeature());
+        modules.register(new SafeAnchorFeature(true));
+        modules.register(new SafeAnchorFeature(false));
         CombatOverlayRenderer.initialize(smashGuide, damageRender);
         modules.register(new SprintFeature());
         modules.register(new SafeWalkFeature());
         modules.register(new ElytraFeature());
+        modules.register(new dev.c4lam.celeste.module.impl.movement.FreecamFeature());
         modules.register(new FullbrightFeature());
         modules.register(new dev.c4lam.celeste.module.impl.visual.PlayerModelsFeature());
-
+        
         EntityEspFeature entityEsp = new EntityEspFeature();
         HoleEspFeature holeEsp = new HoleEspFeature();
         modules.register(entityEsp);
         modules.register(holeEsp);
-        VisualWorldRenderer.initialize(entityEsp, holeEsp);
+        var storageEsp = new dev.c4lam.celeste.module.impl.visual.StorageEspFeature();
+        var blockEsp = new dev.c4lam.celeste.module.impl.visual.BlockEspFeature();
+        modules.register(storageEsp);
+        modules.register(blockEsp);
+        VisualWorldRenderer.initialize(entityEsp, holeEsp, storageEsp, blockEsp);
 
         ExpansionFeatures.register(modules);
         VisualExpansion.register(modules);

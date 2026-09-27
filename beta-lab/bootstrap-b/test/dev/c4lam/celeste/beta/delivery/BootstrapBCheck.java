@@ -292,14 +292,24 @@ public final class BootstrapBCheck {
             Map<String, byte[]> artifacts = Map.of("bootstrap-a", new byte[] { 1 }, "bootstrap-b", new byte[] { 2 },
                 "payload-a", jar(first), "payload-b", jar(second));
             KeyPair keys = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+            KeyPair installation = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+            byte[] installationPublic = installation.getPublic().getEncoded();
+            var proofSigner = new dev.c4lam.celeste.auth.DpopProofSigner(installation.getPrivate(),
+                Arrays.copyOfRange(installationPublic, installationPublic.length - 32, installationPublic.length),
+                Clock.fixed(Instant.ofEpochSecond(now), ZoneOffset.UTC));
+            JsonObject confirmation = new JsonObject(); confirmation.addProperty("jkt", proofSigner.thumbprint());
             String device = "bootstrap_fixture_device_0000000001";
             JsonObject installer = identity("celeste-installer", device, now, now + 600);
+            installer.add("cnf", confirmation);
             installer.addProperty("jti", "bootstrap-fixture-grant-0001");
             installer.addProperty("release", "production-launcher"); installer.addProperty("client_sha256", "b".repeat(64));
             installer.addProperty("payload_release", "production-payload"); installer.addProperty("payload_sha256", "c".repeat(64));
             installer.addProperty("bootstrap", "production-bootstrap"); installer.addProperty("bootstrap_sha256", "d".repeat(64));
             String installerToken = sign(keys, installer);
             JsonObject manifest = identity("celeste-beta-manifest", device, now, now + 100);
+            String requestNonce = "B".repeat(32);
+            manifest.addProperty("request_nonce", requestNonce);
+            manifest.add("cnf", confirmation);
             manifest.addProperty("installer_jti", "bootstrap-fixture-grant-0001");
             manifest.addProperty("installer_sha256", BetaDeliveryClient.sha256(installerToken.getBytes(StandardCharsets.US_ASCII)));
             manifest.addProperty("schema", "celeste-beta-release-2"); manifest.addProperty("release_id", "offline-bootstrap-b");
@@ -317,14 +327,14 @@ public final class BootstrapBCheck {
             String manifestToken = sign(keys, manifest); byte[] publicKey = keys.getPublic().getEncoded();
             BetaDeliveryClient verifier = new BetaDeliveryClient(java.net.URI.create("https://bootstrap-fixture.invalid/"),
                 Arrays.copyOfRange(publicKey, publicKey.length - 32, publicKey.length), installerToken, device, 42,
-                Clock.fixed(Instant.ofEpochSecond(now), ZoneOffset.UTC), (uri, headers, maximum, timeout) -> {
+                proofSigner, Clock.fixed(Instant.ofEpochSecond(now), ZoneOffset.UTC), (uri, headers, maximum, timeout) -> {
                     String id = uri.getPath().substring(uri.getPath().lastIndexOf('/') + 1);
-                    if (!headers.get("Authorization").equals("Bearer " + installerToken)
+                    if (!headers.get("Authorization").equals("DPoP " + installerToken) || !headers.containsKey("DPoP")
                         || !headers.get("X-Celeste-Beta-Manifest").equals(manifestToken)) throw new IOException("fixture grant binding failed");
                     byte[] bytes = artifacts.get(id).clone(); delivered.put(id, bytes);
                     return new BetaDeliveryClient.Reply(uri, 200, Map.of("Content-Type", List.of("application/octet-stream")), bytes);
                 });
-            release = verifier.download(verifier.verifyManifest(manifestToken));
+            release = verifier.download(verifier.verifyManifest(manifestToken, requestNonce));
         }
         @Override public void close() { release.close(); }
     }

@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Users</title>
+  <link rel="stylesheet" href="/assets/admin.css">
+</head>
+<body class="admin-page">
+  <header class="topbar">
+    <div class="page-title"><span class="brand-dot" aria-hidden="true"></span><div><span class="eyebrow">CELESTE AUTH</span><h1>Users</h1></div></div>
+    <nav class="admin-nav" aria-label="Admin sections">
+      <a href="/admin">Licenses</a>
+      <a class="active" href="/admin/users">Users</a>
+      <a href="/admin/flags">Flags</a>
+      <a href="/admin/configs">Cloud Configs</a>
+    </nav>
+    <form method="post" action="/admin/logout"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="quiet">Log out</button></form>
+  </header>
+  <main>
+    <div class="stats">
+      <article><span>Total users</span><strong>{{ stats.total or 0 }}</strong></article>
+      <article><span>Online estimate</span><strong>{{ stats.online or 0 }}</strong></article>
+      <article><span>Active</span><strong>{{ stats.active or 0 }}</strong></article>
+      <article><span>Flagged</span><strong>{{ stats.flagged or 0 }}</strong></article>
+    </div>
+
+    <section>
+      <div class="section-head"><div><span class="eyebrow">INSTALLATIONS</span><h2>Existing users</h2></div><p>Sorted by latest activity. Online is estimated from a signed heartbeat received in the last {{ online_window }} seconds.</p></div>
+      <div class="table-wrap"><table class="users-table">
+        <thead><tr><th>User</th><th>License</th><th>Presence</th><th>Last heartbeat</th><th>Last server call</th><th>Flags</th></tr></thead>
+        <tbody>
+        {% for user in users %}
+          <tr>
+            <td><div class="identity"><span class="presence-dot {% if user.online %}online{% endif %}" aria-hidden="true"></span><div><strong>{{ user.last_game_name or 'Unknown player' }}</strong><small>{{ user.last_game_uuid or user.device_id }}</small></div></div></td>
+            <td><a class="uid" href="/admin/licenses/{{ user.license_uid }}">#{{ user.license_uid }}</a><small>{{ user.license_label or 'Unlabeled license' }}</small></td>
+            <td>{% if user.online %}<span class="badge good">Online</span>{% elif user.status != 'active' or user.license_status != 'active' %}<span class="badge danger-text">Revoked</span>{% else %}<span class="badge">Offline</span>{% endif %}</td>
+            <td>{{ user.last_seen_at|timestamp }}</td>
+            <td>{{ user.last_call_at|timestamp }}<small>{{ user.last_call_endpoint or 'No endpoint recorded' }}</small></td>
+            <td>{% if user.flag_count %}<a class="badge danger-text" href="/admin/flags">{{ user.flag_count }}</a>{% else %}<span class="muted">None</span>{% endif %}</td>
+          </tr>
+        {% else %}<tr><td colspan="6" class="empty">No users have activated a license yet.</td></tr>{% endfor %}
+        </tbody>
+      </table></div>
+    </section>
+  </main>
+</body>
+</html>

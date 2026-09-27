@@ -1,0 +1,13 @@
+{
+  "provenance": "Real app.native_manifest endpoint + app.security.GrantSigner; public test seed bytes(range(32))",
+  "public_key": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+  "now": 1800000000,
+  "expected_request_nonce": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYX",
+  "product": "celeste_plus",
+  "platform": "windows-x64",
+  "executable_utf8": "Celeste public native manifest interoperability fixture\n",
+  "sha256": "28301a6d3d9355fac76d710b16e3bab2407fe5b4b1ef1c78a0895f7207dfd07f",
+  "response": {
+    "manifest": "eyJhbGciOiJFZERTQSIsImtpZCI6ImNlbGVzdGUtcmVsZWFzZS0xIiwidHlwIjoiQ1NUIn0.eyJhdWQiOiJjZWxlc3RlLW5hdGl2ZS1tYW5pZmVzdCIsImV4cCI6MTgwMDAwMDEyMCwiaWF0IjoxODAwMDAwMDAwLCJuYmYiOjE4MDAwMDAwMDAsInBsYXRmb3JtIjoid2luZG93cy14NjQiLCJwcm9kdWN0IjoiY2VsZXN0ZV9wbHVzIiwicmVxdWVzdF9ub25jZSI6IkFBRUNBd1FGQmdjSUNRb0xEQTBPRHhBUkVoTVVGUllYIiwic2VxdWVuY2UiOjcsInNoYTI1NiI6WyIyODMwMWE2ZDNkOTM1NWZhYzc2ZDcxMGIxNmUzYmFiMjQwN2ZlNWI0YjFlZjFjNzhhMDg5NWY3MjA3ZGZkMDdmIl19.SfjGGFJyRyWk2R3oDlY5Rb6mO6pPReWU7PUAw4l-yYxOydwNnUklMj05wV3vninAZoUTz1703c_UPYjAtm5eAw"
+  }
+}

@@ -5,6 +5,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.BiPredicate;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.ClassWriter;
@@ -22,6 +23,7 @@ import org.objectweb.asm.tree.LabelNode;
 import org.objectweb.asm.tree.MethodInsnNode;
 import org.objectweb.asm.tree.MethodNode;
 import org.objectweb.asm.tree.VarInsnNode;
+import org.objectweb.asm.tree.TypeInsnNode;
 
 /** Existing client-local simulation HEAD/TAIL hooks only; no added target members. */
 public final class FakeGambleHooksTransformer {
@@ -31,6 +33,10 @@ public final class FakeGambleHooksTransformer {
     private FakeGambleHooksTransformer() { }
 
     public static byte[] prepare(String owner, byte[] original) {
+        return prepare(owner, original, (method, returned) -> false);
+    }
+
+    public static byte[] prepare(String owner, byte[] original, BiPredicate<MethodNode, AbstractInsnNode> cancellationReturn) {
         Objects.requireNonNull(owner, "owner"); Objects.requireNonNull(original, "original");
         List<Target> targets = targets(owner);
         ClassReader reader = new ClassReader(original);
@@ -55,15 +61,32 @@ public final class FakeGambleHooksTransformer {
         for (Target target : targets) {
             MethodNode method = edits.get(target.name + target.desc);
             InsnList callback = callback(target.kind);
-            if (target.kind == Kind.ITEM_TICK || target.kind == Kind.SYNC) {
+            if (target.kind == Kind.ITEM_TICK || target.kind == Kind.SYNC || target.kind == Kind.BLOCK_UPDATE) {
                 if (target.kind == Kind.ITEM_TICK) HookArgumentFrames.retain(owner, method, 0);
+                if (target.kind == Kind.BLOCK_UPDATE) HookArgumentFrames.retain(owner, method, 0, 1, 2);
                 AbstractInsnNode lastReturn = null;
-                for (AbstractInsnNode instruction : method.instructions) if (instruction.getOpcode() == Opcodes.RETURN) lastReturn = instruction;
+                for (AbstractInsnNode instruction : method.instructions) if (instruction.getOpcode() == Opcodes.RETURN
+                        && !cancellationReturn.test(method, instruction)) lastReturn = instruction;
                 if (lastReturn == null) throw reject("missing final return");
                 // Preserve Mixin TAIL, including deliberate skips on earlier returns.
                 method.instructions.insertBefore(lastReturn, callback);
             } else {
-                if (target.kind.cancel) {
+                if (target.kind.nullable) {
+                    LabelNode originalStart = new LabelNode();
+                    callback.add(new InsnNode(Opcodes.DUP));
+                    callback.add(new JumpInsnNode(Opcodes.IFNULL, originalStart));
+                    Type result = Type.getReturnType(method.desc);
+                    if (result.getSort() == Type.BOOLEAN) {
+                        callback.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "java/lang/Boolean", "booleanValue", "()Z", false));
+                        callback.add(new InsnNode(Opcodes.IRETURN));
+                    } else {
+                        callback.add(new TypeInsnNode(Opcodes.CHECKCAST, result.getInternalName()));
+                        callback.add(new InsnNode(Opcodes.ARETURN));
+                    }
+                    callback.add(originalStart);
+                    callback.add(argumentFrame(owner, method, result.getSort() == Type.BOOLEAN ? "java/lang/Boolean" : "java/lang/Object"));
+                    callback.add(new InsnNode(Opcodes.POP));
+                } else if (target.kind.cancel) {
                     LabelNode originalStart = new LabelNode();
                     callback.add(new JumpInsnNode(Opcodes.IFEQ, originalStart));
                     callback.add(new InsnNode(Opcodes.RETURN));
@@ -72,7 +95,7 @@ public final class FakeGambleHooksTransformer {
                 }
                 method.instructions.insert(callback);
             }
-            method.maxStack = Math.max(method.maxStack, target.kind == Kind.CLICK ? 5 : target.kind == Kind.WORLD ? 4 : 2);
+            method.maxStack = Math.max(method.maxStack, 5);
         }
         ClassWriter writer = new ClassWriter(reader, 0);
         reader.accept(new ClassVisitor(Opcodes.ASM9, writer) {
@@ -107,6 +130,7 @@ public final class FakeGambleHooksTransformer {
         }
         if (returns == 0) throw reject("no normal return");
         if (kind.cancel && returnOpcode != Opcodes.RETURN) throw reject("unexpected cancellable target return");
+        if (kind.nullable && returnOpcode != Opcodes.ARETURN && returnOpcode != Opcodes.IRETURN) throw reject("unexpected nullable target return");
     }
 
     private static InsnList callback(Kind kind) {
@@ -134,7 +158,48 @@ public final class FakeGambleHooksTransformer {
                 code.add(new VarInsnNode(Opcodes.ALOAD, 0)); code.add(new VarInsnNode(Opcodes.ALOAD, 1));
                 name = "screenClosed"; desc = TWO_VOID;
             }
-            case INTERACT -> { code.add(new VarInsnNode(Opcodes.ALOAD, 3)); name = "noteDispenser"; desc = ONE_VOID; }
+            case INTERACT -> {
+                for (int i = 1; i <= 3; i++) code.add(new VarInsnNode(Opcodes.ALOAD, i));
+                name = "interactBlock"; desc = "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;";
+            }
+            case ITEM_USE, ENTITY_USE, ENTITY_AT -> {
+                code.add(new VarInsnNode(Opcodes.ALOAD, 1));
+                code.add(new VarInsnNode(Opcodes.ALOAD, kind == Kind.ITEM_USE ? 2 : kind == Kind.ENTITY_USE ? 3 : 4));
+                name = kind == Kind.ITEM_USE ? "interactItem" : "interactEntity";
+                desc = "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;";
+            }
+            case ATTACK, PROGRESS -> {
+                code.add(new VarInsnNode(Opcodes.ALOAD, 1)); code.add(new VarInsnNode(Opcodes.ALOAD, 2));
+                name = kind == Kind.ATTACK ? "attackBlock" : "updateBlockBreakingProgress";
+                desc = "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Boolean;";
+            }
+            case BREAK -> { code.add(new VarInsnNode(Opcodes.ALOAD, 1)); name = "breakBlock"; desc = "(Ljava/lang/Object;)Ljava/lang/Boolean;"; }
+            case CANCEL -> { name = "cancelBlockBreaking"; desc = "()Z"; }
+            case DROP -> {
+                code.add(new VarInsnNode(Opcodes.ALOAD, 0)); code.add(new VarInsnNode(Opcodes.ILOAD, 1));
+                name = "dropSelected"; desc = "(Ljava/lang/Object;Z)Ljava/lang/Boolean;";
+            }
+            case BLOCK_UPDATE -> {
+                for (int i = 0; i <= 2; i++) code.add(new VarInsnNode(Opcodes.ALOAD, i));
+                name = "serverBlockUpdate"; desc = "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)V";
+            }
+            case CHUNK_UNLOAD -> {
+                code.add(new VarInsnNode(Opcodes.ALOAD, 0)); code.add(new VarInsnNode(Opcodes.LLOAD, 1));
+                name = "chunkUnloaded"; desc = "(Ljava/lang/Object;J)V";
+            }
+            case BLOCK_WRITE -> {
+                code.add(new VarInsnNode(Opcodes.ALOAD, 0)); code.add(new VarInsnNode(Opcodes.ALOAD, 1));
+                name = "beforeSetBlockState"; desc = TWO_VOID;
+            }
+            case ENTITY_ATTACK, PACKET -> {
+                code.add(new VarInsnNode(Opcodes.ALOAD, 1));
+                name = kind == Kind.ENTITY_ATTACK ? "attackEntity" : "packet"; desc = "(Ljava/lang/Object;)Z";
+            }
+            case CREATIVE_STACK -> {
+                code.add(new VarInsnNode(Opcodes.ALOAD, 1)); code.add(new VarInsnNode(Opcodes.ILOAD, 2));
+                name = "creativeStack"; desc = "(Ljava/lang/Object;I)Z";
+            }
+            case CREATIVE_DROP -> { code.add(new VarInsnNode(Opcodes.ALOAD, 1)); name = "creativeDrop"; desc = "(Ljava/lang/Object;)Z"; }
             case PICK -> { code.add(new VarInsnNode(Opcodes.ALOAD, 0)); name = "pick"; desc = "(Ljava/lang/Object;)Z"; }
             case RENDER -> { code.add(new VarInsnNode(Opcodes.ALOAD, 0)); name = "screenRender"; desc = ONE_VOID; }
             default -> throw reject("unsupported callback kind");
@@ -142,7 +207,7 @@ public final class FakeGambleHooksTransformer {
         code.add(new MethodInsnNode(Opcodes.INVOKESTATIC, BRIDGE, name, desc, false));
         return code;
     }
-    private static FrameNode argumentFrame(String owner, MethodNode method) {
+    private static FrameNode argumentFrame(String owner, MethodNode method, Object... stack) {
         List<Object> locals = new ArrayList<>(); locals.add(owner);
         for (Type type : Type.getArgumentTypes(method.desc)) {
             locals.add(switch (type.getSort()) {
@@ -153,11 +218,12 @@ public final class FakeGambleHooksTransformer {
                 default -> Opcodes.INTEGER;
             });
         }
-        return new FrameNode(Opcodes.F_NEW, locals.size(), locals.toArray(), 0, new Object[0]);
+        return new FrameNode(Opcodes.F_NEW, locals.size(), locals.toArray(), stack.length, stack);
     }
     private static List<Target> targets(String owner) {
         boolean named = !owner.startsWith("net/minecraft/class_");
         String player = named ? "net/minecraft/entity/player/PlayerEntity" : "net/minecraft/class_1657";
+        String pos = named ? "net/minecraft/util/math/BlockPos" : "net/minecraft/class_2338";
         return switch (owner) {
             case "net/minecraft/client/network/ClientPlayerInteractionManager", "net/minecraft/class_636" -> {
                 String slotAction = named ? "net/minecraft/screen/slot/SlotActionType" : "net/minecraft/class_1713";
@@ -165,12 +231,37 @@ public final class FakeGambleHooksTransformer {
                 String hand = named ? "net/minecraft/util/Hand" : "net/minecraft/class_1268";
                 String hit = named ? "net/minecraft/util/hit/BlockHitResult" : "net/minecraft/class_3965";
                 String result = named ? "net/minecraft/util/ActionResult" : "net/minecraft/class_1269";
+                String direction = named ? "net/minecraft/util/math/Direction" : "net/minecraft/class_2350";
+                String entity = named ? "net/minecraft/entity/Entity" : "net/minecraft/class_1297";
+                String entityHit = named ? "net/minecraft/util/hit/EntityHitResult" : "net/minecraft/class_3966";
+                String stack = named ? "net/minecraft/item/ItemStack" : "net/minecraft/class_1799";
                 yield List.of(new Target(named ? "clickSlot" : "method_2906", "(IIIL" + slotAction + ";L" + player + ";)V", Kind.CLICK),
-                    new Target(named ? "interactBlock" : "method_2896", "(L" + clientPlayer + ";L" + hand + ";L" + hit + ";)L" + result + ";", Kind.INTERACT));
+                    new Target(named ? "interactBlock" : "method_2896", "(L" + clientPlayer + ";L" + hand + ";L" + hit + ";)L" + result + ";", Kind.INTERACT),
+                    new Target(named ? "interactItem" : "method_2919", "(L" + player + ";L" + hand + ";)L" + result + ";", Kind.ITEM_USE),
+                    new Target(named ? "interactEntity" : "method_2905", "(L" + player + ";L" + entity + ";L" + hand + ";)L" + result + ";", Kind.ENTITY_USE),
+                    new Target(named ? "interactEntityAtLocation" : "method_2917", "(L" + player + ";L" + entity + ";L" + entityHit + ";L" + hand + ";)L" + result + ";", Kind.ENTITY_AT),
+                    new Target(named ? "attackEntity" : "method_2918", "(L" + player + ";L" + entity + ";)V", Kind.ENTITY_ATTACK),
+                    new Target(named ? "attackBlock" : "method_2910", "(L" + pos + ";L" + direction + ";)Z", Kind.ATTACK),
+                    new Target(named ? "updateBlockBreakingProgress" : "method_2902", "(L" + pos + ";L" + direction + ";)Z", Kind.PROGRESS),
+                    new Target(named ? "breakBlock" : "method_2899", "(L" + pos + ";)Z", Kind.BREAK),
+                    new Target(named ? "cancelBlockBreaking" : "method_2925", "()V", Kind.CANCEL),
+                    new Target(named ? "clickCreativeStack" : "method_2909", "(L" + stack + ";I)V", Kind.CREATIVE_STACK),
+                    new Target(named ? "dropCreativeStack" : "method_2915", "(L" + stack + ";)V", Kind.CREATIVE_DROP));
             }
             case "net/minecraft/client/world/WorldEventHandler", "net/minecraft/class_9959" -> {
-                String pos = named ? "net/minecraft/util/math/BlockPos" : "net/minecraft/class_2338";
                 yield List.of(new Target(named ? "processWorldEvent" : "method_62194", "(IL" + pos + ";I)V", Kind.WORLD));
+            }
+            case "net/minecraft/client/network/ClientPlayerEntity", "net/minecraft/class_746" -> List.of(
+                new Target(named ? "dropSelectedItem" : "method_7290", "(Z)Z", Kind.DROP));
+            case "net/minecraft/client/world/ClientWorld", "net/minecraft/class_638" -> {
+                String state = named ? "net/minecraft/block/BlockState" : "net/minecraft/class_2680";
+                yield List.of(new Target(named ? "handleBlockUpdate" : "method_41928", "(L" + pos + ";L" + state + ";I)V", Kind.BLOCK_UPDATE),
+                    new Target(named ? "onChunkUnload" : "method_62895", "(J)V", Kind.CHUNK_UNLOAD),
+                    new Target(named ? "setBlockState" : "method_30092", "(L" + pos + ";L" + state + ";II)Z", Kind.BLOCK_WRITE));
+            }
+            case "net/minecraft/client/network/ClientCommonNetworkHandler", "net/minecraft/class_8673" -> {
+                String packet = named ? "net/minecraft/network/packet/Packet" : "net/minecraft/class_2596";
+                yield List.of(new Target(named ? "sendPacket" : "method_52787", "(L" + packet + ";)V", Kind.PACKET));
             }
             case "net/minecraft/entity/ItemEntity", "net/minecraft/class_1542" -> List.of(
                 new Target(named ? "onPlayerCollision" : "method_5694", "(L" + player + ";)V", Kind.PICKUP),
@@ -193,9 +284,13 @@ public final class FakeGambleHooksTransformer {
         };
     }
     private enum Kind {
-        CLICK(true), WORLD(true), PICKUP(true), ITEM_TICK(false), SYNC(false), CLOSED(false), INTERACT(false), PICK(true), RENDER(false);
+        CLICK(true), WORLD(true), PICKUP(true), ITEM_TICK(false), SYNC(false), CLOSED(false), INTERACT(false, true), PICK(true), RENDER(false),
+        ITEM_USE(false, true), ENTITY_USE(false, true), ENTITY_AT(false, true), ATTACK(false, true), PROGRESS(false, true), BREAK(false, true),
+        CANCEL(true), DROP(false, true), BLOCK_UPDATE(false), CHUNK_UNLOAD(false), BLOCK_WRITE(false), ENTITY_ATTACK(true), PACKET(true), CREATIVE_STACK(true), CREATIVE_DROP(true);
         private final boolean cancel;
-        Kind(boolean cancel) { this.cancel = cancel; }
+        private final boolean nullable;
+        Kind(boolean cancel) { this(cancel, false); }
+        Kind(boolean cancel, boolean nullable) { this.cancel = cancel; this.nullable = nullable; }
     }
     private record Target(String name, String desc, Kind kind) { }
     private static IllegalArgumentException reject(String detail) { return new IllegalArgumentException("Local inventory simulation hook preparation rejected: " + detail); }

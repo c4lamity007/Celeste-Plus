@@ -1,0 +1,16 @@
+These seven glyph sources were supplied directly by the Celeste project owner on 2026-09-21.
+The supplied files identify SVG Repo as their source. Celeste retains sanitized vector sources
+alongside locally rasterized runtime textures. Sanitization removes declarations, comments,
+external DTDs, style blocks, classes and unused namespace declarations; the supplied geometry
+is otherwise retained. No external links, fonts, scripts or runtime downloads are used.
+
+Runtime assignment:
+- coordinates.svg -> Coordinates HUD
+- performance.svg -> Performance HUD
+- effects.svg -> Effects HUD
+- armor.svg -> Armor HUD
+- keybinds.svg -> Keybinds HUD
+- waveform_a.svg and waveform_b.svg -> Dynamic Island only; their measured bar heights are
+  resampled to two seven-bar analytic keyframes so bar count never changes during animation
+
+Array List, Target HUD, Watermark and Media HUD intentionally do not use these glyphs.

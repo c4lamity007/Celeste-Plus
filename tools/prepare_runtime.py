@@ -15,6 +15,7 @@ import shutil
 import stat
 import subprocess
 import tarfile
+import zlib
 
 REPOSITORY = "https://github.com/c4lamity007/Celeste.git"
 LOCK_SCHEMA = "celeste-plus-core-lock-1"
@@ -22,7 +23,29 @@ OVERLAY_SCHEMA = "celeste-plus-runtime-overlay-1"
 HASH = re.compile(r"[0-9a-f]{64}\Z")
 COMMIT = re.compile(r"[0-9a-f]{40}\Z")
 TEXT_EXTENSIONS = {".java", ".json", ".glsl", ".vsh", ".fsh"}
+FONT_ASSETS = PurePosixPath("src/main/resources/assets/celeste/fonts")
+HUD_GLYPHS = PurePosixPath("src/main/resources/assets/celeste/textures/hud/glyphs")
+LICENSES = PurePosixPath("src/main/resources/META-INF/licenses/celeste")
 RESERVED = {"con", "prn", "aux", "nul", *(f"com{i}" for i in range(1, 10)), *(f"lpt{i}" for i in range(1, 10))}
+MEDIA_OVERRIDE = '''// Optional operator-supplied Windows media bridge; no pinned source is edited.
+gradle.projectsEvaluated {
+    def supplied = System.getenv('MEDIA_PLAYER_INFO_DLL')
+    if (!supplied) throw new GradleException('Explicit media bridge path is missing')
+    def bridge = new File(supplied).canonicalFile
+    if (!bridge.isFile()) throw new GradleException('Explicit media bridge is unavailable')
+    gradle.rootProject.tasks.named('processResources').configure {
+        eachFile { entry ->
+            if (entry.path == 'mediaplayerinfo/natives/win/MediaPlayerInfo.dll' &&
+                    entry.file.canonicalFile != bridge) entry.exclude()
+        }
+        from(bridge) {
+            into 'mediaplayerinfo/natives/win'
+            rename { 'MediaPlayerInfo.dll' }
+            duplicatesStrategy = org.gradle.api.file.DuplicatesStrategy.EXCLUDE
+        }
+    }
+}
+'''
 
 
 def require(condition: bool, message: str) -> None:
@@ -76,6 +99,44 @@ def load_json(data: bytes) -> dict:
     return value
 
 
+def overlay_kind(path: PurePosixPath) -> str:
+    require(path.parts[:2] == ("src", "main"), "Overlay must remain under src/main")
+    if path.suffix in TEXT_EXTENSIONS:
+        return "text"
+    if path.suffix == ".txt" and path.is_relative_to(LICENSES):
+        return "text"
+    if path.suffix == ".svg" and path.is_relative_to(HUD_GLYPHS / "source"):
+        return "text"
+    if path.suffix == ".png" and (path.is_relative_to(FONT_ASSETS) or path.parent == HUD_GLYPHS):
+        return "png"
+    raise ValueError("Overlay permits runtime source text, license text, and reviewed font/HUD assets only")
+
+
+def validate_png(data: bytes) -> None:
+    require(data.startswith(b"\x89PNG\r\n\x1a\n"), "Invalid overlay PNG signature")
+    offset, first, pixels = 8, True, False
+    while offset + 12 <= len(data):
+        size = int.from_bytes(data[offset:offset + 4], "big")
+        kind = data[offset + 4:offset + 8]
+        end = offset + 12 + size
+        require(end <= len(data), "Truncated overlay PNG chunk")
+        payload = data[offset + 8:end - 4]
+        require(zlib.crc32(kind + payload) == int.from_bytes(data[end - 4:end], "big"), "Overlay PNG checksum mismatch")
+        if first:
+            require(kind == b"IHDR" and size == 13, "Overlay PNG requires an image header")
+            width, height = int.from_bytes(payload[:4], "big"), int.from_bytes(payload[4:8], "big")
+            require(0 < width <= 4096 and 0 < height <= 4096, "Overlay PNG dimensions exceed bounds")
+            first = False
+        else:
+            require(kind != b"IHDR", "Duplicate overlay PNG header")
+        pixels |= kind == b"IDAT" and size > 0
+        if kind == b"IEND":
+            require(size == 0 and pixels and end == len(data), "Invalid overlay PNG ending")
+            return
+        offset = end
+    raise ValueError("Incomplete overlay PNG")
+
+
 def read_contract(repo: Path) -> tuple[dict, dict, dict[str, bytes]]:
     lock = load_json(plain_path(repo, "core.lock.json").read_bytes())
     require(set(lock) == {"schema", "repository", "commit", "overlayManifestSha256"}, "Unknown core lock fields")
@@ -91,18 +152,24 @@ def read_contract(repo: Path) -> tuple[dict, dict, dict[str, bytes]]:
     require(isinstance(manifest["files"], list) and 0 < len(manifest["files"]) <= 4096, "Invalid overlay file count")
     content = {}
     folded = set()
+    total = 0
     for entry in manifest["files"]:
         require(isinstance(entry, dict) and set(entry) == {"path", "sha256", "baseSha256"}, "Unknown overlay entry fields")
         name = entry["path"]
         path = relative_path(name)
-        require(path.parts[:2] == ("src", "main") and path.suffix in TEXT_EXTENSIONS, "Overlay may contain only runtime source text")
+        kind = overlay_kind(path)
         require(name.casefold() not in folded, "Duplicate or case-colliding overlay path")
         folded.add(name.casefold())
         require(isinstance(entry["sha256"], str) and HASH.fullmatch(entry["sha256"]), "Invalid overlay source hash")
         require(entry["baseSha256"] is None or isinstance(entry["baseSha256"], str) and HASH.fullmatch(entry["baseSha256"]), "Invalid base source hash")
         encoded = plain_path(repo, "runtime-overlay/" + name).read_bytes()
-        require(len(encoded) <= 4 * 1024 * 1024 and b"\x00" not in encoded, "Overlay is not bounded source text")
-        encoded.decode("utf-8")
+        total += len(encoded)
+        require(len(encoded) <= 4 * 1024 * 1024 and total <= 64 * 1024 * 1024, "Overlay content exceeds bounds")
+        if kind == "text":
+            require(b"\x00" not in encoded, "Overlay is not source text")
+            encoded.decode("utf-8")
+        else:
+            validate_png(encoded)
         require(sha(encoded) == entry["sha256"], "Overlay source hash mismatch: " + name)
         content[name] = encoded
     return lock, manifest, content
@@ -209,9 +276,37 @@ def prepare(repo: Path, core_checkout: Path | None = None) -> Path:
     return destination
 
 
-def gradle_command(destination: Path, *, windows: bool) -> list[str]:
+def media_bridge(path: Path, *, windows: bool) -> Path:
+    require(windows, "The optional media bridge is a Windows-only input")
+    require(path.suffix.lower() == ".dll" and path.is_file() and not path.is_symlink(),
+            "Media bridge must be a regular DLL file")
+    metadata = path.lstat()
+    require(not getattr(metadata, "st_file_attributes", 0) & 0x400 and 64 <= metadata.st_size <= 128 * 1024 * 1024,
+            "Media bridge is linked or exceeds bounds")
+    with path.open("rb") as stream:
+        dos = stream.read(64)
+        require(dos[:2] == b"MZ", "Media bridge is not a Windows DLL")
+        offset = int.from_bytes(dos[60:64], "little")
+        require(64 <= offset <= metadata.st_size - 26, "Invalid media bridge PE header")
+        stream.seek(offset)
+        pe = stream.read(26)
+    require(pe[:4] == b"PE\x00\x00" and int.from_bytes(pe[4:6], "little") == 0x8664
+            and int.from_bytes(pe[22:24], "little") & 0x2000 and pe[24:26] == b"\x0b\x02",
+            "Media bridge must be an x64 Windows DLL")
+    return path.resolve(strict=True)
+
+
+def media_override(destination: Path) -> Path:
+    target = plain_path(destination, ".prepare/media-override.gradle", exists=False)
+    with target.open("x", encoding="utf-8", newline="\n") as stream:
+        stream.write(MEDIA_OVERRIDE)
+    return target
+
+
+def gradle_command(destination: Path, *, windows: bool, init_script: Path | None = None) -> list[str]:
     wrapper = destination / ("gradlew.bat" if windows else "gradlew")
-    return ([str(wrapper)] if windows else ["sh", str(wrapper)]) + ["--no-daemon", "build"]
+    return (([str(wrapper)] if windows else ["sh", str(wrapper)]) + ["--no-daemon"]
+            + (["--init-script", str(init_script)] if init_script is not None else []) + ["build"])
 
 
 def main(argv=None) -> None:
@@ -223,14 +318,15 @@ def main(argv=None) -> None:
     if args.media_dll is not None and not args.build:
         parser.error("--media-dll requires --build")
     try:
-        media = args.media_dll.resolve(strict=True) if args.media_dll is not None else None
-        require(media is None or media.is_file() and not media.is_symlink(), "Media DLL input is not a regular file")
+        media = media_bridge(args.media_dll, windows=os.name == "nt") if args.media_dll is not None else None
         destination = prepare(Path(__file__).resolve().parents[1], args.core_checkout)
         if args.build:
             environment = os.environ.copy()
+            init_script = None
             if media is not None:
                 environment["MEDIA_PLAYER_INFO_DLL"] = str(media)
-            subprocess.run(gradle_command(destination, windows=os.name == "nt"),
+                init_script = media_override(destination)
+            subprocess.run(gradle_command(destination, windows=os.name == "nt", init_script=init_script),
                            cwd=destination, env=environment, check=True)
         print(json.dumps({"status": "built" if args.build else "prepared", "runtime_core": str(destination),
                           "source_state": "development source; not a published protected payload"}))

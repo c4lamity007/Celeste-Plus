@@ -1,4 +1,4 @@
-//! Product-scoped Celeste+ delivery. This module verifies metadata; it never attaches or executes code.
+//! Owner-only beta delivery. This module verifies metadata; it never attaches or executes code.
 //!
 //! Production trust is compiled in from the reviewed release snapshot. Only Bootstrap A is
 //! downloaded and persisted here; the other three signed links are validated, not fetched.
@@ -8,6 +8,7 @@
 use anyhow::{Result, anyhow, bail, ensure};
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use ed25519_dalek::{Signature, VerifyingKey};
+use rand::{RngCore, rngs::OsRng};
 use serde::de::{self, DeserializeSeed, MapAccess, SeqAccess, Visitor};
 use serde_json::{Map, Number, Value};
 use sha2::{Digest, Sha256};
@@ -25,6 +26,7 @@ const MAX_ARTIFACT_BYTES: usize = 64 * 1024 * 1024;
 const MAX_RELEASE_BYTES: u64 = 128 * 1024 * 1024;
 const IDS: [&str; 4] = ["bootstrap-a", "bootstrap-b", "payload-a", "payload-b"];
 const INSTALLER_KEYS: &[&str] = &[
+    "cnf",
     "product",
     "aud",
     "sub",
@@ -41,6 +43,7 @@ const INSTALLER_KEYS: &[&str] = &[
     "bootstrap_sha256",
 ];
 const MANIFEST_KEYS: &[&str] = &[
+    "cnf",
     "product",
     "aud",
     "sub",
@@ -50,6 +53,7 @@ const MANIFEST_KEYS: &[&str] = &[
     "exp",
     "installer_jti",
     "installer_sha256",
+    "request_nonce",
     "catalog_sha256",
     "schema",
     "release_id",
@@ -89,14 +93,15 @@ struct Catalog {
 }
 
 /// Obtain a fresh Celeste+ manifest and atomically persist its verified Bootstrap A.
-/// Neither the bearer grant, manifest, Bootstrap B, nor either payload is written to disk.
+/// Neither the DPoP-bound grant, manifest, Bootstrap B, nor either payload is written to disk.
 /// All network/parse failures are reduced to fixed messages so credentials cannot enter logs.
 pub fn download_bootstrap(
-    installer: &str,
-    device: &str,
+    session: &crate::auth::Session,
     directory: &Path,
-    uid: u64,
 ) -> Result<VerifiedBootstrap> {
+    let installer = session.grant.as_str();
+    let device = session.device.as_str();
+    let uid = session.uid;
     let raw_key = decode(crate::release::SERVER_KEY)?;
     let raw_key: [u8; 32] = raw_key
         .try_into()
@@ -104,20 +109,25 @@ pub fn download_bootstrap(
     let key = VerifyingKey::from_bytes(&raw_key)
         .map_err(|_| anyhow!("Invalid compiled beta server key"))?;
     let claims = verify_installer(installer, device, &key, now()?)?;
-    ensure!(uid > 0 && text(&claims, "sub")? == uid.to_string(), "Installer grant belongs to another activation");
+    ensure!(
+        uid > 0 && text(&claims, "sub")? == uid.to_string(),
+        "Installer grant belongs to another activation"
+    );
     let transport = HttpsTransport::new(crate::release::BASE_URL)?;
 
+    let request_nonce = new_request_nonce()?;
     let mut wrapper = transport.fetch(
         "/v1/beta/manifest",
-        installer,
+        session,
         None,
+        Some(&request_nonce),
         MAX_MANIFEST_RESPONSE_BYTES,
         "application/json",
     )?;
     let manifest_result = manifest_from_response(&wrapper);
     wrapper.fill(0);
     let manifest = manifest_result?;
-    let catalog = verify_manifest(installer, &manifest, device, &key, now()?)?;
+    let catalog = verify_manifest(installer, &manifest, device, &request_nonce, &key, now()?)?;
     current(installer, device, &key, &catalog, now()?)?;
     let bootstrap = &catalog.artifacts[0];
     let expected_digest = digest_bytes(&bootstrap.sha256)?;
@@ -133,8 +143,9 @@ pub fn download_bootstrap(
     }
     let mut bytes = transport.fetch(
         &bootstrap.url,
-        installer,
+        session,
         Some(&manifest),
+        None,
         bootstrap.size,
         "application/octet-stream",
     )?;
@@ -287,6 +298,7 @@ fn verify_installer(
     ensure!(identifier(device, 32, 48), "Invalid beta device binding");
     let claims = signed(installer, "celeste-installer", key)?;
     exact(&claims, INSTALLER_KEYS)?;
+    crate::dpop::confirmation(&Value::Object(claims.clone()))?;
     identity(&claims, device)?;
     ensure!(
         integer(&claims, "iat")? <= time.saturating_add(5)
@@ -312,14 +324,28 @@ fn verify_manifest(
     installer: &str,
     manifest: &str,
     device: &str,
+    request_nonce: &str,
     key: &VerifyingKey,
     time: u64,
 ) -> Result<Catalog> {
     let installer_claims = verify_installer(installer, device, key, time)?;
     let claims = signed(manifest, "celeste-beta-manifest", key)?;
     exact(&claims, MANIFEST_KEYS)?;
+    ensure!(
+        valid_request_nonce(request_nonce) && text(&claims, "request_nonce")? == request_nonce,
+        "Beta manifest does not match this fresh request"
+    );
+    let manifest_value = Value::Object(claims.clone());
+    let installer_value = Value::Object(installer_claims.clone());
+    ensure!(
+        crate::dpop::confirmation(&manifest_value)? == crate::dpop::confirmation(&installer_value)?,
+        "Manifest belongs to another installation signing key"
+    );
     identity(&claims, device)?;
-    ensure!(text(&claims, "sub")? == text(&installer_claims, "sub")?, "Manifest belongs to another license");
+    ensure!(
+        text(&claims, "sub")? == text(&installer_claims, "sub")?,
+        "Manifest belongs to another license"
+    );
     let issued = integer(&claims, "iat")?;
     let expires = integer(&claims, "exp")?;
     ensure!(
@@ -421,10 +447,17 @@ fn verify_artifact(bytes: &[u8], artifact: &Artifact) -> Result<()> {
 
 fn identity(claims: &Map<String, Value>, device: &str) -> Result<()> {
     let subject = text(claims, "sub")?;
-    let uid = subject.parse::<u64>().map_err(|_| anyhow!("Invalid license identity"))?;
-    ensure!(uid > 0 && uid <= i64::MAX as u64 && subject == uid.to_string()
-        && text(claims, "product")? == PRODUCT && text(claims, "device")? == device,
-        "Grant does not match Celeste+ and this device");
+    let uid = subject
+        .parse::<u64>()
+        .map_err(|_| anyhow!("Invalid license identity"))?;
+    ensure!(
+        uid > 0
+            && uid <= i64::MAX as u64
+            && subject == uid.to_string()
+            && text(claims, "product")? == PRODUCT
+            && text(claims, "device")? == device,
+        "Grant does not match Celeste+ and this device"
+    );
     Ok(())
 }
 
@@ -718,8 +751,9 @@ impl HttpsTransport {
     fn fetch(
         &self,
         path: &str,
-        installer: &str,
+        session: &crate::auth::Session,
         manifest: Option<&str>,
+        request_nonce: Option<&str>,
         limit: usize,
         media_type: &str,
     ) -> Result<Vec<u8>> {
@@ -738,13 +772,15 @@ impl HttpsTransport {
         let mut request = self
             .agent
             .get(&url)
-            .set("Authorization", &format!("Bearer {installer}"))
+            .set("Authorization", &format!("DPoP {}", session.grant))
+            .set("DPoP", &session.delivery_proof("GET", &url)?)
             .set("Accept", media_type)
             .set("Accept-Encoding", "identity")
             .set("Cache-Control", "no-store");
         if let Some(manifest) = manifest {
             request = request.set("X-Celeste-Beta-Manifest", manifest);
         }
+        request = bind_request_nonce(request, path, request_nonce)?;
         // Never retain a ureq error as a source: it can carry response/URL context.
         let response = request
             .call()
@@ -761,6 +797,34 @@ impl HttpsTransport {
             limit,
         )?;
         read_bounded(response.into_reader(), advertised, limit)
+    }
+}
+
+fn new_request_nonce() -> Result<String> {
+    let mut bytes = [0u8; 24];
+    OsRng
+        .try_fill_bytes(&mut bytes)
+        .map_err(|_| anyhow!("Fresh beta request randomness is unavailable"))?;
+    Ok(URL_SAFE_NO_PAD.encode(bytes))
+}
+
+fn valid_request_nonce(value: &str) -> bool {
+    identifier(value, 32, 32) && decode(value).is_ok_and(|bytes| bytes.len() == 24)
+}
+
+fn bind_request_nonce(
+    request: ureq::Request,
+    path: &str,
+    nonce: Option<&str>,
+) -> Result<ureq::Request> {
+    if path == "/v1/beta/manifest" {
+        let value = nonce
+            .filter(|value| valid_request_nonce(value))
+            .ok_or_else(|| anyhow!("A fresh beta manifest request nonce is required"))?;
+        Ok(request.set("X-Celeste-Request-Nonce", value))
+    } else {
+        ensure!(nonce.is_none(), "Unexpected beta request nonce route");
+        Ok(request)
     }
 }
 
@@ -871,6 +935,7 @@ mod tests {
             fixture["installer_token"].as_str().unwrap(),
             fixture["manifest_token"].as_str().unwrap(),
             fixture["expected_device"].as_str().unwrap(),
+            fixture["expected_request_nonce"].as_str().unwrap(),
             &fixture_key(fixture),
             fixture["now"].as_u64().unwrap(),
         )
@@ -909,8 +974,100 @@ mod tests {
     }
 
     #[test]
+    fn fresh_nonce_is_random_canonical_and_sent_on_manifest_only() {
+        let first = new_request_nonce().unwrap();
+        let second = new_request_nonce().unwrap();
+        assert!(valid_request_nonce(&first));
+        assert!(valid_request_nonce(&second));
+        assert_ne!(first, second);
+        let request = bind_request_nonce(
+            ureq::get("https://fixture.invalid/v1/beta/manifest"),
+            "/v1/beta/manifest",
+            Some(&first),
+        )
+        .unwrap();
+        assert_eq!(
+            request.header("X-Celeste-Request-Nonce"),
+            Some(first.as_str())
+        );
+        assert!(
+            bind_request_nonce(
+                ureq::get("https://fixture.invalid/v1/beta/manifest"),
+                "/v1/beta/manifest",
+                None
+            )
+            .is_err()
+        );
+        assert!(
+            bind_request_nonce(
+                ureq::get("https://fixture.invalid/v1/beta/artifacts/test/bootstrap-a"),
+                "/v1/beta/artifacts/test/bootstrap-a",
+                Some(&first)
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn captured_valid_manifest_cannot_satisfy_a_new_request() {
+        let fixture = golden();
+        assert!(verify_fixture(&fixture).is_ok());
+        let next = new_request_nonce().unwrap();
+        let error = verify_manifest(
+            fixture["installer_token"].as_str().unwrap(),
+            fixture["manifest_token"].as_str().unwrap(),
+            fixture["expected_device"].as_str().unwrap(),
+            &next,
+            &fixture_key(&fixture),
+            fixture["now"].as_u64().unwrap(),
+        )
+        .err()
+        .unwrap();
+        assert_eq!(
+            error.to_string(),
+            "Beta manifest does not match this fresh request"
+        );
+    }
+
+    #[test]
+    fn missing_or_changed_signed_nonce_has_no_compatibility_fallback() {
+        let (mut fixture, key) = synthetic();
+        fixture["manifest_claims"]
+            .as_object_mut()
+            .unwrap()
+            .remove("request_nonce");
+        resign_manifest(&mut fixture, &key);
+        assert!(verify_fixture(&fixture).is_err());
+        fixture["manifest_claims"]["request_nonce"] = json!(new_request_nonce().unwrap());
+        resign_manifest(&mut fixture, &key);
+        assert!(verify_fixture(&fixture).is_err());
+        for invalid in [
+            "",
+            "short",
+            "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+            "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA+",
+        ] {
+            assert!(!valid_request_nonce(invalid));
+        }
+    }
+
+    #[test]
     fn actual_server_schema2_golden_verifies_offline() {
         let fixture = golden();
+        // The fixture's explicitly PUBLIC TEST key is also consumed by the
+        // Python server and Java client: catch cross-language RFC 7638 drift.
+        let installation_seed: [u8; 32] =
+            decode(fixture["installation_test_seed"].as_str().unwrap())
+                .unwrap()
+                .try_into()
+                .unwrap();
+        let installation = SigningKey::from_bytes(&installation_seed);
+        assert_eq!(
+            URL_SAFE_NO_PAD.encode(installation.verifying_key().as_bytes()),
+            fixture["installation_public_key"].as_str().unwrap()
+        );
+        crate::dpop::require_binding(&fixture["installer_claims"], &installation).unwrap();
+        crate::dpop::require_binding(&fixture["manifest_claims"], &installation).unwrap();
         let catalog = verify_fixture(&fixture).unwrap();
         assert_eq!(catalog.release, "owner-beta-golden-1");
         assert_eq!(
@@ -936,12 +1093,34 @@ mod tests {
                 fixture["installer_token"].as_str().unwrap(),
                 fixture["manifest_token"].as_str().unwrap(),
                 fixture["expected_device"].as_str().unwrap(),
+                fixture["expected_request_nonce"].as_str().unwrap(),
                 &VerifyingKey::from_bytes(&compiled_key).unwrap(),
                 fixture["now"].as_u64().unwrap(),
             )
             .is_err(),
             "offline fixture key must never be trusted by the production entry point"
         );
+    }
+
+    #[test]
+    fn installer_and_manifest_cannot_omit_dpop_confirmation() {
+        let (base, key) = synthetic();
+        for target in ["installer", "manifest"] {
+            let mut fixture = base.clone();
+            let claims = format!("{target}_claims");
+            let token = format!("{target}_token");
+            fixture[&claims].as_object_mut().unwrap().remove("cnf");
+            fixture[&token] = json!(sign(&fixture[&claims], &key));
+            if target == "installer" {
+                fixture["manifest_claims"]["installer_sha256"] =
+                    json!(sha256(fixture[&token].as_str().unwrap().as_bytes()));
+                resign_manifest(&mut fixture, &key);
+            }
+            assert!(
+                verify_fixture(&fixture).is_err(),
+                "accepted unbound {target}"
+            );
+        }
     }
 
     #[test]
@@ -961,6 +1140,11 @@ mod tests {
         let (base, key) = synthetic();
         verify_fixture(&base).unwrap();
         let mutations = [
+            ("cnf", json!({"jkt":"A".repeat(43)})),
+            (
+                "cnf",
+                json!({"jkt":base["manifest_claims"]["cnf"]["jkt"], "extra":true}),
+            ),
             ("schema", json!("celeste-beta-release-1")),
             ("aud", json!("celeste-client")),
             ("sub", json!("8")),
@@ -1043,6 +1227,11 @@ mod tests {
     fn installer_current_time_and_exact_bytes_binding() {
         let (base, key) = synthetic();
         for (field, value) in [
+            ("cnf", json!({"jkt":"bad"})),
+            (
+                "cnf",
+                json!({"jkt":base["installer_claims"]["cnf"]["jkt"], "extra":true}),
+            ),
             ("sub", json!("08")),
             ("sub", json!("0")),
             ("sub", json!("9223372036854775808")),

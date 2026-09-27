@@ -8,6 +8,8 @@ import dev.c4lam.celeste.beta.lifecycle.BetaSubscriptions;
 import dev.c4lam.celeste.auth.AuthBootstrap;
 import dev.c4lam.celeste.module.impl.combat.AnchorAuraFeature;
 import dev.c4lam.celeste.module.expansion.inventory.ReBuffNotifierFeature;
+import dev.c4lam.celeste.render.WorldOverlayPass;
+import net.fabricmc.fabric.api.event.Event;
 import net.fabricmc.fabric.api.client.rendering.v1.RenderStateDataKey;
 import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
 import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElement;
@@ -57,6 +59,7 @@ public final class VisualExpansionRenderer {
     );
     private static final RenderStateDataKey<Frame> FRAME_KEY =
         RenderStateDataKey.create(() -> "celeste_visual_expansion");
+    private static final Identifier LYRIC_PHASE = Identifier.of(CelesteClient.MOD_ID, "sky_lyrics/after_fog");
     private static boolean initialized;
 
     private VisualExpansionRenderer() {
@@ -129,15 +132,20 @@ public final class VisualExpansionRenderer {
                         List.copyOf(blockMarkers), atmosphere, lyricFrame)
             );
         }, WorldRenderEvents.END_EXTRACTION::register);
-        // AFTER_ENTITIES runs inside the prepared draw pass; BEFORE_DEBUG_RENDER
-        // can expose an unprepared or stale WorldRenderContext in Fabric 16.2.x.
-        BetaSubscriptions.register(WorldRenderEvents.AFTER_ENTITIES, "celeste:visual_expansion/draw",
-            WorldRenderEvents.AfterEntities.class, VisualExpansionRenderer::draw, WorldRenderEvents.AFTER_ENTITIES::register);
+        WorldOverlayPass.register("celeste:visual_expansion/draw", VisualExpansionRenderer::draw);
+        // Custom fog composites against terrain depth at END_MAIN. Draw the
+        // fog-free lettering afterwards, still depth-tested against the world.
+        // Explicit phase ordering also works when fog registers later than us.
+        WorldRenderEvents.END_MAIN.addPhaseOrdering(Event.DEFAULT_PHASE, LYRIC_PHASE);
+        BetaSubscriptions.register(WorldRenderEvents.END_MAIN, "celeste:sky_lyrics/draw",
+            WorldRenderEvents.EndMain.class, VisualExpansionRenderer::drawLyrics,
+            proxy -> WorldRenderEvents.END_MAIN.register(LYRIC_PHASE, proxy));
         BetaSubscriptions.register(HudElementRegistry.class, "celeste:arrow_esp", HudElement.class, (context, tickCounter) -> {
             if (!AuthBootstrap.authorized()) {
                 return;
             }
             MinecraftClient client = MinecraftClient.getInstance();
+            if (client.currentScreen instanceof dev.c4lam.celeste.gui.HandModelsEditorScreen) return;
             arrows.render(client, context.getScaledWindowWidth(), context.getScaledWindowHeight(), tickCounter.getTickProgress(false));
             ReBuffNotifierFeature.renderHud(client, context.getScaledWindowWidth(), context.getScaledWindowHeight());
             FakeGambleFeature.renderHud(client, context.getScaledWindowWidth(), context.getScaledWindowHeight());
@@ -168,7 +176,6 @@ public final class VisualExpansionRenderer {
         if (camera == null) return;
 
         AmbientEffectsRenderer.draw(context, frame.atmosphere());
-        SkyLyricsRenderer.draw(context, frame.lyrics());
 
         // These custom layers use the provider's shared fallback allocator. Requesting
         // a different layer ends the current BufferBuilder, so finish every quad before
@@ -188,12 +195,21 @@ public final class VisualExpansionRenderer {
         // Volume-only batches do not switch provider layers before compositing.
         // Finish our lines first, without flushing unrelated world renderers.
         if (consumers instanceof VertexConsumerProvider.Immediate immediate) {
+            immediate.draw(XRAY_QUADS);
             immediate.draw(XRAY_LINES);
         }
         WorldGlowRenderer.draw(context, frame.glows());
         UnifiedVolumeRenderer.draw(context, frame.blockMarkers(), true);
         UnifiedChamsRenderer.draw(context, frame.echoes(), true);
         UnifiedChamsRenderer.draw(context, frame.chams());
+    }
+
+    private static void drawLyrics(WorldRenderContext context) {
+        if (!AuthBootstrap.authorized() || dev.c4lam.celeste.compat.RenderCompatibility.isShadowPass()) return;
+        var state = context.worldState();
+        if (state == null) return;
+        Frame frame = state.getData(FRAME_KEY);
+        if (frame != null && frame != Frame.EMPTY) SkyLyricsRenderer.draw(context, frame.lyrics());
     }
 
     private static void drawLineStrip(MatrixStack matrices, VertexConsumer consumer, WorldLineStrip strip, Vec3d camera) {

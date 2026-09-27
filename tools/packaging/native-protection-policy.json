@@ -1,0 +1,7 @@
+{
+  "schema": "celeste-native-protection-policy-1",
+  "environment_policy": "deny-vm-and-sandbox-v1",
+  "required_protection": "native-virtualization",
+  "approved_protectors": [],
+  "note": "Publication is blocked until the licensed protector, configuration and verification tool are reviewed and pinned. String obfuscation is not native virtualization."
+}

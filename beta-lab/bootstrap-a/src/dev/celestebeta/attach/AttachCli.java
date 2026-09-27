@@ -28,7 +28,7 @@ public final class AttachCli {
         if (pid <= 0 || pid == ProcessHandle.current().pid()) throw new IOException("Select an external Minecraft process");
         ProcessHandle target = ProcessHandle.of(pid).orElseThrow(() -> new IOException("Selected Minecraft process exited"));
         long started = Long.parseLong(args[5]);
-        if (started != target.info().startInstant().orElseThrow().toEpochMilli()) throw new IOException("Selected Minecraft process identity changed");
+        if (started != target.info().startInstant().orElseThrow(() -> new IOException("The operating system did not expose the selected process start time")).toEpochMilli()) throw new IOException("Selected Minecraft process identity changed");
         Path agent = Path.of(args[3]).toRealPath();
         if (!Files.isRegularFile(agent) || Files.size(agent) > 64 * 1024 * 1024) throw new IOException("Invalid bootstrap agent file");
         byte[] requestBytes = System.in.readNBytes(65_537);
@@ -38,7 +38,7 @@ public final class AttachCli {
         java.util.Arrays.fill(requestBytes, (byte) 0);
         byte[] random = new byte[32]; new SecureRandom().nextBytes(random);
         byte[] nonce = HexFormat.of().formatHex(random).getBytes(StandardCharsets.US_ASCII);
-        try (ServerSocket server = new ServerSocket(0, 1, InetAddress.getLoopbackAddress())) {
+        try (ServerSocket server = new ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))) {
             server.setSoTimeout(180_000);
             CompletableFuture<String> result = new CompletableFuture<>();
             Thread handoff = new Thread(() -> {

@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>License control</title>
+  <link rel="stylesheet" href="/assets/admin.css">
+</head>
+<body class="admin-page">
+  <header class="topbar">
+    <div class="page-title"><span class="brand-dot" aria-hidden="true"></span><div><span class="eyebrow">CELESTE AUTH</span><h1>License control</h1></div></div>
+    <nav class="admin-nav" aria-label="Admin sections">
+      <a class="active" href="/admin">Licenses</a>
+      <a href="/admin/users">Users</a>
+      <a href="/admin/flags">Flags</a>
+      <a href="/admin/configs">Cloud Configs</a>
+    </nav>
+    <form method="post" action="/admin/logout"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="quiet">Log out</button></form>
+  </header>
+  <main>
+    <div class="stats">
+      <article><span>Total licenses</span><strong>{{ stats.total or 0 }}</strong></article>
+      <article><span>Active</span><strong>{{ stats.active or 0 }}</strong></article>
+      <article><span>Online now</span><strong>{{ online or 0 }}</strong></article>
+      <article><span>Revoked</span><strong>{{ stats.revoked or 0 }}</strong></article>
+    </div>
+
+    {% if new_key %}
+    <section class="key">
+      <span class="eyebrow">ONE-TIME DISPLAY</span>
+      <h2>License created</h2>
+      <p>Copy it now. Only its keyed hash is stored by the server.</p>
+      <code>{{ new_key }}</code>
+    </section>
+    {% endif %}
+
+    <section>
+      <div class="section-head"><div><span class="eyebrow">ISSUE ACCESS</span><h2>Create license</h2></div><p>The duration begins on first successful activation.</p></div>
+      <form method="post" action="/admin/licenses" class="create-grid">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <label>Product<select name="product" required>
+          <option value="" disabled selected>Select product</option>
+          <option value="celeste">Celeste</option><option value="celeste_plus">Celeste+</option><option value="both">Both</option>
+        </select></label>
+        <label>Label<input name="label" maxlength="80" placeholder="Customer or note"></label>
+        <label>Length
+          <select name="duration">
+            <option value="day">1 day</option>
+            <option value="month">1 month</option>
+            <option value="three_months">3 months</option>
+            <option value="year">1 year</option>
+            <option value="lifetime" selected>Lifetime</option>
+          </select>
+        </label>
+        <label>Devices<input name="max_devices" type="number" min="1" max="8" value="1"></label>
+        <button>Create license</button>
+      </form>
+    </section>
+
+    <section>
+      <div class="section-head"><div><span class="eyebrow">ACCESS</span><h2>Licenses</h2></div><p>Open a license for devices, fingerprints, calls, and flags.</p></div>
+      <form method="get" action="/admin" class="actions">
+        <label>Product<select name="product_filter">
+          {% for value, label in [('', 'All products'), ('celeste', 'Includes Celeste'), ('celeste_plus', 'Includes Celeste+'), ('both', 'Both')] %}
+          <option value="{{ value }}" {% if product_filter == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select></label><button>Filter</button>
+      </form>
+      <div class="table-wrap"><table>
+        <thead><tr><th>UID</th><th>Key</th><th>License</th><th>Product</th><th>Status</th><th>Length</th><th>Devices</th><th>Last server call</th><th>Flags</th></tr></thead>
+        <tbody>
+        {% for license in licenses %}
+          <tr>
+            <td><a class="uid" href="/admin/licenses/{{ license.uid }}">#{{ license.uid }}</a></td>
+            <td>{% if license.key_prefix %}<code class="license-prefix">{{ license.key_prefix }}…</code>{% else %}<span class="muted">Unavailable</span>{% endif %}</td>
+            <td><a href="/admin/licenses/{{ license.uid }}">{{ license.label or 'Unlabeled license' }}</a><small>Created {{ license.created_at|timestamp }}</small></td>
+            <td>{% for product in (license.product_codes or "").split(",") if product %}{{ product_labels[product] }}{% if not loop.last %} + {% endif %}{% else %}<span class="muted">No product access</span>{% endfor %}</td>
+            <td>{% if license.status == 'revoked' %}<span class="badge danger-text">Revoked</span>{% elif license.expires_at and license.expires_at <= now %}<span class="badge warn">Expired</span>{% else %}<span class="badge good">Active</span>{% endif %}</td>
+            <td>{{ license.duration_kind|replace('_', ' ')|title }}</td>
+            <td>{{ license.active_devices or 0 }}/{{ license.max_devices }}</td>
+            <td>{{ license.last_call_at|timestamp }}</td>
+            <td>{% if license.tamper_count %}<span class="badge danger-text">{{ license.tamper_count }}</span>{% else %}<span class="muted">None</span>{% endif %}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="9" class="empty">No licenses yet.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table></div>
+    </section>
+
+  </main>
+</body>
+</html>

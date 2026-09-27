@@ -1,6 +1,9 @@
 package dev.c4lam.celeste.config;
 
 import dev.c4lam.celeste.beta.lifecycle.BetaSubscriptions;
+import dev.c4lam.celeste.gui.model.GuiSetting;
+import dev.c4lam.celeste.gui.model.CelestePage;
+import dev.c4lam.celeste.gui.model.SidebarPagePreference;
 
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.loader.api.FabricLoader;
@@ -44,6 +47,19 @@ public final class InterfaceConfig {
     private static volatile int passes = DEFAULT_PASSES;
     private static volatile float offset = DEFAULT_OFFSET;
     private static volatile int menuKey = DEFAULT_MENU_KEY;
+    private static volatile CelestePage lastSidebarPage = CelestePage.SWORD;
+    private static final int DEFAULT_HUD_TEXT = 0xF7F7FA;
+    private static final GuiSetting.ColorPick HUD_TEXT =
+        new GuiSetting.ColorPick("HUD text", "Text color", DEFAULT_HUD_TEXT);
+    private static int savedHudText = DEFAULT_HUD_TEXT;
+    public static GuiSetting.ColorPick hudTextSetting() { return HUD_TEXT; }
+    public static int hudTextRgb() { return HUD_TEXT.rgb(); }
+
+    private static int loadHudText(String raw) {
+        try { return raw == null ? DEFAULT_HUD_TEXT : Integer.parseInt(raw) & 0xFFFFFF; }
+        catch (NumberFormatException ignored) { return DEFAULT_HUD_TEXT; }
+    }
+
     private static boolean initialized;
     private static boolean dirty;
     private static int saveTicks;
@@ -118,6 +134,20 @@ public final class InterfaceConfig {
         return menuKey;
     }
 
+    public static CelestePage lastSidebarPage() {
+        return lastSidebarPage;
+    }
+
+    /** Tour steps are temporary; shared profiles never change local navigation. */
+    public static synchronized void rememberSidebarPage(CelestePage page, boolean temporary) {
+        CelestePage next = SidebarPagePreference.remember(lastSidebarPage, page, temporary);
+        if (next != lastSidebarPage) {
+            lastSidebarPage = next;
+            dirty = true;
+            save();
+        }
+    }
+
     public static synchronized void setMenuKey(int keyCode) {
         int next = keyCode <= GLFW.GLFW_KEY_UNKNOWN ? DEFAULT_MENU_KEY : keyCode;
         if (menuKey != next) {
@@ -132,6 +162,7 @@ public final class InterfaceConfig {
         passes = DEFAULT_PASSES;
         offset = DEFAULT_OFFSET;
         menuKey = DEFAULT_MENU_KEY;
+        HUD_TEXT.setRgb(DEFAULT_HUD_TEXT);
         dirty = true;
     }
 
@@ -142,6 +173,7 @@ public final class InterfaceConfig {
         values.setProperty("interface.passes", Integer.toString(passes));
         values.setProperty("interface.offset", Float.toString(offset));
         values.setProperty("interface.menuKey", Integer.toString(menuKey));
+        values.setProperty("interface.hudTextColor", Integer.toString(HUD_TEXT.rgb()));
         return values;
     }
 
@@ -157,6 +189,7 @@ public final class InterfaceConfig {
         offset = clamp(values.getProperty("interface.offset", values.getProperty("offset")),
             DEFAULT_OFFSET, MIN_OFFSET, MAX_OFFSET, 1.0f);
         menuKey = loadMenuKey(values.getProperty("interface.menuKey", values.getProperty("menuKey")));
+        HUD_TEXT.setRgb(loadHudText(values.getProperty("interface.hudTextColor", values.getProperty("hudTextColor"))));
         dirty = true;
         save();
     }
@@ -166,6 +199,7 @@ public final class InterfaceConfig {
     }
 
     private static synchronized void flushEventually() {
+        dirty |= HUD_TEXT.rgb() != savedHudText;
         if (dirty && ++saveTicks >= 20) {
             save();
         }
@@ -178,6 +212,7 @@ public final class InterfaceConfig {
         Properties values = new Properties();
         try (InputStream input = Files.newInputStream(CONFIG_PATH)) {
             values.load(input);
+            lastSidebarPage = SidebarPagePreference.read(values);
             scale = loadScale(values.getProperty("scale"));
             glassy = clamp(values.getProperty("glassy"), DEFAULT_GLASSY, MIN_GLASSY, MAX_GLASSY, 0.1f);
             passes = Math.round(clamp(values.getProperty("passes"), DEFAULT_PASSES,
@@ -185,12 +220,15 @@ public final class InterfaceConfig {
             offset = clamp(values.getProperty("offset"), DEFAULT_OFFSET,
                 MIN_OFFSET, MAX_OFFSET, 1.0f);
             menuKey = loadMenuKey(values.getProperty("menuKey"));
+            HUD_TEXT.setRgb(loadHudText(values.getProperty("hudTextColor")));
+            savedHudText = HUD_TEXT.rgb();
         } catch (IOException | NumberFormatException exception) {
             LOGGER.warn("Could not load interface settings from {}", CONFIG_PATH, exception);
         }
     }
 
     private static void save() {
+        dirty |= HUD_TEXT.rgb() != savedHudText;
         if (!dirty) {
             saveTicks = 0;
             return;
@@ -201,6 +239,8 @@ public final class InterfaceConfig {
         values.setProperty("passes", Integer.toString(passes));
         values.setProperty("offset", Float.toString(offset));
         values.setProperty("menuKey", Integer.toString(menuKey));
+        values.setProperty("hudTextColor", Integer.toString(HUD_TEXT.rgb()));
+        SidebarPagePreference.write(values, lastSidebarPage);
         try {
             Files.createDirectories(CONFIG_PATH.getParent());
             Path temporary = CONFIG_PATH.resolveSibling(CONFIG_PATH.getFileName() + ".tmp");
@@ -213,6 +253,7 @@ public final class InterfaceConfig {
             } catch (AtomicMoveNotSupportedException exception) {
                 Files.move(temporary, CONFIG_PATH, StandardCopyOption.REPLACE_EXISTING);
             }
+            savedHudText = HUD_TEXT.rgb();
             dirty = false;
             saveTicks = 0;
         } catch (IOException exception) {

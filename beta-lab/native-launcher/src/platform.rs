@@ -1,110 +1,42 @@
-use anyhow::{Context, Result, anyhow, bail};
-use rusqlite::{Connection, OpenFlags};
+use anyhow::{Context, Result, bail};
+use rusqlite::{Connection, OpenFlags, OptionalExtension};
 use std::path::{Path, PathBuf};
 use std::{env, fs};
-use winapi::shared::minwindef::{BOOL, FILETIME, LPARAM, TRUE};
-use winapi::shared::windef::HWND;
-use winapi::um::handleapi::CloseHandle;
-use winapi::um::processthreadsapi::{GetProcessTimes, OpenProcess};
-use winapi::um::winbase::QueryFullProcessImageNameW;
-use winapi::um::winnt::PROCESS_QUERY_LIMITED_INFORMATION;
-use winapi::um::winuser::{
-    EnumWindows, GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId, IsWindowVisible,
-};
+#[cfg(windows)]
+#[path = "process_windows.rs"]
+mod process;
+#[cfg(unix)]
+#[path = "process_unix.rs"]
+mod process;
+pub use process::minecraft_processes;
+use process::process_identity;
 
 #[derive(Clone, Debug)]
 pub struct MinecraftProcess {
     pub pid: u32,
     pub title: String,
+    /// ProcessHandle-compatible Unix epoch milliseconds (not FILETIME or seconds).
     pub started: u64,
 }
 
-fn process_identity(pid: u32) -> Result<(String, u64)> {
-    unsafe {
-        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
-        if handle.is_null() {
-            return Err(std::io::Error::last_os_error()).context("Cannot inspect selected process");
-        }
-        let result = (|| {
-            let mut path = vec![0u16; 32_768];
-            let mut length = path.len() as u32;
-            if QueryFullProcessImageNameW(handle, 0, path.as_mut_ptr(), &mut length) == 0 {
-                return Err(std::io::Error::last_os_error())
-                    .context("Cannot identify Java executable");
-            }
-            let mut created: FILETIME = std::mem::zeroed();
-            let mut exited: FILETIME = std::mem::zeroed();
-            let mut kernel: FILETIME = std::mem::zeroed();
-            let mut user: FILETIME = std::mem::zeroed();
-            if GetProcessTimes(handle, &mut created, &mut exited, &mut kernel, &mut user) == 0 {
-                return Err(std::io::Error::last_os_error())
-                    .context("Cannot verify process creation time");
-            }
-            let full = String::from_utf16_lossy(&path[..length as usize]);
-            let name = Path::new(&full)
-                .file_name()
-                .and_then(|v| v.to_str())
-                .unwrap_or("")
-                .to_ascii_lowercase();
-            Ok((
-                name,
-                (u64::from(created.dwHighDateTime) << 32) | u64::from(created.dwLowDateTime),
-            ))
-        })();
-        CloseHandle(handle);
-        result
-    }
-}
-
-/// Reads only visible titles, PID, executable basename and process creation time.
-/// It never reads Java command lines, environment, launcher accounts or tokens.
-pub fn minecraft_processes() -> Vec<MinecraftProcess> {
-    unsafe extern "system" fn collect(window: HWND, data: LPARAM) -> BOOL {
-        unsafe {
-            if IsWindowVisible(window) == 0 {
-                return TRUE;
-            }
-            let length = GetWindowTextLengthW(window);
-            if !(1..=4096).contains(&length) {
-                return TRUE;
-            }
-            let mut text = vec![0u16; length as usize + 1];
-            let actual = GetWindowTextW(window, text.as_mut_ptr(), text.len() as i32);
-            if actual <= 0 {
-                return TRUE;
-            }
-            let title = String::from_utf16_lossy(&text[..actual as usize]);
-            if !title.to_ascii_lowercase().contains("minecraft") {
-                return TRUE;
-            }
-            let mut pid = 0;
-            GetWindowThreadProcessId(window, &mut pid);
-            if let Ok((name, started)) = process_identity(pid) {
-                if name == "java.exe" || name == "javaw.exe" {
-                    let values = &mut *(data as *mut Vec<MinecraftProcess>);
-                    if !values.iter().any(|value| value.pid == pid) {
-                        values.push(MinecraftProcess {
-                            pid,
-                            title,
-                            started,
-                        });
-                    }
-                }
-            }
-            TRUE
-        }
-    }
-    let mut values: Vec<MinecraftProcess> = Vec::new();
-    unsafe {
-        EnumWindows(Some(collect), &mut values as *mut _ as LPARAM);
-    }
-    values.sort_by_key(|value| value.pid);
-    values
+/// Convert Windows FILETIME once at discovery; all other code uses Unix milliseconds.
+#[cfg(any(windows, test))]
+fn windows_start_millis(value: u64) -> Result<u64> {
+    value
+        .checked_sub(116_444_736_000_000_000)
+        .map(|ticks| ticks / 10_000)
+        .filter(|millis| *millis > 0)
+        .ok_or_else(|| anyhow::anyhow!("Invalid process creation time"))
 }
 
 pub fn recheck_process(target: &MinecraftProcess) -> Result<()> {
     let (name, started) = process_identity(target.pid)?;
-    if (name != "java.exe" && name != "javaw.exe") || started != target.started {
+    let is_java = if cfg!(windows) {
+        name == "java.exe" || name == "javaw.exe"
+    } else {
+        name == "java"
+    };
+    if !is_java || started != target.started {
         bail!(
             "Selected Minecraft exited or its PID was reused. Refresh and explicitly select it again"
         );
@@ -120,20 +52,34 @@ pub struct GameProfile {
 
 /// Queries only nonsecret profile metadata. Opens Modrinth SQLite read-only.
 pub fn modrinth_profiles() -> Result<Vec<GameProfile>> {
-    let data = env::var_os("APPDATA")
-        .map(PathBuf::from)
-        .filter(|value| value.is_absolute())
-        .ok_or_else(|| anyhow!("Windows APPDATA is unavailable"))?
-        .join("ModrinthApp");
+    #[cfg(windows)]
+    let base = crate::windows_profile::current_roaming_app_data()?;
+    #[cfg(unix)]
+    let base = crate::user_profile::current_local_app_data()?;
+    modrinth_profiles_under(&base)
+}
+
+fn modrinth_profiles_under(roaming: &Path) -> Result<Vec<GameProfile>> {
+    if !roaming.is_absolute() {
+        bail!("Modrinth discovery requires this account's absolute application-data path");
+    }
+    let data = roaming.join("ModrinthApp");
     let database = data.join("app.db");
-    if !database.is_file() {
-        return Ok(Vec::new());
+    match fs::metadata(&database) {
+        Ok(metadata) if metadata.is_file() => {}
+        Ok(_) => bail!("Modrinth's profile database path is not a file"),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => {
+            return Err(error).context("Cannot access this account's Modrinth profile database");
+        }
     }
     let db = Connection::open_with_flags(database, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
     db.busy_timeout(std::time::Duration::from_secs(2))?;
     let custom: Option<String> = db
         .query_row("SELECT custom_dir FROM settings", [], |row| row.get(0))
-        .unwrap_or(None);
+        .optional()
+        .context("Cannot read Modrinth's configured profile location")?
+        .flatten();
     let directory = custom
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
@@ -185,7 +131,13 @@ pub fn canonical_directory(value: &str) -> Result<PathBuf> {
 }
 
 pub fn validate_jdk(root: &Path) -> Result<PathBuf> {
-    let java = root.join("bin").join("java.exe");
+    let root = jdk_home(root);
+    if !root.is_absolute() {
+        bail!("Select an absolute Java 21 JDK location");
+    }
+    let java = root
+        .join("bin")
+        .join(if cfg!(windows) { "java.exe" } else { "java" });
     if !java.is_file() || !root.join("jmods").join("jdk.attach.jmod").is_file() {
         bail!("Select a full Java 21 JDK with jdk.attach; a Java runtime alone is insufficient");
     }
@@ -201,13 +153,25 @@ pub fn validate_jdk(root: &Path) -> Result<PathBuf> {
     fs::canonicalize(java).context("Cannot resolve Java 21 attach executable")
 }
 
+fn jdk_home(root: &Path) -> PathBuf {
+    if root.join("Contents/Home/release").is_file() {
+        root.join("Contents/Home")
+    } else {
+        root.to_path_buf()
+    }
+}
+
 pub fn find_jdk() -> Option<PathBuf> {
     let mut candidates = Vec::new();
     if let Some(path) = env::var_os("JAVA_HOME") {
         candidates.push(PathBuf::from(path));
     }
-    for program in [env::var_os("ProgramFiles"), env::var_os("LOCALAPPDATA")] {
-        let Some(program) = program.map(PathBuf::from) else {
+    #[cfg(windows)]
+    for program in [
+        env::var_os("ProgramFiles").map(PathBuf::from),
+        crate::windows_profile::current_local_app_data().ok(),
+    ] {
+        let Some(program) = program.filter(|path| path.is_absolute()) else {
             continue;
         };
         for vendor in [
@@ -226,26 +190,222 @@ pub fn find_jdk() -> Option<PathBuf> {
             }
         }
     }
+    #[cfg(unix)]
+    {
+        let mut roots = vec![
+            PathBuf::from("/usr/lib/jvm"),
+            PathBuf::from("/Library/Java/JavaVirtualMachines"),
+        ];
+        if let Some(home) = env::var_os("HOME")
+            .map(PathBuf::from)
+            .filter(|path| path.is_absolute())
+        {
+            roots.push(home.join("Library/Java/JavaVirtualMachines"));
+            roots.push(home.join(".jdks"));
+            roots.push(home.join(".sdkman/candidates/java"));
+        }
+        for root in roots {
+            if let Ok(entries) = fs::read_dir(root) {
+                candidates.extend(
+                    entries
+                        .flatten()
+                        .map(|entry| entry.path())
+                        .filter(|path| path.is_dir()),
+                );
+            }
+        }
+        // Resolve symlinks only; never execute an arbitrary PATH candidate during discovery.
+        if let Some(path) = env::var_os("PATH") {
+            for directory in env::split_paths(&path).filter(|path| path.is_absolute()) {
+                if let Ok(java) = fs::canonicalize(directory.join("java")) {
+                    if let Some(root) = java.parent().and_then(Path::parent) {
+                        candidates.push(root.to_path_buf());
+                    }
+                }
+            }
+        }
+    }
     candidates
         .into_iter()
+        .map(|path| jdk_home(&path))
         .find(|path| validate_jdk(path).is_ok())
 }
 
 pub fn support_directory(pid: u32, started: u64) -> Result<PathBuf> {
-    let root = env::var_os("LOCALAPPDATA")
-        .map(PathBuf::from)
-        .filter(|path| path.is_absolute())
-        .ok_or_else(|| anyhow!("Windows LOCALAPPDATA is unavailable"))?
+    let root = crate::user_profile::current_local_app_data()?
         .join("Celeste")
         .join("Plus")
         .join(format!("{pid}-{started}"));
+    #[cfg(windows)]
     fs::create_dir_all(&root).context("Cannot create the beta agent/support directory")?;
+    #[cfg(unix)]
+    crate::user_profile::ensure_private_activation_dir(&root)?;
     fs::canonicalize(root).context("Cannot resolve the beta agent/support directory")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rand::{RngCore, rngs::OsRng};
+
+    #[test]
+    fn windows_filetime_is_normalized_to_java_epoch_milliseconds() {
+        assert_eq!(
+            windows_start_millis(116_444_736_000_000_000 + 1800000000123 * 10000 + 9999).unwrap(),
+            1800000000123
+        );
+        assert!(windows_start_millis(0).is_err());
+        assert!(windows_start_millis(116_444_736_000_000_000).is_err());
+    }
+
+    #[test]
+    fn native_process_identity_matches_java_21_without_attaching() {
+        use std::io::{BufRead, Write};
+        use std::process::{Command, Stdio};
+        use std::sync::mpsc;
+        use std::time::Duration;
+        struct OwnedChild(std::process::Child);
+        impl Drop for OwnedChild {
+            fn drop(&mut self) {
+                let _ = self.0.kill();
+                let _ = self.0.wait();
+            }
+        }
+        // Java 21 is a build/test prerequisite, not a downloaded or arbitrary executable.
+        let jdk = find_jdk().expect("Java 21 JDK is required for the process identity regression");
+        let mut command = Command::new(validate_jdk(&jdk).unwrap());
+        command.arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/ProcessIdentityProbe.java"));
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            command.creation_flags(0x08000000);
+        }
+        let mut child = OwnedChild(
+            command
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap(),
+        );
+        let output = child.0.stdout.take().unwrap();
+        let (tx, rx) = mpsc::channel();
+        let reader = std::thread::spawn(move || {
+            let mut line = String::new();
+            let result = std::io::BufReader::new(output)
+                .read_line(&mut line)
+                .map(|_| line);
+            let _ = tx.send(result);
+        });
+        let line = rx
+            .recv_timeout(Duration::from_secs(30))
+            .expect("Java identity fixture timed out")
+            .unwrap();
+        reader.join().unwrap();
+        let reported = line.trim().parse::<u64>().unwrap();
+        let (_, native_started) = process_identity(child.0.id()).unwrap();
+        assert_eq!(
+            native_started, reported,
+            "native identity must exactly match ProcessHandle"
+        );
+        let mut selected = MinecraftProcess {
+            pid: child.0.id(),
+            title: "owned fixture".into(),
+            started: reported,
+        };
+        assert!(recheck_process(&selected).is_ok());
+        selected.started += 1;
+        assert!(recheck_process(&selected).is_err());
+        child.0.stdin.take().unwrap().write_all(b"\n").unwrap();
+        assert!(child.0.wait().unwrap().success());
+    }
+
+    struct ProfileFixture {
+        root: PathBuf,
+        data: PathBuf,
+        game: PathBuf,
+    }
+
+    impl ProfileFixture {
+        fn new() -> Self {
+            let mut random = [0u8; 16];
+            OsRng.fill_bytes(&mut random);
+            let suffix = random
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>();
+            let root = std::env::temp_dir().join(format!("celeste-profile-paths-{suffix}"));
+            fs::create_dir(&root).unwrap();
+            let data = root.join("ModrinthApp");
+            let game = root.join("Minecraft games 用户");
+            fs::create_dir(&data).unwrap();
+            fs::create_dir(&game).unwrap();
+            Self { root, data, game }
+        }
+    }
+
+    impl Drop for ProfileFixture {
+        fn drop(&mut self) {
+            // Only explicit files/directories created by this fixture. No profile
+            // enumeration, credential reads, recursive deletion, or live database.
+            let _ = fs::remove_file(self.data.join("app.db"));
+            let _ = fs::remove_dir(&self.data);
+            let _ = fs::remove_dir(&self.game);
+            let _ = fs::remove_dir(&self.root);
+        }
+    }
+
+    #[test]
+    fn modrinth_discovery_uses_supplied_known_folder_and_separate_custom_game_root() {
+        let fixture = ProfileFixture::new();
+        let db = Connection::open(fixture.data.join("app.db")).unwrap();
+        db.execute_batch(
+            "CREATE TABLE settings (custom_dir TEXT);
+             CREATE TABLE instances (id TEXT, path TEXT, name TEXT, applied_content_set_id TEXT);
+             CREATE TABLE instance_content_sets (id TEXT, instance_id TEXT, game_version TEXT, loader TEXT);",
+        ).unwrap();
+        db.execute(
+            "INSERT INTO settings VALUES (?1)",
+            [fixture.root.to_str().unwrap()],
+        )
+        .unwrap();
+        db.execute(
+            "INSERT INTO instances VALUES ('one', ?1, 'Fixture profile', 'content')",
+            [fixture.game.to_str().unwrap()],
+        )
+        .unwrap();
+        db.execute_batch(
+            "INSERT INTO instance_content_sets VALUES ('content', 'one', '1.21.11', 'fabric');",
+        )
+        .unwrap();
+        drop(db);
+        let before = fs::read(fixture.data.join("app.db")).unwrap();
+        let profiles = modrinth_profiles_under(&fixture.root).unwrap();
+        assert_eq!(profiles.len(), 1);
+        assert_eq!(profiles[0].name, "Fixture profile");
+        assert_eq!(profiles[0].game, fixture.game.canonicalize().unwrap());
+        assert_eq!(fs::read(fixture.data.join("app.db")).unwrap(), before);
+    }
+
+    #[test]
+    fn missing_modrinth_database_is_optional_and_never_created() {
+        let fixture = ProfileFixture::new();
+        assert!(modrinth_profiles_under(&fixture.root).unwrap().is_empty());
+        assert!(!fixture.data.join("app.db").exists());
+        assert!(modrinth_profiles_under(Path::new("relative-profile")).is_err());
+    }
+
+    #[test]
+    fn corrupt_modrinth_settings_do_not_silently_select_the_default_location() {
+        let fixture = ProfileFixture::new();
+        let db = Connection::open(fixture.data.join("app.db")).unwrap();
+        db.execute_batch("CREATE TABLE settings (unexpected_column TEXT);")
+            .unwrap();
+        drop(db);
+        let error = modrinth_profiles_under(&fixture.root).unwrap_err();
+        assert!(error.to_string().contains("configured profile location"));
+    }
+
     #[test]
     fn relative_game_directories_are_rejected() {
         assert!(canonical_directory(".").is_err());
