@@ -3,10 +3,16 @@
 This guide applies to **Celeste+**, in `c4lamity007/Celeste-Plus`.
 The separate Celeste repository supplies the pinned game core only.
 
-For the next client/server protocol, manual-sales policy, verification results,
+For the current client/server protocol, manual-sales policy, verification results,
 certificate rotation, release prerequisites and rollback steps, read the
 [protocol 2 record](../../docs/auth-protocol-v2-20260927.md). The historical
 seven-target native approval below applies only to its exact old bytes.
+
+The Windows protocol 2 release is [published and verified](../../docs/releases/20260927-auth-v2.md)
+at Fly version 132 and native policy sequence 2. Its new loader is required.
+All 14 selected native paths and downloaded assets passed verification; the user
+is handling Minecraft loading. Authenticode remains unsigned under the accepted
+manual release preference, with no automatic CI exception.
 
 The goal is strong protection at authorization boundaries while keeping rendering,
 input, cryptography and bulk processing fast. There is no universal “maximum”
@@ -263,8 +269,8 @@ pwsh -NoProfile -File tools/packaging/run_vmprotect_mcp.ps1 `
   -OutputDirectory '<fresh-private-MCP-output>'
 ```
 
-The current local v2 selection uses these exact inputs; none is a protected
-publication artifact:
+The published v2 release was built from these exact inputs. These inputs are
+retained separately from the protected publication artifact:
 
 | Local evidence | SHA-256 |
 | --- | --- |
@@ -289,6 +295,15 @@ denied compilation. It also corrects the Windows x64 context buffer to its
 required 16-byte alignment: the earlier optimized input exited during the debugger
 check, while candidate 04 remained alive with its native window and closed normally.
 This startup check did not log in, attach to a game or measure protected-runtime overhead.
+
+Compile 06 produced the published 22,284,288-byte executable with SHA-256
+`33c0207d8263b0b24640436055832cad9edddf3d99062be822997a41624e434f`.
+The saved project is bound by SHA-256
+`c057d40c69584c777119382745e5ac4fd3721f82b228d5fd00b25e068e5fed53`.
+Independent review and `verify_reviewed_vmprotect_v2.py` verified all 14 selected
+paths; the exact verifier, gate, importer and MAP-profile tests passed 81 checks.
+The [release record](../../docs/releases/20260927-auth-v2.md) binds the imported
+receipt and documents deployment, signed policy readback and asset downloads.
 
 ### 5. Verify function, performance and final bytes
 

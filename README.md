@@ -83,11 +83,17 @@ The five-file output contains A, B, two payload parts, and `beta-release.json`. 
 
 ## Authentication and publication
 
-The next coordinated auth upgrade is documented in the
-[protocol 2 implementation and rollback record](docs/auth-protocol-v2-20260927.md).
+The current Windows release is
+[`celeste-plus-20260927-auth-v2-01`](https://github.com/c4lamity007/Celeste-Plus/releases/tag/celeste-plus-20260927-auth-v2-01),
+deployed and verified at Fly version **132** with native policy sequence **2**.
 It adds pinned transport policies, encrypted delivery, hardware/process session
-binding and grant rotation. It requires a matching new loader and Java release;
-the production history below remains separate from this unshipped source.
+binding and grant rotation. **Use the new loader and fully restart Minecraft.**
+The executable remains Authenticode unsigned under the user's accepted
+**Unknown publisher** preference. All 14 selected VMProtect paths and all three
+published asset downloads passed verification. The user is handling the new
+Minecraft loading check; it is not yet recorded as passed. See the
+[release record](docs/releases/20260927-auth-v2.md) and
+[protocol 2 implementation and rollback record](docs/auth-protocol-v2-20260927.md).
 
 The complete [authentication, Java obfuscation and VMProtect runbook](tools/packaging/README.md)
 documents the build order, selective protection settings, tool usage, verification,
@@ -97,7 +103,7 @@ new-loader requirements and coordinated publication flow.
 
 The full backend and repaired Java release `celeste-plus-20260927-auth-hardening-02` were first deployed and verified at Fly version 130. The protected native release `...-01` is registered at sequence 1; seven targets passed exact-artifact coverage verification. **Fully restart Minecraft before loading the repair**: the old resident Bootstrap A persists until the game JVM exits. The user confirmed “Loads successfully” after restarting and retrying. The [Windows loader release](https://github.com/c4lamity007/Celeste-Plus/releases/tag/celeste-plus-20260927-auth-hardening-01) is published and all asset downloads have verified hashes. The user explicitly accepted **Unknown publisher** for these reviewed Windows bytes; the executable remains **Authenticode unsigned**. Ordinary unsigned CI outputs remain test candidates. See the [release run record](docs/protection-run-20260927.md) for hashes, the earlier injection failure and remaining verification limits.
 
-The current protected payload is [`celeste-plus-20260927-double-anchor-01`](docs/releases/20260927-double-anchor.md), deployed and verified at Fly version **131**. Double Anchor now explodes and replaces in the same tick, followed by glowstone and totem. The existing protected Windows loader remains compatible. Restart Minecraft before loading this update. The game build, 336 sequence checks, all 18 protection stages and 95 auth-delivery tests passed; live gameplay for this revision remains unverified.
+The preceding payload was [`celeste-plus-20260927-double-anchor-01`](docs/releases/20260927-double-anchor.md), deployed and verified at Fly version **131**. It introduced Double Anchor's same-tick explosion and replacement, followed by glowstone and totem. The existing loader was compatible with that earlier release; protocol 2 now requires its new loader. The game build, 336 sequence checks, all 18 protection stages and 95 auth-delivery tests passed for that revision; live gameplay remained unverified.
 
 Offline backend and packaging checks:
 

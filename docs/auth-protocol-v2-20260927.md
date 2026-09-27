@@ -2,15 +2,16 @@
 
 ## Status
 
-This is the implementation record for the next coordinated Celeste+ release.
+This is the implementation record for the published Celeste+ protocol 2 release.
 The current release and client verification scope is Windows x64, per the user's
 request. Candidate and service-test CI now use Windows; Linux and macOS client
 work is deferred. The existing Fly backend remains part of the matched release.
-It is **not a production deployment record**. The live release remains
-`celeste-plus-20260927-double-anchor-01`, Fly version 131, until a separate
-coordinated rollout is completed. The old published loader cannot use protocol 2
-artifact delivery. Distribute a matching new protected loader with the new A/B
-and runtime files, then fully restart Minecraft.
+The matched release `celeste-plus-20260927-auth-v2-01` is live at Fly version
+**132**, with native policy sequence **2** and verified GitHub asset downloads.
+See the [production release record](releases/20260927-auth-v2.md) for exact hashes
+and live verification. The preceding loader cannot use protocol 2 delivery.
+Use the matching new protected loader and fully restart Minecraft. The user is
+performing the Minecraft loading check; no new game result is claimed.
 
 The shared service still supports Standard Celeste. New Plus session conflicts,
 hardware migration and encrypted delivery are product-scoped; a Both license
@@ -86,8 +87,9 @@ source or introduce a second protocol definition.
 
 ## Verification evidence
 
-Local generated evidence is ignored by Git. These checks do not claim a live
-authentication, game injection or completed publication:
+Local generated evidence is ignored by Git. These checks do not claim live
+authenticated game injection; deployment and publication are separately recorded
+in the linked release record:
 
 | Gate | Result / evidence |
 | --- | --- |
