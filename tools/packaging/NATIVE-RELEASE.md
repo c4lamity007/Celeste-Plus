@@ -41,7 +41,23 @@ reviewed adapter bundle and trusted Windows signing identity. It refuses missing
 prerequisites; a source push does not provision them, deploy the service or
 verify the client in-game. See the [protocol 2 record](../../docs/auth-protocol-v2-20260927.md).
 
-## Explicit Windows publisher exception for September 27
+## Protocol 2 Windows publisher exception
+
+The user's existing approval to release with server verification and accept
+**Unknown publisher** also applies to the manual protocol 2 release
+`celeste-plus-20260927-auth-v2-01`. Its exact reviewed Windows executable is
+`33c0207d8263b0b24640436055832cad9edddf3d99062be822997a41624e434f`
+(22,284,288 bytes). It remains **NotSigned**; this does not create an unsigned
+fallback in CI or approve other bytes.
+
+`verify_reviewed_vmprotect_v2.py` verifies all 14 selected paths using the
+independently reviewed source, candidate, project and loaded-code evidence.
+The approved protection tuple and imported receipt passed the publication gate.
+Use the [protocol 2 release record](../../docs/releases/20260927-auth-v2.md)
+for current rollout status. Registration must advance the existing policy and
+retain its approved hash; the initial-publication example below is historical.
+
+## Historical Windows publisher exception for September 27
 
 The user authorized release `celeste-plus-20260927-auth-hardening-01` with server
 verification and accepted Windows showing **Unknown publisher**. This exception

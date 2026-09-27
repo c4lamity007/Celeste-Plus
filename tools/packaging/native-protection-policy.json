@@ -8,7 +8,13 @@
       "configuration_sha256": "9e069392d6017f2e414bee236a75eec02867a965ed9ce2611550fbb7eef40f35",
       "verifier_sha256": "5dff22d807a49735c2febfddc62e541770f31c456fa78ef2feb5bf66d9a72c3e",
       "platform": "windows-x64"
+    },
+    {
+      "protector_sha256": "138d140584e3d703c3592cc3cd15124b428daee75629e25710b65228103ff817",
+      "configuration_sha256": "c057d40c69584c777119382745e5ac4fd3721f82b228d5fd00b25e068e5fed53",
+      "verifier_sha256": "2526b7ffb89e78f857b7c265f77fc25f3f133e4232e91685320f4498418fb959",
+      "platform": "windows-x64"
     }
   ],
-  "note": "This tuple approves only the exact September 27 artifact and private review pinned by verify_reviewed_vmprotect.py. Seven selected functions were independently reviewed in loaded code and mechanically rebound to their input, source and compiler evidence. Rebuilds require a fresh review; source-fixture environment tests do not establish protected game runtime correctness. See docs/protection-run-20260927.md for scope and the explicitly authorized Windows Unknown publisher release."
+  "note": "Each tuple approves only its exact artifact and private review: historical seven-function verify_reviewed_vmprotect.py and protocol-v2 fourteen-function verify_reviewed_vmprotect_v2.py. Loaded-code manual review and mechanical binding cover the selected entries. A rebuild requires fresh review. Source environment fixtures and Windows startup do not establish protected game runtime correctness or detection of every VM. Windows Unknown publisher is an explicitly scoped user-authorized exception, not Authenticode signing."
 }
