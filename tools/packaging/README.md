@@ -153,6 +153,31 @@ See [exact source targets and mapping hazards](../../docs/protection-settings.md
 Fat LTO can inline a named function or pull other code into it. Inspect the actual
 linked image instead of assuming each source function remains a separate target.
 
+### Windows loader Ultra profile
+
+The requested maximum loader profile is now
+[`profiles/windows-loader-ultra.vmp`](profiles/windows-loader-ultra.vmp), with
+[observed settings and provenance](profiles/windows-loader-ultra.md). All 14
+authorization selections use Ultra at 100% VM complexity. Memory, resource,
+import and packing protection are enabled, along with user/kernel debugger and
+virtualization-tools detection. The saved `Options="466688"` value came from the
+registered GUI. The early TLS callback and timing sampler remain native because
+they run under the loader lock or measure native execution time.
+
+Use the same `auth-v2-14` alias profile with this project template and
+`-CompileTimeoutSeconds 900`. The updated VMProtect Control MCP can inspect and
+save these options through the actual GUI. It validates that only the requested
+options changed, then requires a fresh compile job. No paid VMProtect upgrade is
+required. Historical type-0 receipts do not approve Ultra output.
+
+The first Ultra candidate is 68,233,216 bytes from a 7,762,944-byte input. Exact
+protected cleanup passed eight Windows child-process cases. Five fresh-process
+samples on the development PC gave a median of 3.27 seconds (p95 3.44 seconds)
+for the debugger gate and cleanup acknowledgement, versus 0.027 seconds before
+protection. Windows file caches were not flushed. This does not measure account
+activation, game attachment or FPS. Current publication status and exact evidence
+must be read from the release record; selecting this template alone is not approval.
+
 ## Run the build
 
 Run from the Celeste-Plus repository with Java 21, Python 3.11+, Rust/MSVC,

@@ -54,6 +54,12 @@ class PreparationCheck(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "fresh"):
             subject.stage_a(self.source, self.stage)
 
+    def test_bootstrap_hardware_external_names_are_stable(self):
+        for suffix in ("$Processor", "$SystemApi"):
+            self.assertTrue(subject.stable("dev/c4lam/celeste/auth/WindowsArtifactHardware" + suffix + ".class"))
+        self.assertFalse(subject.stable("dev/c4lam/celeste/auth/WindowsArtifactHardware.class"))
+        self.assertFalse(subject.stable("dev/c4lam/celeste/auth/ArtifactHardwareIdentity.class"))
+
     def test_merge_rejects_source_changed_since_split(self):
         subject.stage_a(self.source, self.stage)
         with self.source.open("ab") as output:
@@ -175,6 +181,7 @@ class PayloadPreparationCheck(unittest.TestCase):
             "dev/c4lam/celeste/auth/HardwareFingerprint$ComputerSystemProperty.class": b"unchanged WMI enum",
             "dev/c4lam/celeste/auth/HardwareIdentityV2$Processor.class": b"unchanged HWID WMI enum",
             "dev/c4lam/celeste/auth/HardwareIdentityV2$SystemApi.class": b"unchanged HWID JNA interface",
+            "dev/c4lam/celeste/auth/WindowsFirmwareIdentity$FirmwareApi.class": b"unchanged firmware JNA interface",
             "dev/c4lam/celeste/render/font/FontData.class": b"unchanged reflected font root",
             "dev/c4lam/celeste/render/font/FontData$GlyphData.class": b"unchanged reflected font model",
         }
@@ -185,6 +192,7 @@ class PayloadPreparationCheck(unittest.TestCase):
             "dev/c4lam/celeste/auth/HardwareFingerprint.class": b"ordinary fingerprint implementation",
             "dev/c4lam/celeste/auth/HardwareFingerprint$State.class": b"ordinary non-property nested class",
             "dev/c4lam/celeste/auth/HardwareIdentityV2.class": b"ordinary HWID implementation",
+            "dev/c4lam/celeste/auth/WindowsFirmwareIdentity.class": b"ordinary firmware implementation",
             "dev/c4lam/celeste/render/font/FontDataExtra.class": b"ordinary class sharing model name prefix",
         }
         self.entries = self.stable | self.thin

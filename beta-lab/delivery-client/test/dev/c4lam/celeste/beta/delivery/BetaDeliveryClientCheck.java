@@ -67,16 +67,28 @@ public final class BetaDeliveryClientCheck {
             rejected(IllegalArgumentException.class, () -> release.artifact("unknown"));
         }
         check(fixture.proofIds.size() == 5, "catalog and all four artifacts have independent fresh signed proofs");
-        client.fetchCatalog();
+        catalog = client.fetchCatalog();
         check(fixture.proofIds.size() == 6, "retry on the same route does not reuse a proof");
+        fixture.hardware = "7".repeat(64);
+        try (var changedHardware = client.download(catalog)) {
+            check(changedHardware.artifact("bootstrap-a").remaining() > 0, "hardware provider sampled on each artifact request");
+        }
+        int sent = fixture.requests;
+        for (String invalidHardware : new String[] {"", "A".repeat(64), "short", null}) {
+            fixture.hardware = invalidHardware;
+            final var ownedCatalog = catalog;
+            rejected(GeneralSecurityException.class, () -> client.download(ownedCatalog));
+            check(fixture.requests == sent, "missing or malformed hardware never sends artifact authorization");
+        }
+        fixture.hardware = "6".repeat(64);
         KeyPair otherInstallation = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
         byte[] otherPublic = otherInstallation.getPublic().getEncoded();
         DpopProofSigner wrongSigner = new DpopProofSigner(otherInstallation.getPrivate(),
             Arrays.copyOfRange(otherPublic, otherPublic.length - 32, otherPublic.length), fixture.clock);
         rejected(GeneralSecurityException.class, () -> new BetaDeliveryClient(ORIGIN, fixture.publicKey,
-            fixture.installerToken, fixture.device, fixture.uid, wrongSigner, fixture.clock, fixture::get));
+            fixture.installerToken, fixture.device, fixture.uid, wrongSigner, () -> "6".repeat(64), fixture.clock, fixture::get));
         rejected(GeneralSecurityException.class, () -> new BetaDeliveryClient(ORIGIN, fixture.publicKey,
-            fixture.installerToken, fixture.device, fixture.uid, null, fixture.clock, fixture::get));
+            fixture.installerToken, fixture.device, fixture.uid, null, () -> "6".repeat(64), fixture.clock, fixture::get));
         Fixture closedFixture = new Fixture(golden);
         BetaDeliveryClient closedClient = closedFixture.client();
         BetaDeliveryClient.MemoryRelease closed = closedClient.download(closedClient.verifyManifest(closedFixture.manifestToken, closedFixture.nonce));
@@ -200,6 +212,7 @@ public final class BetaDeliveryClientCheck {
         final Set<String> requestNonces = new HashSet<>();
         final Map<String, byte[]> artifacts = new LinkedHashMap<>();
         final List<byte[]> delivered = new ArrayList<>();
+        String hardware = "6".repeat(64);
         String failure = "";
         int requests;
         Fixture(JsonObject golden) throws Exception {
@@ -224,7 +237,7 @@ public final class BetaDeliveryClientCheck {
         }
         BetaDeliveryClient client() throws GeneralSecurityException { return clientWith(installerToken, uid, device, ORIGIN); }
         BetaDeliveryClient clientWith(String token, long uid, String expected, URI origin) throws GeneralSecurityException {
-            return new BetaDeliveryClient(origin, publicKey, token, expected, uid, proofSigner, clock, this::get);
+            return new BetaDeliveryClient(origin, publicKey, token, expected, uid, proofSigner, () -> hardware, clock, this::get);
         }
         private BetaDeliveryClient.Reply get(URI uri, Map<String, String> headers, int maximum, Duration timeout) throws IOException {
             requests++;
@@ -303,8 +316,10 @@ public final class BetaDeliveryClientCheck {
             check(verifier.verify(BetaDeliveryClient.decode(parts[2])), "real Ed25519 request proof signature");
             JsonObject claims = BetaDeliveryClient.object(BetaDeliveryClient.decode(parts[1]));
             boolean artifact = uri.getPath().startsWith("/v1/beta/artifacts/");
-            check(claims.keySet().equals(artifact ? Set.of("jti", "htm", "htu", "iat", "ath", "cek", "cnonce") : Set.of("jti", "htm", "htu", "iat", "ath")), "exact resource request proof claims");
+            check(claims.keySet().equals(artifact ? Set.of("jti", "htm", "htu", "iat", "ath", "cek", "cnonce", "hwid") : Set.of("jti", "htm", "htu", "iat", "ath")), "exact resource request proof claims");
             if (artifact) {
+                check(claims.get("hwid").getAsString().equals(headers.get("X-Device-Id"))
+                    && hardware.equals(headers.get("X-Device-Id")), "current hardware signed in the same recipient proof");
                 check(claims.get("cek").getAsString().equals(headers.get("X-Celeste-Delivery-Key")) && claims.get("cnonce").getAsString().equals(headers.get("X-Celeste-Request-Nonce")), "encrypted artifact recipient and nonce signed by installation key");
                 check(requestNonces.add(headers.get("X-Celeste-Request-Nonce")), "fresh artifact encryption nonce");
             }

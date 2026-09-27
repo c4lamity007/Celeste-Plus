@@ -19,7 +19,7 @@
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/auth/AuthBootstrap.java",
-      "sha256": "0d0af3fd90f8c5baaa4ed53b624a90565e247cb976cc7d20dbf0cc120dae1571",
+      "sha256": "fc1584ed4c461f5c8f27d4ce07586551f654cd01a99f47bc34f8788b3b901d7e",
       "baseSha256": "4fd99b1932863ebb17cb99d970ab466b3e3032d267d7fe21d5ec0e8fab369717"
     },
     {
@@ -39,12 +39,12 @@
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/auth/EnvironmentGate.java",
-      "sha256": "e74c1fc6950f36a7aa3b3c1eaf64e3020c97ed4d3351d85849ac0d0e5b981eaa",
+      "sha256": "c287facb100226b06bd1ce3c76bd5b7451562f5e50ec474f2cb103bf821af17b",
       "baseSha256": null
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/auth/HardwareFingerprint.java",
-      "sha256": "c2572990e8e203a92e04fa72bd6619483fe8471de8e0e072426119cbd743a7a9",
+      "sha256": "13a78bfd5b4efee859c8bda44d16390a1690e6316d8e6557837d76225a296153",
       "baseSha256": "0bba27f31cc830a2c253b66a57f1b2c6e7fa744e2cb22d05e72396a396450bb1"
     },
     {
@@ -60,6 +60,11 @@
     {
       "path": "src/main/java/dev/c4lam/celeste/auth/PortableCredentialProtection.java",
       "sha256": "4e6773feafdff0aebb1ebbd141b88a61f3d503d2e977a4a49497c8c410e7fe7c",
+      "baseSha256": null
+    },
+    {
+      "path": "src/main/java/dev/c4lam/celeste/auth/WindowsFirmwareIdentity.java",
+      "sha256": "1c57c269f930ba8315726793db8e00ee8742dbad297e63a5f8c3f2fdc20dbf56",
       "baseSha256": null
     },
     {

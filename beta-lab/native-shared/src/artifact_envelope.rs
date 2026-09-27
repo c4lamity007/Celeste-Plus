@@ -50,11 +50,16 @@ impl RequestKey {
             envelope.len() > OVERHEAD
                 && envelope.len() <= limit + OVERHEAD
                 && envelope.starts_with(b"CSTAE1"),
-            "Encrypted artifact envelope is invalid"
+            "{}",
+            obfstr::obfstr!("Encrypted artifact envelope is invalid")
         );
         let public: [u8; 32] = envelope[6..38].try_into()?;
         let shared = self.private.diffie_hellman(&PublicKey::from(public));
-        ensure!(shared.was_contributory(), "Invalid artifact agreement key");
+        ensure!(
+            shared.was_contributory(),
+            "{}",
+            obfstr::obfstr!("Invalid artifact agreement key")
+        );
         let info = self.info(path);
         let salt = Sha256::digest(token.as_bytes());
         let mut key = Zeroizing::new([0u8; 32]);
@@ -81,7 +86,8 @@ impl RequestKey {
             })?;
         ensure!(
             !plain.is_empty() && plain.len() <= limit,
-            "Artifact plaintext bound exceeded"
+            "{}",
+            obfstr::obfstr!("Artifact plaintext bound exceeded")
         );
         Ok(Zeroizing::new(plain))
     }

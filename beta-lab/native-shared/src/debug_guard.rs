@@ -21,9 +21,60 @@ pub(crate) fn enforce() {
     }
 }
 
+// This callback runs under the Windows loader lock. It must stay allocation-free:
+// no Rust runtime initialization, COM, thread creation, waits, logs or network.
+// The full checks (including thread context and timing) remain at normal startup.
+#[cfg(all(windows, target_arch = "x86_64", not(test)))]
+static EARLY_CHECK_RAN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+#[cfg(all(windows, target_arch = "x86_64", not(test)))]
+#[used]
+#[unsafe(link_section = ".CRT$XLB")]
+static EARLY_DEBUG_CALLBACK: unsafe extern "system" fn(
+    *mut std::ffi::c_void,
+    u32,
+    *mut std::ffi::c_void,
+) = early_debug_callback;
+
+#[cfg(all(windows, target_arch = "x86_64", not(test)))]
+unsafe extern "system" fn early_debug_callback(
+    _module: *mut std::ffi::c_void,
+    reason: u32,
+    _reserved: *mut std::ffi::c_void,
+) {
+    if reason != 1 {
+        // DLL_PROCESS_ATTACH; never repeat on thread attach/detach.
+        return;
+    }
+    let peb: usize;
+    unsafe {
+        std::arch::asm!("mov {}, gs:[0x60]", out(reg) peb, options(nostack, preserves_flags, readonly));
+    }
+    let detected = unsafe {
+        winapi::um::debugapi::IsDebuggerPresent() != 0
+            || (peb != 0 && std::ptr::read_volatile((peb + 2) as *const u8) != 0)
+    };
+    if detected || peb == 0 {
+        // TerminateProcess does not run Rust destructors or loader callbacks.
+        unsafe {
+            winapi::um::processthreadsapi::TerminateProcess(
+                winapi::um::processthreadsapi::GetCurrentProcess(),
+                0,
+            );
+        }
+        // If termination unexpectedly fails, normal startup still fails closed.
+        return;
+    }
+    EARLY_CHECK_RAN.store(true, std::sync::atomic::Ordering::Release);
+}
+
 #[cfg(all(windows, target_arch = "x86_64"))]
 #[inline(never)]
 pub(crate) fn require_clear() -> Result<(), DebugError> {
+    #[cfg(not(test))]
+    if !EARLY_CHECK_RAN.load(std::sync::atomic::Ordering::Acquire) {
+        return Err(DebugError::Unavailable);
+    }
     use winapi::ctypes::c_void;
     use winapi::um::{
         debugapi::{CheckRemoteDebuggerPresent, IsDebuggerPresent},

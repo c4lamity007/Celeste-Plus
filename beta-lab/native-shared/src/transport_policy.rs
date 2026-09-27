@@ -30,7 +30,8 @@ struct Policy {
 fn verify(body: &[u8], nonce: &str, origin: &str, key: &VerifyingKey, now: u64) -> Result<Policy> {
     ensure!(
         body.len() <= 16384 && nonce.len() == 32 && URL_SAFE_NO_PAD.decode(nonce)?.len() == 24,
-        "Invalid public transport response"
+        "{}",
+        obfstr::obfstr!("Invalid public transport response")
     );
     let envelope = object(body)?;
     exact(&envelope, &[obfstr::obfstr!("policy")])?;
@@ -63,7 +64,8 @@ fn verify(body: &[u8], nonce: &str, origin: &str, key: &VerifyingKey, now: u64) 
             && expires > now
             && expires > issued
             && expires - issued <= 120,
-        "Public transport policy is stale or belongs to another request"
+        "{}",
+        obfstr::obfstr!("Public transport policy is stale or belongs to another request")
     );
     let values = claims
         .get(obfstr::obfstr!("leaf_sha256"))
@@ -71,7 +73,8 @@ fn verify(body: &[u8], nonce: &str, origin: &str, key: &VerifyingKey, now: u64) 
         .ok_or_else(|| anyhow!("{}", obfstr::obfstr!("Missing leaf certificate policy")))?;
     ensure!(
         (1..=4).contains(&values.len()),
-        "Invalid leaf certificate count"
+        "{}",
+        obfstr::obfstr!("Invalid leaf certificate count")
     );
     let mut leaves = Vec::new();
     for value in values {
@@ -84,7 +87,8 @@ fn verify(body: &[u8], nonce: &str, origin: &str, key: &VerifyingKey, now: u64) 
                     .bytes()
                     .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
                 && !leaves.iter().any(|old| old == value),
-            "Invalid or duplicate leaf certificate digest"
+            "{}",
+            obfstr::obfstr!("Invalid or duplicate leaf certificate digest")
         );
         leaves.push(value.to_owned());
     }
@@ -166,8 +170,9 @@ fn configured_agent(policy: Policy, roots: rustls::RootCertStore) -> Result<ureq
 
 pub(crate) fn agent(origin: &str) -> Result<ureq::Agent> {
     ensure!(
-        origin == crate::release::BASE_URL && origin.starts_with("https://"),
-        "Unexpected transport policy origin"
+        origin == obfstr::obfstr!(crate::release::BASE_URL) && origin.starts_with("https://"),
+        "{}",
+        obfstr::obfstr!("Unexpected transport policy origin")
     );
     let mut random = [0u8; 24];
     OsRng.try_fill_bytes(&mut random)?;
@@ -217,12 +222,13 @@ pub(crate) fn agent(origin: &str) -> Result<ureq::Agent> {
             && response
                 .header(obfstr::obfstr!("Content-Encoding"))
                 .is_none_or(|v| v == obfstr::obfstr!("identity")),
-        "Invalid public transport response"
+        "{}",
+        obfstr::obfstr!("Invalid public transport response")
     );
     let mut body = Vec::new();
     response.into_reader().take(16385).read_to_end(&mut body)?;
     let key: [u8; 32] = URL_SAFE_NO_PAD
-        .decode(crate::release::SERVER_KEY)?
+        .decode(obfstr::obfstr!(crate::release::SERVER_KEY))?
         .try_into()
         .map_err(|_| anyhow!("{}", obfstr::obfstr!("Invalid transport trust key")))?;
     let policy = verify(

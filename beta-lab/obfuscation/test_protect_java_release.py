@@ -20,7 +20,7 @@ class SourceReceiptCheck(unittest.TestCase):
         self.source.parent.mkdir(parents=True)
         self.source.write_bytes(b'package dev.c4lam.celeste.auth; class Fixture {}\n')
         for name in ('build.gradle', 'gradle.properties', 'settings.gradle',
-                     'tools/protect_java_release.py', 'tools/prepare_runtime.py', 'tools/validate_package.py',
+                     'tools/protect_java_release.py', 'tools/prepare_runtime.py', 'tools/validate_package.py', 'tools/build_media_cleanup.py',
                      'beta-lab/obfuscation/check.init.gradle', 'beta-lab/obfuscation/prepare_obfuscation.py',
                      'beta-lab/release-package/package_beta.py', 'beta-lab/example/src/Host.java',
                      'beta-lab/obfuscation/profiles/test.json'):
@@ -46,6 +46,7 @@ class SourceReceiptCheck(unittest.TestCase):
         receipt = subject.source_inputs()
         self.assertEqual(receipt['runtime-overlay/' + self.name], subject.digest(self.source.read_bytes()))
         self.assertIn('tools/prepare_runtime.py', receipt)
+        self.assertIn('tools/build_media_cleanup.py', receipt)
         self.assertIn('gradle.properties', receipt)
         self.assertIn('settings.gradle', receipt)
         self.assertIn('beta-lab/example/src/Host.java', receipt)

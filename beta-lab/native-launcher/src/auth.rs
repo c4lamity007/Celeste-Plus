@@ -40,8 +40,7 @@ const INSTALLER_NAME: &str = "CelesteInstaller";
 #[cfg(test)]
 const TOKEN_INFO: &[u8] = b"celeste-install-token-v1";
 
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone)]
 struct InstallCredential {
     device_id: String,
     uid: u64,
@@ -53,12 +52,119 @@ struct InstallCredential {
     game_name: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+// Explicit wire names keep the existing DPAPI envelope byte schema compatible
+// without serde derive embedding the authentication field names as literals.
+impl Serialize for InstallCredential {
+    fn serialize<S: serde::Serializer>(
+        &self,
+        serializer: S,
+    ) -> std::result::Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+        let mut map = serializer.serialize_map(Some(8))?;
+        map.serialize_entry(obfstr::obfstr!("deviceId"), &self.device_id)?;
+        map.serialize_entry(obfstr::obfstr!("uid"), &self.uid)?;
+        map.serialize_entry(obfstr::obfstr!("signingPrivate"), &self.signing_private)?;
+        map.serialize_entry(
+            obfstr::obfstr!("encryptionPrivate"),
+            &self.encryption_private,
+        )?;
+        map.serialize_entry(obfstr::obfstr!("tokenSeed"), &self.token_seed)?;
+        map.serialize_entry(obfstr::obfstr!("certificate"), &self.certificate)?;
+        map.serialize_entry(obfstr::obfstr!("gameUuid"), &self.game_uuid)?;
+        map.serialize_entry(obfstr::obfstr!("gameName"), &self.game_name)?;
+        map.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for InstallCredential {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<Self, D::Error> {
+        struct CredentialVisitor;
+        impl<'de> serde::de::Visitor<'de> for CredentialVisitor {
+            type Value = InstallCredential;
+            fn expecting(&self, out: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                out.write_str(obfstr::obfstr!("a saved installation credential"))
+            }
+            fn visit_map<M: serde::de::MapAccess<'de>>(
+                self,
+                mut map: M,
+            ) -> std::result::Result<Self::Value, M::Error> {
+                let mut strings: [Option<Zeroizing<String>>; 7] = std::array::from_fn(|_| None);
+                let mut uid = None;
+                while let Some(name) = map.next_key::<String>()? {
+                    if name == obfstr::obfstr!("uid") {
+                        if uid.is_some() {
+                            return Err(serde::de::Error::custom(obfstr::obfstr!(
+                                "Duplicate credential field"
+                            )));
+                        }
+                        uid = Some(map.next_value::<u64>()?);
+                    } else if let Some(index) = [
+                        obfstr::obfstr!("deviceId"),
+                        obfstr::obfstr!("signingPrivate"),
+                        obfstr::obfstr!("encryptionPrivate"),
+                        obfstr::obfstr!("tokenSeed"),
+                        obfstr::obfstr!("certificate"),
+                        obfstr::obfstr!("gameUuid"),
+                        obfstr::obfstr!("gameName"),
+                    ]
+                    .iter()
+                    .position(|expected| *expected == name)
+                    {
+                        if strings[index].is_some() {
+                            return Err(serde::de::Error::custom(obfstr::obfstr!(
+                                "Duplicate credential field"
+                            )));
+                        }
+                        strings[index] = Some(map.next_value::<Zeroizing<String>>()?);
+                    } else {
+                        // Match the original serde derive's forward-compatible unknown-field handling.
+                        map.next_value::<serde::de::IgnoredAny>()?;
+                    }
+                }
+                if uid.is_none() || strings.iter().any(Option::is_none) {
+                    return Err(serde::de::Error::custom(obfstr::obfstr!(
+                        "Credential field is missing"
+                    )));
+                }
+                Ok(InstallCredential {
+                    device_id: strings[0].take().unwrap().to_string(),
+                    uid: uid.unwrap(),
+                    signing_private: strings[1].take().unwrap(),
+                    encryption_private: strings[2].take().unwrap(),
+                    token_seed: strings[3].take().unwrap(),
+                    certificate: strings[4].take().unwrap().to_string(),
+                    game_uuid: strings[5].take().unwrap().to_string(),
+                    game_name: strings[6].take().unwrap().to_string(),
+                })
+            }
+        }
+        deserializer.deserialize_map(CredentialVisitor)
+    }
+}
+
+#[derive(Debug, Clone)]
 struct HardwareProfile {
     system: String,
     board: String,
     processor: String,
     monitors: Vec<String>,
+}
+
+impl Serialize for HardwareProfile {
+    fn serialize<S: serde::Serializer>(
+        &self,
+        serializer: S,
+    ) -> std::result::Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+        let mut map = serializer.serialize_map(Some(4))?;
+        map.serialize_entry(obfstr::obfstr!("system"), &self.system)?;
+        map.serialize_entry(obfstr::obfstr!("board"), &self.board)?;
+        map.serialize_entry(obfstr::obfstr!("processor"), &self.processor)?;
+        map.serialize_entry(obfstr::obfstr!("monitors"), &self.monitors)?;
+        map.end()
+    }
 }
 
 #[cfg(windows)]
@@ -120,8 +226,12 @@ impl std::fmt::Display for HttpFailure {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             formatter,
-            "Authentication server rejected the request ({}) at {}: {}",
-            self.status, self.path, self.detail
+            "{} ({}) {} {}: {}",
+            obfstr::obfstr!("Authentication server rejected the request"),
+            self.status,
+            obfstr::obfstr!("at"),
+            self.path,
+            self.detail
         )
     }
 }
@@ -143,19 +253,28 @@ fn collect_hardware() -> Result<HardwareProfile> {
     crate::debug_guard::enforce();
     crate::environment_guard::require_allowed()?;
     crate::native_manifest::require_current("celeste_plus")?;
+    collect_windows_wmi().or_else(|_| collect_windows_firmware())
+}
+
+#[cfg(windows)]
+fn collect_windows_wmi() -> Result<HardwareProfile> {
     let com = COMLibrary::new()
         .context(obfstr::obfstr!("Windows hardware services are unavailable").to_owned())?;
     let wmi = WMIConnection::new(com)
         .context(obfstr::obfstr!("Could not connect to Windows hardware services").to_owned())?;
-    let systems: Vec<ComputerSystem> =
-        wmi.raw_query("SELECT Manufacturer,Model FROM Win32_ComputerSystem")?;
-    let products: Vec<ComputerProduct> =
-        wmi.raw_query("SELECT UUID FROM Win32_ComputerSystemProduct")?;
-    let bios: Vec<Bios> = wmi.raw_query("SELECT SerialNumber FROM Win32_BIOS")?;
-    let boards: Vec<BaseBoard> =
-        wmi.raw_query("SELECT Manufacturer,Product,Version,SerialNumber FROM Win32_BaseBoard")?;
-    let processors: Vec<Processor> =
-        wmi.raw_query("SELECT ProcessorId,Manufacturer,Name FROM Win32_Processor")?;
+    let systems: Vec<ComputerSystem> = wmi.raw_query(obfstr::obfstr!(
+        "SELECT Manufacturer,Model FROM Win32_ComputerSystem"
+    ))?;
+    let products: Vec<ComputerProduct> = wmi.raw_query(obfstr::obfstr!(
+        "SELECT UUID FROM Win32_ComputerSystemProduct"
+    ))?;
+    let bios: Vec<Bios> = wmi.raw_query(obfstr::obfstr!("SELECT SerialNumber FROM Win32_BIOS"))?;
+    let boards: Vec<BaseBoard> = wmi.raw_query(obfstr::obfstr!(
+        "SELECT Manufacturer,Product,Version,SerialNumber FROM Win32_BaseBoard"
+    ))?;
+    let processors: Vec<Processor> = wmi.raw_query(obfstr::obfstr!(
+        "SELECT ProcessorId,Manufacturer,Name FROM Win32_Processor"
+    ))?;
 
     let system = systems.first();
     let product = products.first();
@@ -179,6 +298,51 @@ fn collect_hardware() -> Result<HardwareProfile> {
         processor.and_then(|v| v.manufacturer.as_deref()),
         processor.and_then(|v| v.name.as_deref()),
     ]);
+    windows_profile_from_fields(&system_value, &board_value, &processor_value)
+}
+
+#[cfg(windows)]
+fn collect_windows_firmware() -> Result<HardwareProfile> {
+    let identity = crate::hardware_v2::firmware::read()?;
+    let cpu = RegKey::predef(HKEY_LOCAL_MACHINE).open_subkey_with_flags(
+        obfstr::obfstr!(r"HARDWARE\DESCRIPTION\System\CentralProcessor\0"),
+        KEY_READ | KEY_WOW64_64KEY,
+    )?;
+    // These are the same OS-supplied CPU vendor/brand values exposed by WMI;
+    // SMBIOS manufacturer/version strings are NOT interchangeable with them.
+    let manufacturer: String = cpu.get_value(obfstr::obfstr!("VendorIdentifier"))?;
+    let name: String = cpu.get_value(obfstr::obfstr!("ProcessorNameString"))?;
+    if manufacturer.trim().is_empty() || name.trim().is_empty() {
+        bail!("{}", obfstr::obfstr!("Processor identity unavailable"));
+    }
+    let system = canonical(
+        &identity
+            .system
+            .iter()
+            .map(|v| Some(v.as_str()))
+            .collect::<Vec<_>>(),
+    );
+    let board = canonical(
+        &identity
+            .board
+            .iter()
+            .map(|v| Some(v.as_str()))
+            .collect::<Vec<_>>(),
+    );
+    let processor = canonical(&[
+        Some(&identity.processor_id),
+        Some(&manufacturer),
+        Some(&name),
+    ]);
+    windows_profile_from_fields(&system, &board, &processor)
+}
+
+#[cfg(windows)]
+fn windows_profile_from_fields(
+    system_value: &str,
+    board_value: &str,
+    processor_value: &str,
+) -> Result<HardwareProfile> {
     let mut monitors = monitor_edids()
         .into_iter()
         .map(|value| hex_sha256(&value))
@@ -216,7 +380,7 @@ fn canonical(values: &[Option<&str>]) -> String {
             }
         })
         .collect::<Vec<_>>()
-        .join("\n")
+        .join(obfstr::obfstr!("\n"))
 }
 
 #[cfg(windows)]
@@ -224,7 +388,7 @@ fn monitor_edids() -> Vec<Vec<u8>> {
     let mut values = Vec::new();
     let root = RegKey::predef(HKEY_LOCAL_MACHINE);
     let Ok(display) = root.open_subkey_with_flags(
-        r"SYSTEM\CurrentControlSet\Enum\DISPLAY",
+        obfstr::obfstr!(r"SYSTEM\CurrentControlSet\Enum\DISPLAY"),
         KEY_READ | KEY_WOW64_64KEY,
     ) else {
         return values;
@@ -236,12 +400,12 @@ fn monitor_edids() -> Vec<Vec<u8>> {
         };
         for instance in vendor_key.enum_keys().flatten() {
             let Ok(parameters) = vendor_key.open_subkey_with_flags(
-                format!(r"{}\Device Parameters", instance),
+                format!(r"{}\{}", instance, obfstr::obfstr!("Device Parameters")),
                 KEY_READ | KEY_WOW64_64KEY,
             ) else {
                 continue;
             };
-            if let Ok(raw) = parameters.get_raw_value("EDID")
+            if let Ok(raw) = parameters.get_raw_value(obfstr::obfstr!("EDID"))
                 && !raw.bytes.is_empty()
             {
                 values.push(raw.bytes);
@@ -278,9 +442,9 @@ fn enroll_remote(license: &str, hardware: &HardwareProfile) -> Result<InstallCre
         obfstr::obfstr!("/v1/enroll/start"),
         &with_hardware_v2(json!({
             (obfstr::obfstr!("product")): "celeste_plus",
-            (obfstr::obfstr!("release_id")): release::LAUNCHER_CHANNEL_ID,
-            (obfstr::obfstr!("client_version")): release::LAUNCHER_PROTOCOL_VERSION,
-            (obfstr::obfstr!("client_sha256")): release::LAUNCHER_CHANNEL_DIGEST,
+            (obfstr::obfstr!("release_id")): obfstr::obfstr!(release::LAUNCHER_CHANNEL_ID),
+            (obfstr::obfstr!("client_version")): obfstr::obfstr!(release::LAUNCHER_PROTOCOL_VERSION),
+            (obfstr::obfstr!("client_sha256")): obfstr::obfstr!(release::LAUNCHER_CHANNEL_DIGEST),
             (obfstr::obfstr!("game_uuid")): INSTALLER_UUID,
             (obfstr::obfstr!("game_name")): INSTALLER_NAME,
             (obfstr::obfstr!("license_key")): license,
@@ -367,9 +531,9 @@ fn authenticate_installer(
         &with_hardware_v2(
             json!({
                 (obfstr::obfstr!("product")): "celeste_plus",
-                (obfstr::obfstr!("release_id")): release::LAUNCHER_CHANNEL_ID,
-                (obfstr::obfstr!("client_version")): release::LAUNCHER_PROTOCOL_VERSION,
-                (obfstr::obfstr!("client_sha256")): release::LAUNCHER_CHANNEL_DIGEST,
+                (obfstr::obfstr!("release_id")): obfstr::obfstr!(release::LAUNCHER_CHANNEL_ID),
+                (obfstr::obfstr!("client_version")): obfstr::obfstr!(release::LAUNCHER_PROTOCOL_VERSION),
+                (obfstr::obfstr!("client_sha256")): obfstr::obfstr!(release::LAUNCHER_CHANNEL_DIGEST),
                 (obfstr::obfstr!("game_uuid")): INSTALLER_UUID,
                 (obfstr::obfstr!("game_name")): INSTALLER_NAME,
                 (obfstr::obfstr!("device_id")): credential.device_id,
@@ -410,9 +574,10 @@ fn authenticate_installer(
             .get(obfstr::obfstr!("auth_protocol"))
             .and_then(Value::as_u64)
             != Some(2)
-        || required_text(&claims, obfstr::obfstr!("/release"))? != release::LAUNCHER_CHANNEL_ID
+        || required_text(&claims, obfstr::obfstr!("/release"))?
+            != obfstr::obfstr!(release::LAUNCHER_CHANNEL_ID)
         || required_text(&claims, obfstr::obfstr!("/client_sha256"))?
-            != release::LAUNCHER_CHANNEL_DIGEST
+            != obfstr::obfstr!(release::LAUNCHER_CHANNEL_DIGEST)
         || required_text(&claims, obfstr::obfstr!("/bootstrap"))? != bootstrap_id
         || required_text(&claims, obfstr::obfstr!("/bootstrap_sha256"))? != bootstrap_sha
     {
@@ -517,7 +682,7 @@ fn post_json(path: &str, body: &Value) -> Result<Value> {
 
 fn post_json_with_dpop(path: &str, body: &Value, signing: Option<&SigningKey>) -> Result<Value> {
     let url = endpoint(path)?;
-    let agent = crate::transport_policy::agent(release::BASE_URL)?;
+    let agent = crate::transport_policy::agent(obfstr::obfstr!(release::BASE_URL))?;
     let mut request = agent
         .post(&url)
         .set(
@@ -597,21 +762,21 @@ pub(crate) fn resource_failure(path: &str, status: u16, response: ureq::Response
 fn authoritative_rejection(error: &anyhow::Error) -> bool {
     error.downcast_ref::<HttpFailure>().is_some_and(|failure| {
         failure.status == 401
-            && matches!(
-                failure.code.as_deref(),
-                Some(
-                    "device_mismatch"
-                        | "subscription_inactive"
-                        | "token_revoked"
-                        | "token_rotated"
-                        | "reactivation_required"
-                )
-            )
+            && failure.code.as_deref().is_some_and(|code| {
+                [
+                    obfstr::obfstr!("device_mismatch"),
+                    obfstr::obfstr!("subscription_inactive"),
+                    obfstr::obfstr!("token_revoked"),
+                    obfstr::obfstr!("token_rotated"),
+                    obfstr::obfstr!("reactivation_required"),
+                ]
+                .contains(&code)
+            })
     })
 }
 
 fn endpoint(path: &str) -> Result<String> {
-    if !release::BASE_URL.starts_with("https://")
+    if !obfstr::obfstr!(release::BASE_URL).starts_with("https://")
         || !path.starts_with(obfstr::obfstr!("/v1/"))
         || path.contains("://")
         || path.contains("..")
@@ -624,7 +789,7 @@ fn endpoint(path: &str) -> Result<String> {
     }
     Ok(format!(
         "{}{}",
-        release::BASE_URL.trim_end_matches('/'),
+        obfstr::obfstr!(release::BASE_URL).trim_end_matches('/'),
         path
     ))
 }
@@ -637,7 +802,7 @@ fn verify_token(token: &str, audience: &str) -> Result<Value> {
             obfstr::obfstr!("Server returned a malformed signed token")
         );
     }
-    let key = VerifyingKey::from_bytes(&fixed_32(&decode(release::SERVER_KEY)?)?)?;
+    let key = VerifyingKey::from_bytes(&fixed_32(&decode(obfstr::obfstr!(release::SERVER_KEY))?)?)?;
     let signature = Signature::from_slice(&decode(parts[2])?)?;
     key.verify(format!("{}.{}", parts[0], parts[1]).as_bytes(), &signature)
         .context(obfstr::obfstr!("Server token signature is invalid").to_owned())?;
@@ -755,14 +920,18 @@ fn required_text<'a>(value: &'a Value, pointer: &str) -> Result<&'a str> {
     value
         .pointer(pointer)
         .and_then(Value::as_str)
-        .ok_or_else(|| anyhow!("Server response omitted {pointer}"))
+        .ok_or_else(|| anyhow!("{} {pointer}", obfstr::obfstr!("Server response omitted")))
 }
 
 fn require_digest(value: &[u8], expected: &str) -> Result<()> {
     let actual = hex_sha256(value);
     if actual.as_bytes() != expected.as_bytes() {
         bail!(
-            "Signed loader digest does not match the downloaded file (expected {expected}, got {actual}, bytes={})",
+            "{} ({} {expected}, {} {actual}, {}={})",
+            obfstr::obfstr!("Signed loader digest does not match the downloaded file"),
+            obfstr::obfstr!("expected"),
+            obfstr::obfstr!("got"),
+            obfstr::obfstr!("bytes"),
             value.len()
         );
     }
@@ -801,7 +970,7 @@ fn short_detail(value: &str, request: &Value) -> String {
     // or signature. Keep the actual bounded server reason useful to the user.
     for key in [
         obfstr::obfstr!("license_key"),
-        "install_signature",
+        obfstr::obfstr!("install_signature"),
         obfstr::obfstr!("token_signature"),
         obfstr::obfstr!("grant"),
     ] {
@@ -819,6 +988,41 @@ fn short_detail(value: &str, request: &Value) -> String {
 #[cfg(test)]
 mod error_tests {
     use super::*;
+    #[test]
+    fn protected_field_codec_reads_old_credentials_without_changing_schema() {
+        let old = r#"{"deviceId":"fixture-device","uid":7,"signingPrivate":"fixture-signing","encryptionPrivate":"fixture-encryption","tokenSeed":"fixture-seed","certificate":"fixture-cert","gameUuid":"fixture-uuid","gameName":"fixture-name"}"#;
+        let credential: InstallCredential = serde_json::from_str(old).unwrap();
+        assert_eq!(serde_json::to_string(&credential).unwrap(), old);
+        assert!(
+            serde_json::from_str::<InstallCredential>(
+                &old.replace("\"uid\":7", "\"uid\":7,\"uid\":8")
+            )
+            .is_err()
+        );
+        assert!(
+            serde_json::from_str::<InstallCredential>(
+                &old.replace("\"tokenSeed\":\"fixture-seed\",", "")
+            )
+            .is_err()
+        );
+        let extra = old.replace("\"uid\":7", "\"uid\":7,\"futureField\":true");
+        assert!(serde_json::from_str::<InstallCredential>(&extra).is_ok());
+    }
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "Read-only local WMI/firmware identity parity; emits no hardware values"]
+    fn local_windows_fallback_preserves_existing_identity() {
+        let wmi = collect_windows_wmi().expect(obfstr::obfstr!("WMI profile query failed"));
+        let fallback =
+            collect_windows_firmware().expect(obfstr::obfstr!("Firmware profile query failed"));
+        assert!(wmi.system == fallback.system, "system parity failed");
+        assert!(wmi.board == fallback.board, "board parity failed");
+        assert!(
+            wmi.processor == fallback.processor,
+            "processor parity failed"
+        );
+        assert!(wmi.monitors == fallback.monitors, "monitor parity failed");
+    }
     #[test]
     fn typed_remote_denials_clear_only_transient_grants_and_preserve_installation() {
         let credential = InstallCredential {
@@ -1026,11 +1230,11 @@ mod error_tests {
         assert!(paths.iter().all(|path| path.starts_with(&game)));
         assert_eq!(
             paths[0],
-            game.join("config")
-                .join("celeste")
-                .join("auth")
-                .join("celeste_plus")
-                .join("device.bin")
+            game.join(obfstr::obfstr!("config"))
+                .join(obfstr::obfstr!("celeste"))
+                .join(obfstr::obfstr!("auth"))
+                .join(obfstr::obfstr!("celeste_plus"))
+                .join(obfstr::obfstr!("device.bin"))
         );
     }
 
@@ -1064,10 +1268,10 @@ mod error_tests {
     fn original_shared_owner_cache_path_is_reused_without_beta_suffix() {
         let cache = shared_cache_under(Path::new(r"C:\Users\fixture\AppData\Local")).unwrap();
         assert_eq!(
-            cache.join("uid-7.bin"),
+            cache.join(obfstr::obfstr!("uid-7.bin")),
             PathBuf::from(format!(
                 r"C:\Users\fixture\AppData\Local\Celeste\auth\{}\uid-7.bin",
-                release::LAUNCHER_CHANNEL_ID
+                obfstr::obfstr!(release::LAUNCHER_CHANNEL_ID)
             ))
         );
         assert!(shared_cache_under(Path::new("relative-user-root")).is_err());
@@ -1080,9 +1284,9 @@ mod error_tests {
             assert_eq!(
                 cache,
                 Path::new(redirected)
-                    .join("Celeste")
-                    .join("auth")
-                    .join(release::LAUNCHER_CHANNEL_ID)
+                    .join(obfstr::obfstr!("Celeste"))
+                    .join(obfstr::obfstr!("auth"))
+                    .join(obfstr::obfstr!(release::LAUNCHER_CHANNEL_ID))
             );
         }
     }
@@ -1098,13 +1302,13 @@ mod error_tests {
             assert_eq!(
                 cache,
                 Path::new(root)
-                    .join("Celeste")
-                    .join("auth")
-                    .join(release::LAUNCHER_CHANNEL_ID)
+                    .join(obfstr::obfstr!("Celeste"))
+                    .join(obfstr::obfstr!("auth"))
+                    .join(obfstr::obfstr!(release::LAUNCHER_CHANNEL_ID))
             );
             assert_ne!(
-                cache.join("celeste-plus-active.bin"),
-                cache.join("celeste-active.bin")
+                cache.join(obfstr::obfstr!("celeste-plus-active.bin")),
+                cache.join(obfstr::obfstr!("celeste-active.bin"))
             );
         }
         assert!(shared_cache_under(Path::new("relative-user-root")).is_err());
@@ -1169,9 +1373,9 @@ fn shared_cache_under(root: &Path) -> Result<PathBuf> {
         );
     }
     Ok(root
-        .join("Celeste")
-        .join("auth")
-        .join(release::LAUNCHER_CHANNEL_ID))
+        .join(obfstr::obfstr!("Celeste"))
+        .join(obfstr::obfstr!("auth"))
+        .join(obfstr::obfstr!(release::LAUNCHER_CHANNEL_ID)))
 }
 
 /// Reuse only this product's selected binding and our account-protected identity cache.
@@ -1194,7 +1398,9 @@ pub(crate) fn activate(license: &str) -> Result<bool> {
 struct NoSavedActivation;
 impl std::fmt::Display for NoSavedActivation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("Enter your Celeste+ or Both license to activate this computer")
+        f.write_str(obfstr::obfstr!(
+            "Enter your Celeste+ or Both license to activate this computer"
+        ))
     }
 }
 impl std::error::Error for NoSavedActivation {}
@@ -1205,15 +1411,20 @@ fn authenticate_for_setup(game: Option<&Path>, license: &str) -> Result<Session>
         bail!("{}", obfstr::obfstr!("Enter the complete license key"));
     }
     let cache = user_cache()?;
-    let active_path = cache.join("celeste-plus-active.bin");
+    let active_path = cache.join(obfstr::obfstr!("celeste-plus-active.bin"));
     let pinned = license.is_empty() && active_path.is_file();
     let mut paths = vec![active_path.clone()];
     if let Some(game) = game {
-        let auth_dir = game.join("config").join("celeste").join("auth");
+        let auth_dir = game
+            .join(obfstr::obfstr!("config"))
+            .join(obfstr::obfstr!("celeste"))
+            .join(obfstr::obfstr!("auth"));
         paths.extend([
-            auth_dir.join("celeste_plus").join("device.bin"),
-            auth_dir.join("installer.bin"),
-            auth_dir.join("device.bin"),
+            auth_dir
+                .join(obfstr::obfstr!("celeste_plus"))
+                .join(obfstr::obfstr!("device.bin")),
+            auth_dir.join(obfstr::obfstr!("installer.bin")),
+            auth_dir.join(obfstr::obfstr!("device.bin")),
         ]);
     }
     if cache.is_dir() {
@@ -1224,8 +1435,8 @@ fn authenticate_for_setup(game: Option<&Path>, license: &str) -> Result<Session>
                 path.file_name()
                     .and_then(|name| name.to_str())
                     .is_some_and(|name| {
-                        name.strip_prefix("uid-")
-                            .and_then(|s| s.strip_suffix(".bin"))
+                        name.strip_prefix(obfstr::obfstr!("uid-"))
+                            .and_then(|s| s.strip_suffix(obfstr::obfstr!(".bin")))
                             .is_some_and(|s| s.parse::<u64>().is_ok_and(|uid| uid > 0))
                     })
                     && path.is_file()
@@ -1288,9 +1499,7 @@ fn authenticate_for_setup(game: Option<&Path>, license: &str) -> Result<Session>
         // A redirected/unavailable Modrinth database must not prevent reuse of
         // an already valid account cache. If reuse failed, however, do not
         // consume another device slot with an incomplete recovery search.
-        return Err(error.context(
-            "Could not check existing profile activations. Restore access to this account's Modrinth data and retry; no new device was enrolled",
-        ));
+        return Err(error.context(obfstr::obfstr!("Could not check existing profile activations. Restore access to this account's Modrinth data and retry; no new device was enrolled").to_owned()));
     }
     if license.is_empty() {
         if let Some(error) = rejected {
@@ -1306,7 +1515,12 @@ fn authenticate_for_setup(game: Option<&Path>, license: &str) -> Result<Session>
     }
     let credential = enroll(license, &hardware)?;
     save_credential(
-        &cache.join(format!("uid-{}.bin", credential.uid)),
+        &cache.join(format!(
+            "{}{}{}",
+            obfstr::obfstr!("uid-"),
+            credential.uid,
+            obfstr::obfstr!(".bin")
+        )),
         &credential,
     )?;
     let value = authenticate_installer(&credential, &hardware, license)?;
@@ -1316,11 +1530,15 @@ fn authenticate_for_setup(game: Option<&Path>, license: &str) -> Result<Session>
 }
 
 fn append_profile_bindings(paths: &mut Vec<PathBuf>, game: &Path) {
-    let root = game.join("config").join("celeste").join("auth");
+    let root = game
+        .join(obfstr::obfstr!("config"))
+        .join(obfstr::obfstr!("celeste"))
+        .join(obfstr::obfstr!("auth"));
     paths.extend([
-        root.join("celeste_plus").join("device.bin"),
-        root.join("installer.bin"),
-        root.join("device.bin"),
+        root.join(obfstr::obfstr!("celeste_plus"))
+            .join(obfstr::obfstr!("device.bin")),
+        root.join(obfstr::obfstr!("installer.bin")),
+        root.join(obfstr::obfstr!("device.bin")),
     ]);
 }
 
@@ -1358,12 +1576,20 @@ fn remember_local_failure(
 
 fn save_setup_binding(cache: &Path, credential: &InstallCredential) -> Result<()> {
     save_credential(
-        &cache.join(format!("uid-{}.bin", credential.uid)),
+        &cache.join(format!(
+            "{}{}{}",
+            obfstr::obfstr!("uid-"),
+            credential.uid,
+            obfstr::obfstr!(".bin")
+        )),
         credential,
     )
     .context(obfstr::obfstr!("Could not save this account's activation").to_owned())?;
-    save_credential(&cache.join("celeste-plus-active.bin"), credential)
-        .context(obfstr::obfstr!("Could not remember this Celeste+ activation").to_owned())
+    save_credential(
+        &cache.join(obfstr::obfstr!("celeste-plus-active.bin")),
+        credential,
+    )
+    .context(obfstr::obfstr!("Could not remember this Celeste+ activation").to_owned())
 }
 
 pub(crate) fn needs_activation(error: &anyhow::Error) -> bool {
@@ -1528,23 +1754,17 @@ impl Session {
 
     #[inline(never)]
     fn grant_request(&self, path: &str) -> Result<Value> {
-        let hwid = if let Some(value) = crate::hardware_v2::current()? {
-            value
-        } else {
-            let hardware = collect_hardware()?;
-            // Exact existing backend canonical JSON, sorted keys and no whitespace.
-            hex_sha256(serde_json::to_string(&json!({"board":hardware.board,"processor":hardware.processor,"system":hardware.system}))?.as_bytes())
-        };
+        let hwid = self.request_hardware()?;
         let url = endpoint(path)?;
         let key = signing_key(&self.credential.signing_private)?;
         let proof =
             crate::dpop::proof_bound(&key, "POST", &url, Some(&self.grant), None, Some(&hwid))?;
-        let agent = crate::transport_policy::agent(release::BASE_URL)?;
+        let agent = crate::transport_policy::agent(obfstr::obfstr!(release::BASE_URL))?;
         match agent
             .post(&url)
             .set(
                 obfstr::obfstr!("Authorization"),
-                &format!("DPoP {}", self.grant),
+                &format!("{} {}", obfstr::obfstr!("DPoP"), self.grant),
             )
             .set(obfstr::obfstr!("DPoP"), &proof)
             .set(obfstr::obfstr!("X-Device-Id"), &hwid)
@@ -1600,32 +1820,60 @@ impl Session {
         crate::dpop::proof(&key, method, url, Some(&self.grant))
     }
 
-    pub(crate) fn artifact_proof(&self, url: &str, public: &str, nonce: &str) -> Result<String> {
+    fn request_hardware(&self) -> Result<String> {
+        if let Some(value) = crate::hardware_v2::current()? {
+            return Ok(value);
+        }
+        let hardware = collect_hardware()?;
+        // Exact backend canonical JSON; legacy fallback only on non-v2 platforms.
+        Ok(hex_sha256(
+            serde_json::to_string(&json!({
+                (obfstr::obfstr!("board")): hardware.board,
+                (obfstr::obfstr!("processor")): hardware.processor,
+                (obfstr::obfstr!("system")): hardware.system,
+            }))?
+            .as_bytes(),
+        ))
+    }
+
+    /// Return the exact hardware header alongside its signed proof so transport
+    /// cannot accidentally sample a different identity or omit the binding.
+    pub(crate) fn artifact_proof(
+        &self,
+        url: &str,
+        public: &str,
+        nonce: &str,
+    ) -> Result<(String, String)> {
         let key = signing_key(&self.credential.signing_private)?;
         let claims = verify_token(&self.grant, obfstr::obfstr!("celeste-installer"))?;
         crate::dpop::require_binding(&claims, &key)?;
-        crate::dpop::proof_bound(
+        let hwid = self.request_hardware()?;
+        let proof = crate::dpop::proof_bound(
             &key,
             "GET",
             url,
             Some(&self.grant),
             Some((public, nonce)),
-            None,
-        )
+            Some(&hwid),
+        )?;
+        Ok((proof, hwid))
     }
 
     /// Caller must first verify the selected PID's canonical game directory.
     pub fn prepare_runtime_credential(&self, game: &Path) -> Result<()> {
         let target = game
-            .join("config")
-            .join("celeste")
-            .join("auth")
-            .join("celeste_plus")
-            .join("device.bin");
+            .join(obfstr::obfstr!("config"))
+            .join(obfstr::obfstr!("celeste"))
+            .join(obfstr::obfstr!("auth"))
+            .join(obfstr::obfstr!("celeste_plus"))
+            .join(obfstr::obfstr!("device.bin"));
         // Only a freshly server-authorized identity may update this product's binding.
         // The standard Celeste binding and generic cached identities remain independent.
         save_credential(&target, &self.credential).context(
-            "Could not save the account-protected Celeste+ activation in the selected instance",
+            obfstr::obfstr!(
+                "Could not save the account-protected Celeste+ activation in the selected instance"
+            )
+            .to_owned(),
         )
     }
 }

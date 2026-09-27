@@ -61,11 +61,18 @@ public final class AuthBootstrapLifecycleTest {
                 case "queued-session-expired" -> queuedSessionExpired();
                 case "expiry-without-worker" -> expiryWithoutWorker();
                 case "late-response-after-expiry" -> lateResponseAfterExpiry();
+                case "heartbeat-worker-recovery" -> workerRecovery(false);
+                case "heartbeat-task-recovery" -> workerRecovery(true);
+                case "heartbeat-recovery-exhausted" -> recoveryExhausted();
+                case "heartbeat-recovery-stop-race" -> recoveryStopRace();
+                case "heartbeat-recovery-expired" -> recoveryExpired();
+                case "heartbeat-recovery-waits-for-termination" -> recoveryWaitsForTermination();
                 default -> throw new IllegalArgumentException("Unknown scenario: " + args[0]);
             }
             System.out.println("PASS " + args[0]);
         } finally {
             worker().shutdownNow();
+            supervisor().shutdownNow();
         }
     }
 
@@ -398,6 +405,86 @@ public final class AuthBootstrapLifecycleTest {
         require(INITIALIZATIONS.get() == 1 && CLEANUPS.get() == 1, "Late response cannot reopen expired owner");
     }
 
+    private static void workerRecovery(boolean taskFailure) throws Exception {
+        activate();
+        ScheduledExecutorService original = worker();
+        if (taskFailure) AuthServiceClient.fatalChecks.set(1);
+        original.shutdownNow();
+        await(() -> AuthServiceClient.checks.get() >= (taskFailure ? 3 : 2), 7_000, "supervised fresh heartbeat");
+        await(() -> Integer.valueOf(0).equals(uncheckedField("workerRecoveries")), 2_000, "verified recovery resets budget");
+        require(original.isTerminated() && worker() != original, "Replacement follows actual old worker termination");
+        require(AuthBootstrap.authorized() && CLEANUPS.get() == 0, "Successful worker recovery preserves the live lease");
+        require(INITIALIZATIONS.get() == 1 && AuthServiceClient.authentications.get() == 1,
+            "Recovery renews the session without repeating initialization or enrollment");
+        AuthBootstrap.stopAfterClientStarted().toCompletableFuture().get(2, TimeUnit.SECONDS);
+        require(worker().isTerminated() && supervisor().isTerminated(), "Stop observes both workers ending");
+    }
+
+    private static void recoveryExhausted() throws Exception {
+        activate();
+        AuthServiceClient.fatalChecks.set(100);
+        worker().shutdownNow();
+        await(() -> AuthBootstrap.locked(), 9_000, "bounded recovery exhaustion");
+        CLIENT.drain();
+        assertClosedSession();
+        require(AuthServiceClient.checks.get() == 4, "Only three failed replacement heartbeats after startup");
+        require(CLEANUPS.get() == 1 && Integer.valueOf(3).equals(field("workerRecoveries")), "Exhaustion closes once");
+        invoke("superviseHeartbeat", new Class<?>[0]);
+        require(AuthServiceClient.checks.get() == 4, "Locked supervision cannot restart authorization");
+    }
+
+    private static void recoveryStopRace() throws Exception {
+        activate();
+        AuthServiceClient.checkEntered = new CountDownLatch(1);
+        AuthServiceClient.checkRelease = new CountDownLatch(1);
+        AuthServiceClient.ignoreCheckInterrupts = true;
+        worker().shutdownNow();
+        require(AuthServiceClient.checkEntered.await(4, TimeUnit.SECONDS), "Recovered heartbeat enters request");
+        var completion = AuthBootstrap.stopAfterClientStarted().toCompletableFuture();
+        require(!completion.isDone(), "Stop cannot report termination while recovered request remains in flight");
+        ScheduledExecutorService stoppedWorker = worker();
+        invoke("superviseHeartbeat", new Class<?>[0]);
+        AuthServiceClient.checkRelease.countDown();
+        completion.get(2, TimeUnit.SECONDS);
+        CLIENT.drain();
+        assertClosedSession();
+        require(stoppedWorker == worker() && worker().isTerminated() && supervisor().isTerminated(),
+            "Stop wins over supervisor and late successful refresh");
+        require(CLEANUPS.get() == 1 && INITIALIZATIONS.get() == 1, "Recovered worker cannot resurrect stopped runtime");
+    }
+
+    private static void recoveryExpired() throws Exception {
+        activate();
+        ScheduledExecutorService original = worker();
+        original.shutdownNow();
+        setField("sessionDeadlineNanos", System.nanoTime() - 1);
+        invoke("superviseHeartbeat", new Class<?>[0]);
+        CLIENT.drain();
+        assertClosedSession();
+        require(worker() == original && AuthServiceClient.checks.get() == 1, "Supervisor cannot extend an expired lease");
+    }
+
+    private static void recoveryWaitsForTermination() throws Exception {
+        activate();
+        AuthServiceClient.checkEntered = new CountDownLatch(1);
+        AuthServiceClient.checkRelease = new CountDownLatch(1);
+        AuthServiceClient.ignoreCheckInterrupts = true;
+        ScheduledExecutorService original = worker();
+        Future<?> pending = original.submit(() -> {
+            try { heartbeat(); } catch (Exception failure) { throw new IllegalStateException(failure); }
+        });
+        require(AuthServiceClient.checkEntered.await(2, TimeUnit.SECONDS), "Old request is in flight");
+        original.shutdownNow();
+        invoke("superviseHeartbeat", new Class<?>[0]);
+        require(worker() == original && AuthServiceClient.checks.get() == 2,
+            "Cancelled executor cannot overlap a new worker with its still-running request");
+        AuthServiceClient.checkRelease.countDown();
+        pending.get(2, TimeUnit.SECONDS);
+        await(() -> AuthServiceClient.checks.get() >= 3, 4_000, "recovery after actual request exit");
+        require(original.isTerminated() && worker() != original && AuthBootstrap.authorized(),
+            "Healthy replacement follows old request completion");
+    }
+
     private static void completeAuthorization() throws Exception {
         await(() -> CLIENT.queuedCount() > 0, 2_000, "queued authorization");
         require(!AuthBootstrap.authorized(), "Authorization must publish on game thread only");
@@ -435,6 +522,7 @@ public final class AuthBootstrapLifecycleTest {
     private static void stop() { ClientLifecycleEvents.CLIENT_STOPPING.fire(CLIENT); }
     private static void heartbeat() throws Exception { invoke("heartbeat", new Class<?>[0]); }
     private static ScheduledExecutorService worker() throws Exception { return (ScheduledExecutorService) field("WORKER"); }
+    private static ScheduledExecutorService supervisor() throws Exception { return (ScheduledExecutorService) field("SUPERVISOR"); }
     private static void workerBarrier() throws Exception { worker().submit(() -> { }).get(2, TimeUnit.SECONDS); }
 
     private static Object field(String name) throws Exception {

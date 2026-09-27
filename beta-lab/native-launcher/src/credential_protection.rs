@@ -22,8 +22,8 @@ const MAX_PROTECTED_BYTES: usize = MAX_PLAINTEXT_BYTES + 64 * 1024;
 /// from a missing binding or a server rejection. Never contains credential data.
 #[derive(Debug)]
 pub(crate) struct ProtectionError {
-    operation: &'static str,
-    action: &'static str,
+    operation: String,
+    action: String,
     os_error: io::Error,
     profile_diagnostics: Option<String>,
 }
@@ -32,22 +32,35 @@ impl std::fmt::Display for ProtectionError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             formatter,
-            "Windows could not {} the device credential ({}",
-            self.action, self.operation
+            "{} {} {} ({}",
+            obfstr::obfstr!("Windows could not"),
+            self.action,
+            obfstr::obfstr!("the device credential"),
+            self.operation
         )?;
         if let Some(code) = self.os_error.raw_os_error() {
             let code = code as u32;
-            write!(formatter, ", Windows error {code} / 0x{code:08X}")?;
+            write!(
+                formatter,
+                ", {} {code} / 0x{code:08X}",
+                obfstr::obfstr!("Windows error")
+            )?;
         }
         write!(
             formatter,
-            ": {}). Use your normal signed-in Windows account with its user profile loaded; saved activations require the Windows account that created them. If the problem persists, sign out of Windows, sign back in, and retry. Do not delete saved activation files.",
-            self.os_error
+            ": {}). {}",
+            self.os_error,
+            obfstr::obfstr!(
+                "Use your normal signed-in Windows account with its user profile loaded; saved activations require the Windows account that created them. If the problem persists, sign out of Windows, sign back in, and retry. Do not delete saved activation files."
+            )
         )?;
         if let Some(diagnostics) = &self.profile_diagnostics {
             write!(
                 formatter,
-                " Windows error 3 means a required path was not found. If AppData is redirected to another drive or a network location, make that location available, then sign out of Windows and back in. Keep using the same Windows account. {diagnostics}"
+                " {} {diagnostics}",
+                obfstr::obfstr!(
+                    "Windows error 3 means a required path was not found. If AppData is redirected to another drive or a network location, make that location available, then sign out of Windows and back in. Keep using the same Windows account."
+                )
             )?;
         }
         Ok(())
@@ -67,19 +80,32 @@ enum Operation {
 }
 
 impl Operation {
-    fn description(self) -> (&'static str, &'static str) {
+    fn description(self) -> (String, String) {
         match self {
-            Self::Protect => ("CryptProtectData", "protect"),
-            Self::Unprotect => ("CryptUnprotectData", "open"),
+            Self::Protect => (
+                obfstr::obfstr!("CryptProtectData").to_owned(),
+                obfstr::obfstr!("protect").to_owned(),
+            ),
+            Self::Unprotect => (
+                obfstr::obfstr!("CryptUnprotectData").to_owned(),
+                obfstr::obfstr!("open").to_owned(),
+            ),
         }
     }
 }
 
 fn checked_length(length: usize, limit: usize) -> Result<DWORD> {
-    let win32_length = DWORD::try_from(length)
-        .map_err(|_| anyhow!("Credential data exceeds the Windows DPAPI length limit"))?;
+    let win32_length = DWORD::try_from(length).map_err(|_| {
+        anyhow!(
+            "{}",
+            obfstr::obfstr!("Credential data exceeds the Windows DPAPI length limit")
+        )
+    })?;
     if length == 0 || length > limit {
-        bail!("Credential data is empty or exceeds the supported size bounds");
+        bail!(
+            "{}",
+            obfstr::obfstr!("Credential data is empty or exceeds the supported size bounds")
+        );
     }
     Ok(win32_length)
 }
@@ -111,7 +137,10 @@ impl DpapiBuffer {
         let length = self.0.cbData as usize;
         checked_length(length, limit)?;
         if self.0.pbData.is_null() {
-            bail!("Windows DPAPI returned an invalid output buffer");
+            bail!(
+                "{}",
+                obfstr::obfstr!("Windows DPAPI returned an invalid output buffer")
+            );
         }
         // A successful DPAPI call owns `cbData` initialized bytes at `pbData`.
         // Validate non-null/nonempty/bounded output before constructing a slice.
@@ -199,13 +228,16 @@ impl ProbeFile {
     fn reserve(directory: &Path) -> Result<Self> {
         for _ in 0..32 {
             let mut random = [0u8; 16];
-            OsRng
-                .try_fill_bytes(&mut random)
-                .context("Windows randomness is unavailable for the storage check")?;
+            OsRng.try_fill_bytes(&mut random).context(
+                obfstr::obfstr!("Windows randomness is unavailable for the storage check")
+                    .to_owned(),
+            )?;
             let suffix: String = random.iter().map(|byte| format!("{byte:02x}")).collect();
             let path = directory.join(format!(
-                ".celeste-storage-check-{}-{suffix}.probe",
-                std::process::id()
+                "{}{}-{suffix}{}",
+                obfstr::obfstr!(".celeste-storage-check-"),
+                std::process::id(),
+                obfstr::obfstr!(".probe")
             ));
             match OpenOptions::new().write(true).create_new(true).open(&path) {
                 Ok(file) => {
@@ -214,15 +246,22 @@ impl ProbeFile {
                 }
                 Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
                 Err(error) => {
-                    return Err(error).context("Could not reserve an activation storage probe");
+                    return Err(error).context(
+                        obfstr::obfstr!("Could not reserve an activation storage probe").to_owned(),
+                    );
                 }
             }
         }
-        bail!("Could not reserve a unique activation storage probe")
+        bail!(
+            "{}",
+            obfstr::obfstr!("Could not reserve a unique activation storage probe")
+        )
     }
 
     fn path(&self) -> &Path {
-        self.0.as_deref().expect("owned probe before cleanup")
+        self.0
+            .as_deref()
+            .expect(obfstr::obfstr!("owned probe before cleanup"))
     }
 
     fn remove(&mut self) -> io::Result<()> {
@@ -251,33 +290,49 @@ impl Drop for ProbeFile {
 /// bytes only. This never reads, replaces, or removes an existing activation.
 pub(crate) fn preflight(directory: &Path) -> Result<()> {
     if !directory.is_absolute() {
-        bail!("Activation storage check requires an absolute Windows directory");
+        bail!(
+            "{}",
+            obfstr::obfstr!("Activation storage check requires an absolute Windows directory")
+        );
     }
     // Resolve redirected current-account AppData and let Windows prepare its
     // known folders before DPAPI needs the profile's Roaming AppData path.
     let folders = crate::windows_profile::prepare_current_user_folders()?;
     if !folders.local_app_data.is_absolute() || !folders.roaming_app_data.is_absolute() {
-        bail!("Windows AppData folders must be absolute");
+        bail!(
+            "{}",
+            obfstr::obfstr!("Windows AppData folders must be absolute")
+        );
     }
     let mut sample = [0u8; 64];
-    OsRng
-        .try_fill_bytes(&mut sample)
-        .context("Windows randomness is unavailable for the protection check")?;
+    OsRng.try_fill_bytes(&mut sample).context(
+        obfstr::obfstr!("Windows randomness is unavailable for the protection check").to_owned(),
+    )?;
     let protected = protect(&sample)?;
     if unprotect(&protected)? != sample {
-        bail!("Windows credential protection did not pass its round-trip check");
+        bail!(
+            "{}",
+            obfstr::obfstr!("Windows credential protection did not pass its round-trip check")
+        );
     }
-    fs::create_dir_all(directory)
-        .context("Could not create the activation storage directory; enrollment was not started")?;
+    fs::create_dir_all(directory).context(
+        obfstr::obfstr!(
+            "Could not create the activation storage directory; enrollment was not started"
+        )
+        .to_owned(),
+    )?;
     let mut probe = ProbeFile::reserve(directory)?;
     let result = (|| -> Result<()> {
         crate::atomic_store::atomic_write(probe.path(), &protected).context(
             "Could not persist the activation storage check; enrollment was not started",
         )?;
-        let stored =
-            fs::read(probe.path()).context("Could not read the activation storage check")?;
+        let stored = fs::read(probe.path())
+            .context(obfstr::obfstr!("Could not read the activation storage check").to_owned())?;
         if stored != protected || unprotect(&stored)? != sample {
-            bail!("The activation storage check did not preserve its protected data");
+            bail!(
+                "{}",
+                obfstr::obfstr!("The activation storage check did not preserve its protected data")
+            );
         }
         Ok(())
     })();
@@ -285,9 +340,9 @@ pub(crate) fn preflight(directory: &Path) -> Result<()> {
     match (result, cleanup) {
         (Ok(()), Ok(())) => Ok(()),
         (Err(error), Ok(())) => Err(error),
-        (Ok(()), Err(error)) => {
-            Err(error).context("Could not remove the temporary activation storage check")
-        }
+        (Ok(()), Err(error)) => Err(error).context(
+            obfstr::obfstr!("Could not remove the temporary activation storage check").to_owned(),
+        ),
         (Err(error), Err(cleanup_error)) => Err(error.context(format!(
             "The temporary activation storage check also could not be removed: {cleanup_error}"
         ))),
@@ -410,8 +465,8 @@ mod tests {
     #[test]
     fn windows_error_keeps_numeric_code_and_safe_recovery_advice() {
         let error = ProtectionError {
-            operation: "CryptProtectData",
-            action: "protect",
+            operation: "CryptProtectData".into(),
+            action: "protect".into(),
             os_error: io::Error::from_raw_os_error(5),
             profile_diagnostics: None,
         };
@@ -425,8 +480,8 @@ mod tests {
     #[test]
     fn missing_path_error_explains_profile_recovery_without_exposing_credentials() {
         let error = ProtectionError {
-            operation: "CryptProtectData",
-            action: "protect",
+            operation: "CryptProtectData".into(),
+            action: "protect".into(),
             os_error: io::Error::from_raw_os_error(3),
             profile_diagnostics: Some("Current Windows profile: fixture path (missing).".into()),
         };
@@ -464,7 +519,7 @@ mod tests {
         let path = probe.path().to_path_buf();
         let result: Result<()> = (move || {
             let _owned_probe = probe;
-            bail!("simulated readback failure")
+            bail!("{}", obfstr::obfstr!("simulated readback failure"))
         })();
         assert!(result.is_err());
         assert!(!path.exists());

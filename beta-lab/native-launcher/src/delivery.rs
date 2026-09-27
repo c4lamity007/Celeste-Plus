@@ -23,7 +23,17 @@ const MAX_TOKEN_BYTES: usize = 16_384;
 const MAX_MANIFEST_RESPONSE_BYTES: usize = 20_480;
 const MAX_ARTIFACT_BYTES: usize = 64 * 1024 * 1024;
 const MAX_RELEASE_BYTES: u64 = 128 * 1024 * 1024;
-const IDS: [&str; 4] = ["bootstrap-a", "bootstrap-b", "payload-a", "payload-b"];
+fn artifact_ids() -> &'static [String; 4] {
+    static IDS: std::sync::OnceLock<[String; 4]> = std::sync::OnceLock::new();
+    IDS.get_or_init(|| {
+        [
+            obfstr::obfstr!("bootstrap-a").to_owned(),
+            obfstr::obfstr!("bootstrap-b").to_owned(),
+            obfstr::obfstr!("payload-a").to_owned(),
+            obfstr::obfstr!("payload-b").to_owned(),
+        ]
+    })
+}
 fn installer_keys() -> Vec<String> {
     vec![
         obfstr::obfstr!("auth_protocol").to_owned(),
@@ -108,7 +118,7 @@ pub fn download_bootstrap(
     let installer = session.grant.as_str();
     let device = session.device.as_str();
     let uid = session.uid;
-    let raw_key = decode(crate::release::SERVER_KEY)?;
+    let raw_key = decode(obfstr::obfstr!(crate::release::SERVER_KEY))?;
     let raw_key: [u8; 32] = raw_key
         .try_into()
         .map_err(|_| anyhow!("{}", obfstr::obfstr!("Invalid compiled beta server key")))?;
@@ -117,9 +127,10 @@ pub fn download_bootstrap(
     let claims = verify_installer(installer, device, &key, now()?)?;
     ensure!(
         uid > 0 && text(&claims, obfstr::obfstr!("sub"))? == uid.to_string(),
-        "Installer grant belongs to another activation"
+        "{}",
+        obfstr::obfstr!("Installer grant belongs to another activation")
     );
-    let transport = HttpsTransport::new(crate::release::BASE_URL)?;
+    let transport = HttpsTransport::new(obfstr::obfstr!(crate::release::BASE_URL))?;
 
     let request_nonce = new_request_nonce()?;
     let mut wrapper = transport.fetch(
@@ -137,7 +148,9 @@ pub fn download_bootstrap(
     current(installer, device, &key, &catalog, now()?)?;
     let bootstrap = &catalog.artifacts[0];
     let expected_digest = digest_bytes(&bootstrap.sha256)?;
-    let cache = directory.join(&bootstrap.sha256).join("bootstrap-a.cst");
+    let cache = directory
+        .join(&bootstrap.sha256)
+        .join(obfstr::obfstr!("bootstrap-a.cst"));
     if let Some(bytes) = crate::bootstrap_cache::load(&cache, &bootstrap.sha256, bootstrap.size)? {
         current(installer, device, &key, &catalog, now()?)?;
         let agent = crate::bootstrap_cache::materialize(directory, &bootstrap.sha256, &bytes)?;
@@ -175,7 +188,8 @@ pub fn download_bootstrap(
 fn manifest_from_response(bytes: &[u8]) -> Result<String> {
     ensure!(
         bytes.len() <= MAX_MANIFEST_RESPONSE_BYTES,
-        "Beta manifest response too large"
+        "{}",
+        obfstr::obfstr!("Beta manifest response too large")
     );
     let wrapper = object(bytes)?;
     exact(&wrapper, &[obfstr::obfstr!("manifest")])?;
@@ -204,7 +218,8 @@ fn current(
     verify_installer(installer, device, key, time)?;
     ensure!(
         catalog.expires > time,
-        "Beta manifest expired; request a fresh manifest"
+        "{}",
+        obfstr::obfstr!("Beta manifest expired; request a fresh manifest")
     );
     Ok(())
 }
@@ -215,12 +230,17 @@ fn verify_installer(
     key: &VerifyingKey,
     time: u64,
 ) -> Result<Map<String, Value>> {
-    ensure!(identifier(device, 32, 48), "Invalid beta device binding");
+    ensure!(
+        identifier(device, 32, 48),
+        "{}",
+        obfstr::obfstr!("Invalid beta device binding")
+    );
     let claims = signed(installer, obfstr::obfstr!("celeste-installer"), key)?;
     exact(&claims, &installer_keys())?;
     ensure!(
         integer(&claims, obfstr::obfstr!("auth_protocol"))? == 2,
-        "A current protected-delivery authorization is required"
+        "{}",
+        obfstr::obfstr!("A current protected-delivery authorization is required")
     );
     crate::dpop::confirmation(&Value::Object(claims.clone()))?;
     identity(&claims, device)?;
@@ -229,7 +249,8 @@ fn verify_installer(
             && integer(&claims, obfstr::obfstr!("nbf"))? <= time.saturating_add(5)
             && integer(&claims, obfstr::obfstr!("exp"))? > time
             && identifier(text(&claims, obfstr::obfstr!("jti"))?, 16, 128),
-        "Installer grant is not current"
+        "{}",
+        obfstr::obfstr!("Installer grant is not current")
     );
     for field in [
         obfstr::obfstr!("release"),
@@ -239,7 +260,8 @@ fn verify_installer(
         let value = text(&claims, field)?;
         ensure!(
             !value.is_empty() && value.encode_utf16().count() <= 80,
-            "Invalid installer identity"
+            "{}",
+            obfstr::obfstr!("Invalid installer identity")
         );
     }
     for field in [
@@ -266,18 +288,21 @@ fn verify_manifest(
     ensure!(
         valid_request_nonce(request_nonce)
             && text(&claims, obfstr::obfstr!("request_nonce"))? == request_nonce,
-        "Beta manifest does not match this fresh request"
+        "{}",
+        obfstr::obfstr!("Beta manifest does not match this fresh request")
     );
     let manifest_value = Value::Object(claims.clone());
     let installer_value = Value::Object(installer_claims.clone());
     ensure!(
         crate::dpop::confirmation(&manifest_value)? == crate::dpop::confirmation(&installer_value)?,
-        "Manifest belongs to another installation signing key"
+        "{}",
+        obfstr::obfstr!("Manifest belongs to another installation signing key")
     );
     identity(&claims, device)?;
     ensure!(
         text(&claims, obfstr::obfstr!("sub"))? == text(&installer_claims, obfstr::obfstr!("sub"))?,
-        "Manifest belongs to another license"
+        "{}",
+        obfstr::obfstr!("Manifest belongs to another license")
     );
     let issued = integer(&claims, obfstr::obfstr!("iat"))?;
     let expires = integer(&claims, obfstr::obfstr!("exp"))?;
@@ -291,7 +316,8 @@ fn verify_manifest(
             && text(&claims, obfstr::obfstr!("installer_jti"))?
                 == text(&installer_claims, obfstr::obfstr!("jti"))?
             && hex(&claims, obfstr::obfstr!("installer_sha256"))? == sha256(installer.as_bytes()),
-        "Beta manifest is not bound to the current installer grant"
+        "{}",
+        obfstr::obfstr!("Beta manifest is not bound to the current installer grant")
     );
     let release = text(&claims, obfstr::obfstr!("release_id"))?;
     let version = text(&claims, obfstr::obfstr!("client_version"))?;
@@ -305,19 +331,21 @@ fn verify_manifest(
             && version.bytes().all(|byte| (b'!'..=b'~').contains(&byte))
             && release != text(&installer_claims, obfstr::obfstr!("payload_release"))?
             && runtime_digest != hex(&installer_claims, obfstr::obfstr!("payload_sha256"))?,
-        "Invalid beta release identity"
+        "{}",
+        obfstr::obfstr!("Invalid beta release identity")
     );
     let raw_artifacts = claims
         .get(obfstr::obfstr!("artifacts"))
         .and_then(Value::as_array)
         .ok_or_else(|| anyhow!("{}", obfstr::obfstr!("Expected four beta artifacts")))?;
     ensure!(
-        raw_artifacts.len() == IDS.len(),
-        "Expected four beta artifacts"
+        raw_artifacts.len() == artifact_ids().len(),
+        "{}",
+        obfstr::obfstr!("Expected four beta artifacts")
     );
-    let mut artifacts = Vec::with_capacity(IDS.len());
+    let mut artifacts = Vec::with_capacity(artifact_ids().len());
     let mut total = 0_u64;
-    for (index, expected_id) in IDS.iter().enumerate() {
+    for (index, expected_id) in artifact_ids().iter().enumerate() {
         let item = raw_artifacts[index]
             .as_object()
             .ok_or_else(|| anyhow!("{}", obfstr::obfstr!("Invalid beta artifact metadata")))?;
@@ -336,7 +364,7 @@ fn verify_manifest(
         let url = text(item, obfstr::obfstr!("url"))?;
         let size = integer(item, obfstr::obfstr!("size"))?;
         ensure!(
-            id == *expected_id
+            id == expected_id.as_str()
                 && (if index < 2 {
                     role == obfstr::obfstr!("bootstrap")
                 } else {
@@ -345,12 +373,14 @@ fn verify_manifest(
                 && url == format!("{}{release}/{id}", obfstr::obfstr!("/v1/beta/artifacts/"))
                 && size > 0
                 && size <= MAX_ARTIFACT_BYTES as u64,
-            "Invalid beta artifact identity, path or size"
+            "{}",
+            obfstr::obfstr!("Invalid beta artifact identity, path or size")
         );
         total += size;
         ensure!(
             total <= MAX_RELEASE_BYTES,
-            "Beta release exceeds its memory limit"
+            "{}",
+            obfstr::obfstr!("Beta release exceeds its memory limit")
         );
         artifacts.push(Artifact {
             url: url.to_owned(),
@@ -362,7 +392,8 @@ fn verify_manifest(
     ensure!(
         hex(&claims, obfstr::obfstr!("catalog_sha256"))?
             == sha256(canonical(&projected)?.as_bytes()),
-        "Beta catalog digest mismatch"
+        "{}",
+        obfstr::obfstr!("Beta catalog digest mismatch")
     );
     Ok(Catalog {
         release: release.to_owned(),
@@ -384,7 +415,8 @@ fn catalog_projection(claims: &Map<String, Value>) -> Value {
 fn verify_artifact(bytes: &[u8], artifact: &Artifact) -> Result<()> {
     ensure!(
         bytes.len() == artifact.size && sha256(bytes) == artifact.sha256,
-        "Beta Bootstrap A integrity mismatch"
+        "{}",
+        obfstr::obfstr!("Beta Bootstrap A integrity mismatch")
     );
     Ok(())
 }
@@ -398,9 +430,10 @@ fn identity(claims: &Map<String, Value>, device: &str) -> Result<()> {
         uid > 0
             && uid <= i64::MAX as u64
             && subject == uid.to_string()
-            && text(claims, obfstr::obfstr!("product"))? == PRODUCT
+            && text(claims, obfstr::obfstr!("product"))? == obfstr::obfstr!(PRODUCT)
             && text(claims, obfstr::obfstr!("device"))? == device,
-        "Grant does not match Celeste+ and this device"
+        "{}",
+        obfstr::obfstr!("Grant does not match Celeste+ and this device")
     );
     Ok(())
 }
@@ -412,10 +445,15 @@ pub(crate) fn signed(
 ) -> Result<Map<String, Value>> {
     ensure!(
         !token.is_empty() && token.len() <= MAX_TOKEN_BYTES,
-        "Invalid signed beta token"
+        "{}",
+        obfstr::obfstr!("Invalid signed beta token")
     );
     let parts: Vec<_> = token.split('.').collect();
-    ensure!(parts.len() == 3, "Invalid signed beta token");
+    ensure!(
+        parts.len() == 3,
+        "{}",
+        obfstr::obfstr!("Invalid signed beta token")
+    );
     let header = decode(parts[0])?;
     let payload = decode(parts[1])?;
     let signature = decode(parts[2])?;
@@ -445,7 +483,8 @@ pub(crate) fn signed(
             && text(&metadata, obfstr::obfstr!("typ"))? == obfstr::obfstr!("CST")
             && text(&metadata, obfstr::obfstr!("kid"))? == obfstr::obfstr!("celeste-release-1")
             && text(&claims, obfstr::obfstr!("aud"))? == audience,
-        "Unexpected beta token type"
+        "{}",
+        obfstr::obfstr!("Unexpected beta token type")
     );
     Ok(claims)
 }
@@ -456,14 +495,16 @@ fn decode(encoded: &str) -> Result<Vec<u8>> {
             && encoded
                 .bytes()
                 .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-'),
-        "Invalid canonical beta base64url"
+        "{}",
+        obfstr::obfstr!("Invalid canonical beta base64url")
     );
     let bytes = URL_SAFE_NO_PAD
         .decode(encoded)
         .map_err(|_| anyhow!("{}", obfstr::obfstr!("Invalid canonical beta base64url")))?;
     ensure!(
         URL_SAFE_NO_PAD.encode(&bytes) == encoded,
-        "Invalid canonical beta base64url"
+        "{}",
+        obfstr::obfstr!("Invalid canonical beta base64url")
     );
     Ok(bytes)
 }
@@ -478,7 +519,8 @@ fn identifier(value: &str, minimum: usize, maximum: usize) -> bool {
 pub(crate) fn exact<K: AsRef<str>>(object: &Map<String, Value>, keys: &[K]) -> Result<()> {
     ensure!(
         object.len() == keys.len() && keys.iter().all(|key| object.contains_key(key.as_ref())),
-        "Unexpected beta metadata fields"
+        "{}",
+        obfstr::obfstr!("Unexpected beta metadata fields")
     );
     Ok(())
 }
@@ -497,7 +539,8 @@ fn hex<'a>(object: &'a Map<String, Value>, key: &str) -> Result<&'a str> {
             && value
                 .bytes()
                 .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
-        "Invalid SHA-256 beta metadata"
+        "{}",
+        obfstr::obfstr!("Invalid SHA-256 beta metadata")
     );
     Ok(value)
 }
@@ -525,7 +568,8 @@ fn digest_bytes(digest: &str) -> Result<Vec<u8>> {
             && digest
                 .bytes()
                 .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
-        "Invalid signed beta artifact digest"
+        "{}",
+        obfstr::obfstr!("Invalid signed beta artifact digest")
     );
     (0..32)
         .map(|index| {
@@ -548,7 +592,9 @@ impl<'de> DeserializeSeed<'de> for StrictValue {
         D: de::Deserializer<'de>,
     {
         if self.depth > 12 {
-            return Err(de::Error::custom("Metadata nesting exceeds limit"));
+            return Err(de::Error::custom(obfstr::obfstr!(
+                "Metadata nesting exceeds limit"
+            )));
         }
         deserializer.deserialize_any(self)
     }
@@ -557,14 +603,16 @@ impl<'de> DeserializeSeed<'de> for StrictValue {
 impl<'de> Visitor<'de> for StrictValue {
     type Value = Value;
     fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("bounded string, nonnegative integer, array or object metadata")
+        formatter.write_str(obfstr::obfstr!(
+            "bounded string, nonnegative integer, array or object metadata"
+        ))
     }
     fn visit_u64<E>(self, value: u64) -> std::result::Result<Value, E>
     where
         E: de::Error,
     {
         if value > i64::MAX as u64 {
-            return Err(E::custom("Metadata integer exceeds limit"));
+            return Err(E::custom(obfstr::obfstr!("Metadata integer exceeds limit")));
         }
         Ok(Value::Number(Number::from(value)))
     }
@@ -589,7 +637,9 @@ impl<'de> Visitor<'de> for StrictValue {
             depth: self.depth + 1,
         })? {
             if values.len() >= 64 {
-                return Err(de::Error::custom("Metadata array exceeds limit"));
+                return Err(de::Error::custom(obfstr::obfstr!(
+                    "Metadata array exceeds limit"
+                )));
             }
             values.push(value);
         }
@@ -602,7 +652,9 @@ impl<'de> Visitor<'de> for StrictValue {
         let mut values = Map::new();
         while let Some(key) = map.next_key::<String>()? {
             if values.len() >= 64 || values.contains_key(&key) {
-                return Err(de::Error::custom("Duplicate or excessive metadata keys"));
+                return Err(de::Error::custom(obfstr::obfstr!(
+                    "Duplicate or excessive metadata keys"
+                )));
             }
             let value = map.next_value_seed(StrictValue {
                 depth: self.depth + 1,
@@ -638,11 +690,11 @@ fn canonical(value: &Value) -> Result<String> {
             for key in keys {
                 fields.push(format!("{}:{}", quote(key), canonical(&object[key])?));
             }
-            Ok(format!("{{{}}}", fields.join(",")))
+            Ok(format!("{{{}}}", fields.join(obfstr::obfstr!(","))))
         }
         Value::Array(array) => {
             let entries: Result<Vec<_>> = array.iter().map(canonical).collect();
-            Ok(format!("[{}]", entries?.join(",")))
+            Ok(format!("[{}]", entries?.join(obfstr::obfstr!(","))))
         }
         Value::String(value) => Ok(quote(value)),
         Value::Number(value) => value
@@ -707,7 +759,8 @@ impl HttpsTransport {
                 && url.fragment().is_none()
                 && url.path() == "/"
                 && url.port() != Some(0),
-            "Invalid compiled beta HTTPS origin"
+            "{}",
+            obfstr::obfstr!("Invalid compiled beta HTTPS origin")
         );
         Ok(Self {
             origin: url.origin().ascii_serialization(),
@@ -725,14 +778,16 @@ impl HttpsTransport {
     ) -> Result<Vec<u8>> {
         ensure!(
             limit > 0 && limit <= MAX_ARTIFACT_BYTES,
-            "Invalid beta response bound"
+            "{}",
+            obfstr::obfstr!("Invalid beta response bound")
         );
         // Paths are generated by the schema verifier, not resolved from arbitrary server URLs.
         ensure!(
             path.starts_with(obfstr::obfstr!("/v1/beta/"))
                 && !path.contains(['?', '#', '%', '\\'])
                 && !path.contains(".."),
-            "Invalid beta route"
+            "{}",
+            obfstr::obfstr!("Invalid beta route")
         );
         let url = format!("{}{path}", self.origin);
         let encrypted = if manifest.is_some() {
@@ -740,29 +795,34 @@ impl HttpsTransport {
         } else {
             None
         };
-        let proof = if let Some(key) = &encrypted {
-            session.artifact_proof(&url, &key.public, &key.nonce)?
+        let (proof, hardware) = if let Some(key) = &encrypted {
+            let (proof, hardware) = session.artifact_proof(&url, &key.public, &key.nonce)?;
+            (proof, Some(hardware))
         } else {
-            session.delivery_proof("GET", &url)?
+            (session.delivery_proof("GET", &url)?, None)
         };
         let agent = crate::transport_policy::agent(&self.origin)?;
         let mut request = agent
             .get(&url)
             .set(
                 obfstr::obfstr!("Authorization"),
-                &format!("DPoP {}", session.grant),
+                &format!("{} {}", obfstr::obfstr!("DPoP"), session.grant),
             )
             .set(obfstr::obfstr!("DPoP"), &proof)
             .set(obfstr::obfstr!("Accept"), media_type)
             .set(obfstr::obfstr!("Accept-Encoding"), "identity")
             .set(obfstr::obfstr!("Cache-Control"), "no-store");
+        if let Some(hardware) = hardware {
+            request = bind_artifact_hardware(request, &hardware)?;
+        }
         if let Some(manifest) = manifest {
             request = request.set(obfstr::obfstr!("X-Celeste-Beta-Manifest"), manifest);
         }
         if let Some(key) = &encrypted {
             ensure!(
                 request_nonce.is_none(),
-                "Conflicting artifact request nonce"
+                "{}",
+                obfstr::obfstr!("Conflicting artifact request nonce")
             );
             request = request
                 .set(obfstr::obfstr!("X-Celeste-Delivery-Key"), &key.public)
@@ -780,7 +840,8 @@ impl HttpsTransport {
         };
         ensure!(
             response.get_url() == url && response.status() == 200,
-            "Beta response origin or status rejected"
+            "{}",
+            obfstr::obfstr!("Beta response origin or status rejected")
         );
         let transport_limit = limit
             + if encrypted.is_some() {
@@ -802,6 +863,23 @@ impl HttpsTransport {
             Ok(bytes)
         }
     }
+}
+
+fn bind_artifact_hardware(request: ureq::Request, hardware: &str) -> Result<ureq::Request> {
+    ensure!(
+        hardware.len() == 64
+            && hardware
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
+        "{}",
+        obfstr::obfstr!("Invalid artifact hardware binding")
+    );
+    ensure!(
+        request.header(obfstr::obfstr!("X-Device-Id")).is_none(),
+        "{}",
+        obfstr::obfstr!("Duplicate artifact hardware header")
+    );
+    Ok(request.set(obfstr::obfstr!("X-Device-Id"), hardware))
 }
 
 fn new_request_nonce() -> Result<String> {
@@ -835,7 +913,11 @@ fn bind_request_nonce(
             })?;
         Ok(request.set(obfstr::obfstr!("X-Celeste-Request-Nonce"), value))
     } else {
-        ensure!(nonce.is_none(), "Unexpected beta request nonce route");
+        ensure!(
+            nonce.is_none(),
+            "{}",
+            obfstr::obfstr!("Unexpected beta request nonce route")
+        );
         Ok(request)
     }
 }
@@ -843,7 +925,8 @@ fn bind_request_nonce(
 fn read_bounded(reader: impl Read, advertised: Option<usize>, limit: usize) -> Result<Vec<u8>> {
     ensure!(
         limit > 0 && limit <= MAX_ARTIFACT_BYTES + crate::artifact_envelope::OVERHEAD,
-        "Invalid beta response bound"
+        "{}",
+        obfstr::obfstr!("Invalid beta response bound")
     );
     // Explicitly cap both bytes retained and Vec capacity. Reading at most one byte beyond
     // the signed size detects overflow without a read_to_end growth past that allocation.
@@ -863,7 +946,7 @@ fn read_bounded(reader: impl Read, advertised: Option<usize>, limit: usize) -> R
             if length > limit - body.len() {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
-                    "Beta body exceeds bound",
+                    obfstr::obfstr!("Beta body exceeds bound"),
                 ));
             }
             body.extend_from_slice(&chunk[..length]);
@@ -897,28 +980,39 @@ fn response_metadata(
                 .unwrap_or("")
                 .trim()
                 .eq_ignore_ascii_case(media_type),
-        "Beta response content type rejected"
+        "{}",
+        obfstr::obfstr!("Beta response content type rejected")
     );
     ensure!(
         encodings.len() <= 1
             && encodings
                 .first()
                 .is_none_or(|value| value.eq_ignore_ascii_case("identity")),
-        "Encoded beta responses are not accepted"
+        "{}",
+        obfstr::obfstr!("Encoded beta responses are not accepted")
     );
-    ensure!(lengths.len() <= 1, "Beta response length rejected");
+    ensure!(
+        lengths.len() <= 1,
+        "{}",
+        obfstr::obfstr!("Beta response length rejected")
+    );
     if let Some(value) = lengths.first() {
         ensure!(
             *value == "0"
                 || (!value.is_empty()
                     && value.as_bytes()[0] != b'0'
                     && value.bytes().all(|byte| byte.is_ascii_digit())),
-            "Beta response length rejected"
+            "{}",
+            obfstr::obfstr!("Beta response length rejected")
         );
         let length = value
             .parse::<usize>()
             .map_err(|_| anyhow!("{}", obfstr::obfstr!("Beta response length rejected")))?;
-        ensure!(length <= limit, "Beta response length exceeds signed bound");
+        ensure!(
+            length <= limit,
+            "{}",
+            obfstr::obfstr!("Beta response length exceeds signed bound")
+        );
         return Ok(Some(length));
     }
     Ok(None)
@@ -929,6 +1023,57 @@ mod tests {
     use super::*;
     use ed25519_dalek::{Signer, SigningKey};
     use serde_json::json;
+
+    #[test]
+    fn artifact_request_carries_the_exact_signed_hardware_and_one_header() {
+        use ed25519_dalek::{Signature, Verifier};
+        let key = SigningKey::from_bytes(&[7; 32]);
+        let hardware = "a".repeat(64);
+        let url = "https://fixture.invalid/v1/beta/artifacts/release/bootstrap-a";
+        let public = URL_SAFE_NO_PAD.encode([4; 32]);
+        let nonce = URL_SAFE_NO_PAD.encode([5; 24]);
+        let proof = crate::dpop::proof_bound(
+            &key,
+            "GET",
+            url,
+            Some("signed.fixture.grant"),
+            Some((&public, &nonce)),
+            Some(&hardware),
+        )
+        .unwrap();
+        let request =
+            bind_artifact_hardware(ureq::get(url).set("DPoP", &proof), &hardware).unwrap();
+        assert!(
+            bind_artifact_hardware(ureq::get(url).set("X-Device-Id", "stale"), &hardware).is_err()
+        );
+        assert_eq!(request.header("X-Device-Id"), Some(hardware.as_str()));
+        assert_eq!(
+            request
+                .header_names()
+                .iter()
+                .filter(|name| name.eq_ignore_ascii_case("X-Device-Id"))
+                .count(),
+            1
+        );
+        let parts: Vec<_> = request.header("DPoP").unwrap().split('.').collect();
+        let signed = format!("{}.{}", parts[0], parts[1]);
+        let signature = Signature::from_slice(&decode(parts[2]).unwrap()).unwrap();
+        key.verifying_key()
+            .verify(signed.as_bytes(), &signature)
+            .unwrap();
+        let claims: Value = serde_json::from_slice(&decode(parts[1]).unwrap()).unwrap();
+        assert_eq!(claims["hwid"], request.header("X-Device-Id").unwrap());
+        assert_eq!(claims["cek"], public);
+        assert_eq!(claims["cnonce"], nonce);
+        for invalid in [
+            String::new(),
+            "A".repeat(64),
+            "g".repeat(64),
+            "a".repeat(63),
+        ] {
+            assert!(bind_artifact_hardware(ureq::get(url), &invalid).is_err());
+        }
+    }
 
     fn golden() -> Value {
         serde_json::from_str(include_str!(
@@ -1105,11 +1250,11 @@ mod tests {
             canonical(&projected).unwrap(),
             fixture["canonical_catalog"].as_str().unwrap()
         );
-        for (index, id) in IDS.iter().enumerate() {
-            let bytes = decode(fixture["artifact_bytes"][*id].as_str().unwrap()).unwrap();
+        for (index, id) in artifact_ids().iter().enumerate() {
+            let bytes = decode(fixture["artifact_bytes"][id.as_str()].as_str().unwrap()).unwrap();
             verify_artifact(&bytes, &catalog.artifacts[index]).unwrap();
         }
-        let compiled_key: [u8; 32] = decode(crate::release::SERVER_KEY)
+        let compiled_key: [u8; 32] = decode(obfstr::obfstr!(crate::release::SERVER_KEY))
             .unwrap()
             .try_into()
             .unwrap();
@@ -1336,9 +1481,12 @@ mod tests {
         assert!(
             object(format!("{{\"a\":{}0{}}}", "[".repeat(13), "]".repeat(13)).as_bytes()).is_err()
         );
-        assert!(object(format!("{{\"a\":[{}]}}", vec!["0"; 65].join(",")).as_bytes()).is_err());
+        assert!(
+            object(format!("{{\"a\":[{}]}}", vec!["0"; 65].join(obfstr::obfstr!(","))).as_bytes())
+                .is_err()
+        );
         let keys: Vec<_> = (0..65).map(|index| format!("\"k{index}\":0")).collect();
-        assert!(object(format!("{{{}}}", keys.join(",")).as_bytes()).is_err());
+        assert!(object(format!("{{{}}}", keys.join(obfstr::obfstr!(","))).as_bytes()).is_err());
         for encoded in ["", "AA=", "AA==", "AB", "A+", "A/", "A A", "\r\n"] {
             assert!(decode(encoded).is_err());
         }

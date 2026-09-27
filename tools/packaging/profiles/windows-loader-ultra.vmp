@@ -1,0 +1,21 @@
+<?xml version='1.0' encoding='utf-8'?>
+<Document Version="2">
+  <Protection InputFileName="Celeste+.exe" OutputFileName="Celeste+.vmp.exe" Options="466688" VMCodeSectionName=".???" VMComplexity="100">
+    <Procedures>
+      <Procedure MapAddress="celeste_verify_native" Options="1" CompilationType="2" IncludedInCompilation="true" />
+      <Procedure MapAddress="celeste_verify_token" Options="1" CompilationType="2" IncludedInCompilation="true" />
+      <Procedure MapAddress="celeste_require_dpop" Options="1" CompilationType="2" IncludedInCompilation="true" />
+      <Procedure MapAddress="celeste_check_endpoint" Options="1" CompilationType="2" IncludedInCompilation="true" />
+      <Procedure MapAddress="celeste_check_attach" Options="1" CompilationType="2" IncludedInCompilation="true" />
+      <Procedure MapAddress="celeste_verify_catalog" Options="1" CompilationType="2" IncludedInCompilation="true" />
+      <Procedure MapAddress="celeste_verify_grant" Options="1" CompilationType="2" IncludedInCompilation="true" />
+      <Procedure MapAddress="celeste_verify_tls_policy" Options="1" CompilationType="2" IncludedInCompilation="true" />
+      <Procedure MapAddress="celeste_verify_tls_leaf" Options="1" CompilationType="2" IncludedInCompilation="true" />
+      <Procedure MapAddress="celeste_decrypt_artifact" Options="1" CompilationType="2" IncludedInCompilation="true" />
+      <Procedure MapAddress="celeste_check_debugger" Options="1" CompilationType="2" IncludedInCompilation="true" />
+      <Procedure MapAddress="celeste_hardware_v2" Options="1" CompilationType="2" IncludedInCompilation="true" />
+      <Procedure MapAddress="celeste_validate_launch" Options="1" CompilationType="2" IncludedInCompilation="true" />
+      <Procedure MapAddress="celeste_request_grant" Options="1" CompilationType="2" IncludedInCompilation="true" />
+    </Procedures>
+  </Protection>
+</Document>

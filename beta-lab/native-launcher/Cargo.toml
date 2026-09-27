@@ -29,7 +29,7 @@ x25519-dalek = { version = "2.0", features = ["static_secrets"] }
 zeroize = { version = "1.9", features = ["serde"] }
 
 [target.'cfg(windows)'.dependencies]
-winapi = { version = "0.3", features = ["debugapi", "ioapiset", "sysinfoapi", "winioctl", "securitybaseapi", "libloaderapi", "combaseapi", "dpapi", "errhandlingapi", "fileapi", "handleapi", "knownfolders", "processthreadsapi", "shlobj", "winbase", "wincrypt", "winnt", "winuser"] }
+winapi = { version = "0.3", features = ["debugapi", "ioapiset", "iphlpapi", "iptypes", "sysinfoapi", "winioctl", "securitybaseapi", "libloaderapi", "combaseapi", "dpapi", "errhandlingapi", "fileapi", "handleapi", "knownfolders", "processthreadsapi", "shlobj", "winbase", "wincrypt", "winnt", "winuser"] }
 winreg = "0.55"
 wmi = "0.17"
 

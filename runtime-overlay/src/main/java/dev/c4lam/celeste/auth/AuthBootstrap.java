@@ -9,6 +9,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
@@ -16,11 +17,11 @@ import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.minecraft.client.MinecraftClient;
 
 public final class AuthBootstrap {
-    private static final ScheduledExecutorService WORKER = Executors.newSingleThreadScheduledExecutor(task -> {
-        Thread thread = new Thread(task, "cst-license-gateway");
-        thread.setDaemon(true);
-        return thread;
-    });
+    private static volatile ScheduledExecutorService WORKER = executor("cst-license-gateway");
+    private static final ScheduledExecutorService SUPERVISOR = executor("cst-license-supervisor");
+    private static ScheduledFuture<?> heartbeatTask;
+    private static int workerRecoveries;
+    private static final int MAX_WORKER_RECOVERIES = 3;
     private static CredentialStore STORE = new CredentialStore();
     private static final AtomicBoolean BUSY = new AtomicBoolean();
     private static final AtomicBoolean AUTHORIZED = new AtomicBoolean();
@@ -45,6 +46,14 @@ public final class AuthBootstrap {
     private AuthBootstrap() {
     }
 
+    private static ScheduledExecutorService executor(String name) {
+        return Executors.newSingleThreadScheduledExecutor(task -> {
+            Thread thread = new Thread(task, name);
+            thread.setDaemon(true);
+            return thread;
+        });
+    }
+
     public static void install(Runnable initializer, Runnable shutdown) {
         install(initializer, shutdown, false);
     }
@@ -66,8 +75,10 @@ public final class AuthBootstrap {
         if (lateStopCompletion == null) {
             lateStopCompletion = CompletableFuture.runAsync(() -> {
                 try {
-                    if (!WORKER.awaitTermination(30, TimeUnit.SECONDS)) {
-                        throw new IllegalStateException("Authorization worker did not finish stopping within 30 seconds");
+                    long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
+                    if (!SUPERVISOR.awaitTermination(30, TimeUnit.SECONDS)
+                        || !WORKER.awaitTermination(Math.max(0, deadline - System.nanoTime()), TimeUnit.NANOSECONDS)) {
+                        throw new IllegalStateException("Authorization workers did not finish stopping within 30 seconds");
                     }
                 } catch (InterruptedException failure) {
                     Thread.currentThread().interrupt();
@@ -111,7 +122,8 @@ public final class AuthBootstrap {
         } else {
             ClientLifecycleEvents.CLIENT_STOPPING.register(AuthBootstrap::stop);
         }
-        WORKER.scheduleWithFixedDelay(AuthBootstrap::heartbeat, 30, 30, TimeUnit.SECONDS);
+        heartbeatTask = WORKER.scheduleWithFixedDelay(AuthBootstrap::heartbeat, 30, 30, TimeUnit.SECONDS);
+        SUPERVISOR.scheduleWithFixedDelay(AuthBootstrap::superviseHeartbeat, 1, 1, TimeUnit.SECONDS);
         if (alreadyStarted) {
             MinecraftClient client = MinecraftClient.getInstance();
             client.execute(() -> start(client));
@@ -352,9 +364,12 @@ public final class AuthBootstrap {
             }
             String refreshedGrant = currentService.checkSession(credential, observedDigest, false);
             long deadline = System.nanoTime() + currentService.sessionValidityNanos(refreshedGrant);
-            if (authorized()) {
-                sessionDeadlineNanos = deadline;
-                sessionGrant = refreshedGrant;
+            synchronized (AuthBootstrap.class) {
+                if (authorized()) {
+                    sessionDeadlineNanos = deadline;
+                    sessionGrant = refreshedGrant;
+                    workerRecoveries = 0;
+                }
             }
         } catch (AuthServiceClient.AuthRejectedException exception) {
             if (exception.statusCode() == 401 || exception.statusCode() == 403 || exception.statusCode() == 409) {
@@ -371,6 +386,29 @@ public final class AuthBootstrap {
         }
     }
 
+    private static synchronized void superviseHeartbeat() {
+        try {
+            if (!authorized()) return;
+            if (heartbeatTask != null && !heartbeatTask.isDone() && !WORKER.isShutdown()) return;
+            // A cancelled future can still own a running network request. Never
+            // start its replacement until the old executor has actually ended.
+            WORKER.shutdownNow();
+            if (!WORKER.isTerminated()) return;
+            if (workerRecoveries >= MAX_WORKER_RECOVERIES) {
+                lockSession("Session verification could not recover; reconnect to verify this session");
+                return;
+            }
+            if (!authorized()) return;
+            workerRecoveries++;
+            WORKER = executor("cst-license-gateway");
+            heartbeatTask = WORKER.scheduleWithFixedDelay(AuthBootstrap::heartbeat, 0, 30, TimeUnit.SECONDS);
+        } catch (Throwable failure) {
+            // The gameplay lease remains an independent guard even if the
+            // supervisor itself encounters a failure while replacing a worker.
+            lockSession("Session verification could not recover; reconnect to verify this session", failure);
+        }
+    }
+
     private static void lockAfterHeartbeatGrace() {
         // Transport errors cannot extend the server-issued lease. Gameplay
         // also calls authorized(), independently of this network worker.
@@ -381,7 +419,7 @@ public final class AuthBootstrap {
         lockSession(message, new SecurityException(message));
     }
 
-    private static void lockSession(String message, Throwable failure) {
+    private static synchronized void lockSession(String message, Throwable failure) {
         if (!AUTHORIZED.compareAndSet(true, false)) {
             return;
         }
@@ -402,7 +440,7 @@ public final class AuthBootstrap {
         });
     }
 
-    private static void stop(MinecraftClient client) {
+    private static synchronized void stop(MinecraftClient client) {
         if (!STOPPED.compareAndSet(false, true)) {
             return;
         }
@@ -411,6 +449,7 @@ public final class AuthBootstrap {
         sessionCredential = null;
         sessionGrant = null;
         sessionDeadlineNanos = 0;
+        SUPERVISOR.shutdownNow();
         WORKER.shutdownNow();
         client.execute(() -> {
             try {

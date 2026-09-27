@@ -116,10 +116,37 @@ public final class ProtectedBootstrapArtifactCheck {
             while (members.hasMoreElements()) {
                 String name = members.nextElement().getName();
                 if (!name.endsWith(".class") || name.equals("module-info.class") || name.startsWith("META-INF/")) continue;
+                check(!name.startsWith("com/sun/jna/"), "A never bundles a second copy of the game's JNA");
+                if (name.equals("dev/c4lam/celeste/auth/WindowsArtifactHardware.class")
+                    || name.startsWith("dev/c4lam/celeste/auth/WindowsArtifactHardware$")) continue;
                 Class<?> type = Class.forName(name.substring(0, name.length() - 6).replace('/', '.'), false, host);
                 check(type.getClassLoader() == host, "Every actual A class/helper is archive-owned");
                 type.getDeclaredMethods(); type.getDeclaredFields(); type.getDeclaredConstructors();
             }
+        }
+        Class<?> hardware = Class.forName("dev.c4lam.celeste.auth.ArtifactHardwareIdentity", true, host);
+        Object provider = hardware.getMethod("forGame", ClassLoader.class).invoke(null, ProtectedBootstrapArtifactCheck.class.getClassLoader());
+        check(provider instanceof java.util.function.Supplier<?>, "Actual protected hardware reader resolves all declarations through game-owned JNA before download");
+        String originalOs = System.getProperty("os.name");
+        try {
+            System.setProperty("os.name", "celeste-unsupported-fixture");
+            try {
+                ((java.util.function.Supplier<?>) provider).get();
+                throw new AssertionError("Hardware reader accepted the unsupported fixture OS");
+            } catch (IllegalStateException unavailable) {
+                check(unavailable.getCause() instanceof InvocationTargetException invocation
+                    && invocation.getCause() instanceof IllegalStateException rejection
+                    && "Celeste+ delivery requires Windows".equals(rejection.getMessage()),
+                    "Actual protected reader executes decoder code and rejects the fixture OS before reading hardware");
+            }
+        } finally {
+            if (originalOs == null) System.clearProperty("os.name"); else System.setProperty("os.name", originalOs);
+        }
+        try {
+            hardware.getMethod("forGame", ClassLoader.class).invoke(null, ClassLoader.getPlatformClassLoader());
+            throw new AssertionError("Hardware reader accepted a game without JNA");
+        } catch (InvocationTargetException unavailable) {
+            check(unavailable.getCause() instanceof GeneralSecurityException, "Missing game JNA fails before hardware collection or delivery");
         }
         for (String canonical : new String[] {"DpopProofSigner", "PortableCredentialProtection", "EnvironmentGate", "EnvironmentGate$Command"}) {
             Class<?> type = Class.forName("dev.c4lam.celeste.auth." + canonical, false, host);

@@ -9,6 +9,11 @@ dependencies {
     implementation 'org.ow2.asm:asm-tree:9.10.1'
     implementation 'org.ow2.asm:asm-analysis:9.10.1'
     compileOnly 'com.google.errorprone:error_prone_annotations:2.48.0'
+    // Delivery's isolated hardware reader resolves the game's JNA at runtime.
+    compileOnly 'net.java.dev.jna:jna:5.19.0'
+    compileOnly 'net.java.dev.jna:jna-platform:5.19.0'
+    testImplementation 'net.java.dev.jna:jna:5.19.0'
+    testImplementation 'net.java.dev.jna:jna-platform:5.19.0'
     testCompileOnly 'com.google.errorprone:error_prone_annotations:2.48.0'
 }
 sourceSets {
@@ -164,6 +169,16 @@ def tlsPolicyCheck = tasks.register('betaTlsPolicyCheck', JavaExec) {
     enableAssertions = true
 }
 tasks.named('check') { dependsOn tlsPolicyCheck }
+
+def deliveryHardwareCheck = tasks.register('betaArtifactHardwareCheck', JavaExec) {
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'dev.c4lam.celeste.auth.ArtifactHardwareIdentityCheck'
+    enableAssertions = true
+    jvmArgs '-Xverify:all'
+    if (providers.gradleProperty('nativeHardwareParityFile').isPresent()) args providers.gradleProperty('nativeHardwareParityFile').get()
+}
+tasks.named('check') { dependsOn deliveryHardwareCheck }
 
 // Explicit runtime protocol fixture requires a prepared pinned core, never a live game.
 configurations { runtimeAuthCheckDependencies }

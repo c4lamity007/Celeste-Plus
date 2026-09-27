@@ -329,7 +329,7 @@ public final class BootstrapBCheck {
             String manifestToken = sign(keys, manifest); byte[] publicKey = keys.getPublic().getEncoded();
             BetaDeliveryClient verifier = new BetaDeliveryClient(java.net.URI.create("https://bootstrap-fixture.invalid/"),
                 Arrays.copyOfRange(publicKey, publicKey.length - 32, publicKey.length), installerToken, device, 42,
-                proofSigner, Clock.fixed(Instant.ofEpochSecond(now), ZoneOffset.UTC), (uri, headers, maximum, timeout) -> {
+                proofSigner, () -> "6".repeat(64), Clock.fixed(Instant.ofEpochSecond(now), ZoneOffset.UTC), (uri, headers, maximum, timeout) -> {
                     String id = uri.getPath().substring(uri.getPath().lastIndexOf('/') + 1);
                     if (!headers.get("Authorization").equals("DPoP " + installerToken) || !headers.containsKey("DPoP")
                         || !headers.get("X-Celeste-Beta-Manifest").equals(manifestToken)) throw new IOException("fixture grant binding failed");

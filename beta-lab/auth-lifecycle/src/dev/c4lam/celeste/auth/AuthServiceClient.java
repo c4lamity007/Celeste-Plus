@@ -10,6 +10,7 @@ final class AuthServiceClient {
     static final AtomicInteger enrollments = new AtomicInteger();
     static final AtomicInteger checks = new AtomicInteger();
     static final AtomicInteger tamperReports = new AtomicInteger();
+    static final AtomicInteger fatalChecks = new AtomicInteger();
     static volatile Exception checkFailure;
     static volatile String nextGrant = "refreshed-grant";
     static volatile CountDownLatch checkEntered;
@@ -56,6 +57,9 @@ final class AuthServiceClient {
                 }
             }
             if (interrupted) Thread.currentThread().interrupt();
+        }
+        if (fatalChecks.getAndUpdate(value -> Math.max(0, value - 1)) > 0) {
+            throw new LinkageError("fixture heartbeat task failure");
         }
         if (checkFailure != null) throw checkFailure;
         return nextGrant;

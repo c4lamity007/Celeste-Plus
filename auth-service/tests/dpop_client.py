@@ -47,6 +47,7 @@ class TestClient(RawTestClient):
         body = kwargs.get("json") or {}
         public = None
         token = None
+        hardware_digest = None
         authorization = headers.get("Authorization", headers.get("authorization", ""))
         if authorization.startswith(("Bearer ", "DPoP ")):
             token = authorization.split(" ", 1)[1]
@@ -65,13 +66,18 @@ class TestClient(RawTestClient):
                     except (ValueError, IndexError, AttributeError):
                         pass
                 if device:
-                    row = connection.execute("SELECT install_signing_key FROM devices WHERE device_id=?", (device,)).fetchone()
+                    row = connection.execute("SELECT install_signing_key,hwid_sha256,hardware_core_hash FROM devices WHERE device_id=?", (device,)).fetchone()
                     public = b64e(bytes(row[0])) if row else None
+                    hardware_digest = (row[1] or bytes(row[2]).hex()) if row else None
         key = _KEYS.get(public)
         path = urlsplit(str(url)).path
         if method.upper() == "GET" and path == "/v1/beta/manifest":
             headers.setdefault("X-Celeste-Request-Nonce", secrets.token_urlsafe(24))
         if key and (token or path.endswith("/complete") or path == "/v1/session/check"):
             absolute = str(url) if str(url).startswith("https://") else str(self.base_url).rstrip("/") + str(url)
-            headers.setdefault("DPoP", proof(key, method, absolute, token))
+            extensions = {}
+            if method.upper() == "GET" and path.startswith("/v1/beta/artifacts/") and hardware_digest:
+                headers.setdefault("X-Device-Id", hardware_digest)
+                extensions["hwid"] = hardware_digest
+            headers.setdefault("DPoP", proof(key, method, absolute, token, payload_updates=extensions))
         return super().request(method, url, headers=headers, **kwargs)

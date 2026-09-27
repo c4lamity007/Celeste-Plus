@@ -81,6 +81,14 @@ public final class DpopProofSigner {
         return proof(method, uri, accessToken, null, null, hardwareDigest);
     }
 
+    public String proofForArtifact(String method, URI uri, String accessToken, String deliveryKey,
+                                   String deliveryNonce, String hardwareDigest) throws GeneralSecurityException {
+        if (hardwareDigest == null || !hardwareDigest.matches("[0-9a-f]{64}"))
+            throw new GeneralSecurityException("Invalid artifact device binding");
+        if (deliveryKey == null || deliveryNonce == null) throw new GeneralSecurityException("Missing artifact recipient binding");
+        return proof(method, uri, accessToken, deliveryKey, deliveryNonce, hardwareDigest);
+    }
+
     private String proof(String method, URI uri, String accessToken, String deliveryKey, String deliveryNonce, String hardwareDigest) throws GeneralSecurityException {
         if (method == null || !method.matches("[A-Z]{3,16}")) throw new GeneralSecurityException("Invalid DPoP method");
         byte[] unique = new byte[24];

@@ -32,7 +32,9 @@ $scenarios = @(
     'heartbeat-refresh', 'heartbeat-reject-401', 'heartbeat-reject-403',
     'heartbeat-reject-409', 'heartbeat-grace', 'heartbeat-integrity',
     'heartbeat-response-after-stop', 'heartbeat-security-rejection',
-    'startup-needs-online-proof', 'queued-session-expired', 'expiry-without-worker', 'late-response-after-expiry'
+    'startup-needs-online-proof', 'queued-session-expired', 'expiry-without-worker', 'late-response-after-expiry',
+    'heartbeat-worker-recovery', 'heartbeat-task-recovery', 'heartbeat-recovery-exhausted',
+    'heartbeat-recovery-stop-race', 'heartbeat-recovery-expired', 'heartbeat-recovery-waits-for-termination'
 )
 if (-not $SkipTimedHeartbeat) { $scenarios += 'heartbeat-scheduled' }
 foreach ($scenario in $scenarios) {

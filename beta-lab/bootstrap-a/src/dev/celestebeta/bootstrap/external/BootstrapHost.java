@@ -72,7 +72,7 @@ public final class BootstrapHost {
         byte[] serverKey = Base64.getUrlDecoder().decode(trust.get("server_key").getAsString());
         var signer = RuntimeInstallationSigner.load(verifiedGameDirectory, target.loader(), serverKey, device, uid);
         BetaDeliveryClient delivery = new BetaDeliveryClient(URI.create(trust.get("origin").getAsString()),
-            serverKey, installer, device, uid, signer);
+            serverKey, installer, device, uid, signer, dev.c4lam.celeste.auth.ArtifactHardwareIdentity.forGame(target.loader()));
         BetaDeliveryClient.VerifiedCatalog catalog = delivery.fetchCatalog();
         if (!catalog.releaseId().equals(expectedRelease) || !catalog.catalogSha256().equals(expectedCatalog)) {
             throw new IOException("Beta release changed after launcher verification. Authenticate again before attaching.");

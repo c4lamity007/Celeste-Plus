@@ -14,7 +14,7 @@ pub(crate) fn thumbprint(key: &SigningKey) -> String {
     let canonical =
         serde_json::to_string(&json!({(obfstr::obfstr!("crv")):obfstr::obfstr!("Ed25519"),
         (obfstr::obfstr!("kty")):obfstr::obfstr!("OKP"),(obfstr::obfstr!("x")):public}))
-        .expect("Fixed public JWK is serializable");
+        .expect(obfstr::obfstr!("Fixed public JWK is serializable"));
     URL_SAFE_NO_PAD.encode(Sha256::digest(canonical.as_bytes()))
 }
 
@@ -23,7 +23,11 @@ pub(crate) fn confirmation(claims: &Value) -> Result<&str> {
         .get(obfstr::obfstr!("cnf"))
         .and_then(Value::as_object)
         .context(obfstr::obfstr!("Server token omitted its DPoP key binding").to_owned())?;
-    ensure!(confirmation.len() == 1, "Invalid DPoP confirmation members");
+    ensure!(
+        confirmation.len() == 1,
+        "{}",
+        obfstr::obfstr!("Invalid DPoP confirmation members")
+    );
     let jkt = confirmation
         .get(obfstr::obfstr!("jkt"))
         .and_then(Value::as_str)
@@ -33,7 +37,8 @@ pub(crate) fn confirmation(claims: &Value) -> Result<&str> {
         .context(obfstr::obfstr!("Invalid DPoP key thumbprint").to_owned())?;
     ensure!(
         decoded.len() == 32 && URL_SAFE_NO_PAD.encode(&decoded) == jkt,
-        "Invalid DPoP key thumbprint"
+        "{}",
+        obfstr::obfstr!("Invalid DPoP key thumbprint")
     );
     Ok(jkt)
 }
@@ -41,7 +46,8 @@ pub(crate) fn confirmation(claims: &Value) -> Result<&str> {
 pub(crate) fn require_binding(claims: &Value, key: &SigningKey) -> Result<()> {
     ensure!(
         confirmation(claims)? == thumbprint(key),
-        "Server token belongs to another installation signing key"
+        "{}",
+        obfstr::obfstr!("Server token belongs to another installation signing key")
     );
     Ok(())
 }
@@ -77,11 +83,13 @@ pub(crate) fn proof_bound(
             && parsed.query().is_none()
             && parsed.fragment().is_none()
             && parsed.as_str() == url,
-        "DPoP requires a canonical HTTPS request URL"
+        "{}",
+        obfstr::obfstr!("DPoP requires a canonical HTTPS request URL")
     );
     ensure!(
         !method.is_empty() && method.bytes().all(|byte| byte.is_ascii_uppercase()),
-        "DPoP requires an uppercase HTTP method"
+        "{}",
+        obfstr::obfstr!("DPoP requires an uppercase HTTP method")
     );
     let mut random = [0_u8; 32];
     OsRng.try_fill_bytes(&mut random).context(
@@ -96,7 +104,8 @@ pub(crate) fn proof_bound(
     if let Some(token) = token {
         ensure!(
             !token.is_empty() && token.bytes().all(|byte| (b'!'..=b'~').contains(&byte)),
-            "DPoP requires an ASCII access token"
+            "{}",
+            obfstr::obfstr!("DPoP requires an ASCII access token")
         );
         claims[obfstr::obfstr!("ath")] =
             json!(URL_SAFE_NO_PAD.encode(Sha256::digest(token.as_bytes())));
@@ -106,7 +115,8 @@ pub(crate) fn proof_bound(
             let decoded = URL_SAFE_NO_PAD.decode(value)?;
             ensure!(
                 decoded.len() == length && URL_SAFE_NO_PAD.encode(decoded) == value,
-                "Invalid artifact proof binding"
+                "{}",
+                obfstr::obfstr!("Invalid artifact proof binding")
             );
         }
         claims[obfstr::obfstr!("cek")] = json!(public);
@@ -118,7 +128,8 @@ pub(crate) fn proof_bound(
                 && hwid
                     .bytes()
                     .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
-            "Invalid hardware proof binding"
+            "{}",
+            obfstr::obfstr!("Invalid hardware proof binding")
         );
         claims[obfstr::obfstr!("hwid")] = json!(hwid);
     }

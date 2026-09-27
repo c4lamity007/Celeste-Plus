@@ -42,7 +42,14 @@ def env(tmp_path):
 
 
 def headers(env, method, path, token=None, **kwargs):
+    hardware_digest = None
+    if method == "GET" and path.startswith("/v1/beta/artifacts/"):
+        hardware_digest = hashlib.sha256(json.dumps({k: hardware()[k] for k in ("board", "processor", "system")},
+                                                  sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+        kwargs["payload_updates"] = {"hwid": hardware_digest, **kwargs.get("payload_updates", {})}
     result = {"DPoP": proof(env.install, method, "https://testserver" + path, token, **kwargs)}
+    if hardware_digest is not None:
+        result["X-Device-Id"] = hardware_digest
     if method == "GET" and path == "/v1/beta/manifest":
         result["X-Celeste-Request-Nonce"] = secrets.token_urlsafe(24)
     if token is not None:

@@ -1385,7 +1385,16 @@ mod ui_state_tests {
 }
 
 fn main() -> Result<()> {
+    #[cfg(debug_assertions)]
+    if std::env::args_os().any(|arg| arg == "--native-guard-probe") {
+        debug_guard::require_clear().map_err(|_| anyhow!("native_guard_rejected"))?;
+        println!("native_guard_ready");
+        return Ok(());
+    }
     if debug_guard::require_clear().is_err() {
+        return Ok(());
+    }
+    if bootstrap_cache::dispatch_cleanup()? {
         return Ok(());
     }
     let _ = bootstrap_cache::cleanup_stale();

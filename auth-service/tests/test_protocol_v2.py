@@ -179,14 +179,14 @@ def test_rotate_is_atomic_proof_bound_and_old_token_stops_working(v2):
         assert v2.client.post(path, headers={**access(v2, path, renewed, **extra), "X-Device-Id": HWID}).status_code == 401
 
 
-def encrypted_request(e, token, path, manifest):
+def encrypted_request(e, token, path, manifest, *, hwid=HWID):
     private = x25519.X25519PrivateKey.generate()
     public = raw_public(private)
     nonce = secrets.token_urlsafe(24)
     headers = {"Authorization": "DPoP " + token, "X-Celeste-Beta-Manifest": manifest,
-               "X-Celeste-Delivery-Key": public, "X-Celeste-Request-Nonce": nonce,
+               "X-Celeste-Delivery-Key": public, "X-Celeste-Request-Nonce": nonce, "X-Device-Id": hwid,
                "DPoP": proof(e.install, "GET", "https://testserver" + path, token,
-                             payload_updates={"cek": public, "cnonce": nonce})}
+                             payload_updates={"cek": public, "cnonce": nonce, "hwid": hwid})}
     return private, headers
 
 

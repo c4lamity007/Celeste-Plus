@@ -186,7 +186,7 @@ def run(args):
         baseline = [step('baseline-cold-' + str(n), [*check, raw_a, raw_b]) for n in range(3)]
         step('bootstrap-a-stage', [python, staging, 'stage-a', '--source', raw_a, '--output', output / 'a-stage'])
         stable = output / 'a-stage/bootstrap-a-stable.jar'
-        protect('bootstrap-a-protection', '02-bootstrap-a-implementation.json', output / 'a-stage/bootstrap-a-thin.jar', output / 'bootstrap-a-implementation.jar', [stable])
+        protect('bootstrap-a-protection', '02-bootstrap-a-implementation.json', output / 'a-stage/bootstrap-a-thin.jar', output / 'bootstrap-a-implementation.jar', [stable, *parents])
         step('bootstrap-a-merge', [python, staging, 'merge-a', '--stage', output / 'a-stage', '--protected', output / 'bootstrap-a-implementation.jar', '--output', output / 'bootstrap-a.jar'])
         protect('bootstrap-b-protection', '03-bootstrap-b-compatible.json', raw_b, output / 'bootstrap-b.bin', [stable])
         protected = [step('protected-cold-' + str(n), [*check, output / 'bootstrap-a.jar', output / 'bootstrap-b.bin']) for n in range(3)]

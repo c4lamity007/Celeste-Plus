@@ -31,3 +31,19 @@ launchers working. Only an intentional launcher protocol, server hostname, or
 pinned signing-key migration requires a new launcher build.
 
 The packager computes the same canonical full-payload digest as the Java bootstrap, writes the pinned endpoint/key metadata without changing that digest, splits the configured JAR into the two server-hosted chunks, and emits `release.env` from the exact packaged hashes.
+
+## Plus artifact hardware binding
+
+Every `/v1/beta/artifacts/...` GET requires one lowercase 64-character
+`X-Device-Id` hardware digest, repeated as `hwid` inside the same installation
+DPoP proof that signs the delivery key and nonce. The backend compares it with
+the live device's enrolled v2 HWID; devices without v2 enrollment use their
+existing canonical core hash. Fresh dual-proof authentication can enroll v2,
+after which the core hash is no longer accepted. This applies to legacy Plus
+grants too. Standard artifact routes are unchanged.
+
+Deploy the updated native launcher, Bootstrap A and this backend together.
+Older Plus clients do not send this mandatory binding and will be refused;
+there is no compatibility switch to disable it. Manifest/JWT and encrypted
+artifact formats remain unchanged. Rollback must restore a matching complete
+client/backend release, rather than mixing clients from this transition.

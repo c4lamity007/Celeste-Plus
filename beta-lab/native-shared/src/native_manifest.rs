@@ -20,10 +20,10 @@ pub(crate) enum IntegrityError {
 }
 impl fmt::Display for IntegrityError {
     fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
-        out.write_str(match self {
-            Self::Unavailable => "Connection required to verify this client. Try again when the verification service is available.",
-            Self::Rejected => "Client integrity check failed. Please download a fresh copy of Celeste.",
-        })
+        match self {
+            Self::Unavailable => out.write_str(obfstr::obfstr!("Connection required to verify this client. Try again when the verification service is available.")),
+            Self::Rejected => out.write_str(obfstr::obfstr!("Client integrity check failed. Please download a fresh copy of Celeste.")),
+        }
     }
 }
 impl std::error::Error for IntegrityError {}
@@ -235,17 +235,17 @@ pub(crate) fn require_current(product: &str) -> Result<()> {
         .try_fill_bytes(&mut random)
         .map_err(|_| IntegrityError::Unavailable)?;
     let nonce = URL_SAFE_NO_PAD.encode(random);
-    let key: [u8; 32] = decode(crate::release::SERVER_KEY)?
+    let key: [u8; 32] = decode(obfstr::obfstr!(crate::release::SERVER_KEY))?
         .try_into()
         .map_err(|_| IntegrityError::Rejected)?;
     let key = VerifyingKey::from_bytes(&key).map_err(|_| IntegrityError::Rejected)?;
     let url = format!(
         "{}{}{product}{}{target}",
-        crate::release::BASE_URL,
+        obfstr::obfstr!(crate::release::BASE_URL),
         obfstr::obfstr!("/v1/client-manifest?product="),
         obfstr::obfstr!("&platform=")
     );
-    let agent = crate::transport_policy::agent(crate::release::BASE_URL)
+    let agent = crate::transport_policy::agent(obfstr::obfstr!(crate::release::BASE_URL))
         .map_err(|_| IntegrityError::Unavailable)?;
     let response = agent
         .get(&url)
@@ -271,7 +271,7 @@ pub(crate) fn require_current(product: &str) -> Result<()> {
             .and_then(|v| v.split(';').next())
             != Some(obfstr::obfstr!("application/json"))
         || response
-            .header("Content-Encoding")
+            .header(obfstr::obfstr!("Content-Encoding"))
             .is_some_and(|v| v != obfstr::obfstr!("identity"))
     {
         return Err(IntegrityError::Rejected);
@@ -458,7 +458,7 @@ mod tests {
     }
     #[test]
     fn fixture_key_is_not_production_trust_and_errors_are_redacted() {
-        let raw: [u8; 32] = decode(crate::release::SERVER_KEY)
+        let raw: [u8; 32] = decode(obfstr::obfstr!(crate::release::SERVER_KEY))
             .unwrap()
             .try_into()
             .unwrap();

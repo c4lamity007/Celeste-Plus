@@ -45,6 +45,7 @@ from .dpop import access_token
 from .token_revocation import require_unrevoked
 from .artifact_envelope import encrypt, recipient
 from .auth_errors import failure
+from .auth_lifecycle import require_artifact_hardware
 
 
 RELEASE_SCHEMA = "celeste-beta-release-2"
@@ -251,7 +252,8 @@ def create_beta_router(
         # the grant subject to the immutable device license, never the display label.
         with database.connect() as connection:
             row = connection.execute(
-                """SELECT d.license_uid,d.status AS device_status,l.status AS license_status,l.expires_at
+                """SELECT d.license_uid,d.hwid_sha256,d.hardware_core_hash,
+                          d.status AS device_status,l.status AS license_status,l.expires_at
                    FROM devices d JOIN licenses l ON l.uid=d.license_uid
                    WHERE d.device_id=? AND d.license_uid=?""",
                 (device_id, license_uid),
@@ -265,6 +267,8 @@ def create_beta_router(
             raise HTTPException(401, "invalid grant")
         if touch:
             require_active_artifact_device(claims, request, request.url.path, PLUS)
+        elif request.url.path.startswith("/v1/beta/artifacts/"):
+            require_artifact_hardware(row, request)
         return token, claims
 
     @router.get("/manifest")

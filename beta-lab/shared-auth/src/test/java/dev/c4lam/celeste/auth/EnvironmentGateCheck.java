@@ -2,8 +2,11 @@ package dev.c4lam.celeste.auth;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.Base64;
 import java.util.List;
+import java.util.Locale;
 
 public final class EnvironmentGateCheck {
     private static int checks;
@@ -13,6 +16,13 @@ public final class EnvironmentGateCheck {
         if (args.length == 1 && args[0].equals("--probe")) {
             EnvironmentGate.requireAllowed();
             System.out.println("Current host environment allowed; no host identifiers recorded.");
+            return;
+        }
+        if (args.length == 1 && args[0].equals("--probe-firmware-fallback")) {
+            String forced = "function Get-CimInstance { throw 'Fixture CIM unavailable' }\n"
+                + EnvironmentGate.windowsScript(ProcessHandle.current().pid());
+            EnvironmentGate.reject(EnvironmentGate.windowsResult(powershell(forced)));
+            System.out.println("Forced CIM failure recovered via native firmware; target JVM sandbox checks retained; no identifiers recorded.");
             return;
         }
         if (args.length == 1 && args[0].equals("--oversized")) {
@@ -83,7 +93,42 @@ public final class EnvironmentGateCheck {
         String java = Path.of(System.getProperty("java.home"), "bin", System.getProperty("os.name").startsWith("Windows") ? "java.exe" : "java").toString();
         same(null, EnvironmentGate.command(java, "-cp", System.getProperty("java.class.path"), EnvironmentGateCheck.class.getName(), "--oversized"), "bounded OS query output");
         same(null, EnvironmentGate.command(Path.of("build", "module-qa", "environment-gate", "missing-detector").toAbsolutePath().toString()), "missing OS query executable");
+        if (System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("windows")) windowsFirmwareParser();
         System.out.println("Environment gate: " + checks + " checks passed.");
+    }
+
+    private static EnvironmentGate.Command powershell(String script) {
+        Path shell = Path.of(System.getenv("SystemRoot"), "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+        return EnvironmentGate.command(shell.toString(), "-NoLogo", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden",
+            "-EncodedCommand", Base64.getEncoder().encodeToString(script.getBytes(StandardCharsets.UTF_16LE)));
+    }
+
+    private static byte[] firmware(String maker, String model) {
+        byte[] strings = (maker + "\0" + model + "\0\0").getBytes(StandardCharsets.US_ASCII);
+        return ByteBuffer.allocate(14 + strings.length).order(ByteOrder.LITTLE_ENDIAN)
+            .put(new byte[] {0, 3, 0, 0}).putInt(6 + strings.length)
+            .put(new byte[] {1, 6, 0, 0, 1, 2}).put(strings).array();
+    }
+
+    private static void windowsFirmwareParser() {
+        String production = EnvironmentGate.windowsScript(ProcessHandle.current().pid());
+        String marker = "Add-Type -TypeDefinition @'\n";
+        int begin = production.indexOf(marker) + marker.length();
+        int end = production.indexOf("\n'@", begin);
+        if (begin < marker.length() || end < begin) throw new AssertionError("Missing production C# helper");
+        String parser = production.substring(begin, end);
+        String physical = Base64.getEncoder().encodeToString(firmware("Dell", "XPS"));
+        String guest = Base64.getEncoder().encodeToString(firmware("VMware, Inc.", "VMware Virtual Platform"));
+        String script = "$ErrorActionPreference='Stop'\n$ProgressPreference='SilentlyContinue'\nAdd-Type -TypeDefinition @'\n" + parser + "\n'@\n"
+            + "$raw=[Convert]::FromBase64String('" + physical + "')\n"
+            + "$v=[CelesteEnvironmentQuery]::ParseFirmware($raw); if($v[0] -cne 'Dell' -or $v[1] -cne 'XPS'){exit 92}\n"
+            + "$v=[CelesteEnvironmentQuery]::ParseFirmware([Convert]::FromBase64String('" + guest + "')); if($v[0] -cne 'VMware, Inc.' -or $v[1] -cne 'VMware Virtual Platform'){exit 93}\n"
+            + "for($n=0;$n -lt $raw.Length;$n++){ $slice=New-Object byte[] $n; [Array]::Copy($raw,$slice,$n); $denied=$false; try{[void][CelesteEnvironmentQuery]::ParseFirmware($slice)}catch{$denied=$true}; if(-not $denied){exit 94} }\n"
+            + "foreach($change in @(0,1,2,3)){ $bad=$raw.Clone(); switch($change){0{$bad[12]=40}1{$bad[8]=127}2{$bad[9]=255}3{$bad[$bad.Length-1]=1}}; $denied=$false;try{[void][CelesteEnvironmentQuery]::ParseFirmware($bad)}catch{$denied=$true};if(-not $denied){exit 95}}\n"
+            + "[Console]::WriteLine('parser-pass')\n";
+        EnvironmentGate.Command result = powershell(script);
+        same(0, result == null ? null : result.exit(), "production firmware parser physical/guest/truncated/bad-index/bounds checks");
+        same("parser-pass", result.output(), "firmware parser emits no extra facts");
     }
 
     private static EnvironmentGate.Command windows(String manufacturer, String model, String flag) {

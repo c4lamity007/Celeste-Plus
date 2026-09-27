@@ -29,6 +29,14 @@ record HardwareFingerprint(String system, String board, String processor, List<S
         if (!os.contains("windows")) {
             throw new IllegalStateException("Celeste does not support this operating system");
         }
+        try {
+            return collectWindowsUsingWmi();
+        } catch (RuntimeException unavailable) {
+            return collectWindowsUsingFirmware();
+        }
+    }
+
+    static HardwareFingerprint collectWindowsUsingWmi() {
         boolean releaseCom = initializeCom();
         try {
             return collectWindows();
@@ -58,6 +66,23 @@ record HardwareFingerprint(String system, String board, String processor, List<S
             wmiFirst(ProcessorProperty.class, "Win32_Processor", ProcessorProperty.Name)
         );
 
+        return fromFields(systemValue, boardValue, processorValue);
+    }
+
+    static HardwareFingerprint collectWindowsUsingFirmware() {
+        WindowsFirmwareIdentity.Identity firmware = WindowsFirmwareIdentity.read();
+        String processorRoot = "HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0";
+        String manufacturer = Advapi32Util.registryGetStringValue(WinReg.HKEY_LOCAL_MACHINE,
+            processorRoot, "VendorIdentifier", REGISTRY_ACCESS);
+        String name = Advapi32Util.registryGetStringValue(WinReg.HKEY_LOCAL_MACHINE,
+            processorRoot, "ProcessorNameString", REGISTRY_ACCESS);
+        if (manufacturer == null || manufacturer.isBlank() || name == null || name.isBlank())
+            throw new IllegalStateException("Windows processor identity is unavailable");
+        return fromFields(canonical(firmware.system().toArray(String[]::new)),
+            canonical(firmware.board().toArray(String[]::new)), canonical(firmware.processorId(), manufacturer, name));
+    }
+
+    private static HardwareFingerprint fromFields(String systemValue, String boardValue, String processorValue) {
         Set<String> monitorValues = new LinkedHashSet<>();
         for (byte[] edid : registryEdids()) {
             if (edid.length > 0) {

@@ -29,7 +29,7 @@ from .api_responses import ApiResponseMiddleware
 from .native_manifest import create_native_manifest_router
 from .token_revocation import require_unrevoked
 from .auth_errors import failure
-from .auth_lifecycle import (record_grant, require_current_grant, require_hwid, complete_hardware_auth,
+from .auth_lifecycle import (record_grant, require_current_grant, require_hwid, complete_hardware_auth, require_artifact_hardware,
                              check_runtime_binding, eligible_rebinding, revoke_device_grants)
 from .artifact_envelope import recipient
 from .transport_policy import create_transport_policy_router
@@ -1612,7 +1612,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
                 """
-                SELECT d.license_uid,d.install_signing_key,d.status AS device_status,l.status AS license_status,l.expires_at
+                SELECT d.license_uid,d.install_signing_key,d.hwid_sha256,d.hardware_core_hash,
+                       d.status AS device_status,l.status AS license_status,l.expires_at
                 FROM devices d JOIN licenses l ON l.uid=d.license_uid
                 WHERE d.device_id=?
                 """,
@@ -1634,8 +1635,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             require_unrevoked(connection, claims)
             delivery = recipient(request) if (product == PLUS and settings.plus_auth_protocol == 2
                 and endpoint.startswith("/v1/beta/artifacts/")) else None
+            hardware = require_artifact_hardware(row, request) if (product == PLUS
+                and endpoint.startswith("/v1/beta/artifacts/")) else None
             dpop.require(connection, request, bytes(row["install_signing_key"]), token=access_token(request), claims=claims,
-                         delivery=delivery)
+                         delivery=delivery, hardware=hardware)
             if endpoint.startswith(("/v1/bootstrap/", "/v1/loader/", "/v1/blob/", "/v1/beta/artifacts/")):
                 token_bucket = keyed_digest(settings.key_pepper, "artifact-token", claims["jti"])
                 ip_bucket = keyed_digest(settings.key_pepper, "artifact-ip", client_ip(request))

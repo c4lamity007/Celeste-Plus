@@ -5,7 +5,8 @@ param(
     [Parameter(Mandatory=$true)][string]$McpPython,
     [Parameter(Mandatory=$true)][string]$ReviewedConfig,
     [Parameter(Mandatory=$true)][string]$OutputDirectory,
-    [ValidateSet('historical-7','auth-v2-14')][string]$Profile = 'historical-7'
+    [ValidateSet('historical-7','auth-v2-14')][string]$Profile = 'historical-7',
+    [ValidateRange(60,900)][int]$CompileTimeoutSeconds = 600
 )
 $ErrorActionPreference = 'Stop'
 if (-not $IsWindows) { throw 'The installed VMP Lite MCP driver needs an interactive Windows desktop.' }
@@ -32,7 +33,7 @@ New-Item -ItemType Directory -Path $taskJobRoot | Out-Null
 $taskScopedConfig = Join-Path $taskOutput 'mcp-config.json'
 @{executable=$taskProtector; executable_sha256=$taskConfig.executable_sha256; work_root=$taskJobRoot; allowed_roots=@($taskAliases,[IO.Path]::GetDirectoryName($taskTemplate))} | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $taskScopedConfig -Encoding utf8
 $taskEvidence = Join-Path $taskOutput 'compile-evidence.json'
-& $taskPython (Join-Path $taskPlugin 'scripts/compile_job.py') --config $taskScopedConfig --input (Join-Path $taskAliases 'Celeste+.exe') --template $taskTemplate --evidence $taskEvidence --timeout 600
+& $taskPython (Join-Path $taskPlugin 'scripts/compile_job.py') --config $taskScopedConfig --input (Join-Path $taskAliases 'Celeste+.exe') --template $taskTemplate --evidence $taskEvidence --timeout $CompileTimeoutSeconds
 if ($LASTEXITCODE -ne 0) { throw 'MCP compilation was not confirmed. Inspect preserved evidence and job files; do not retry the same compile.' }
 $taskResult = Get-Content -LiteralPath $taskEvidence -Raw | ConvertFrom-Json
 if ($taskResult.status -ne 'compiled-pending-independent-review' -or $taskResult.protection_verified -ne $false) { throw 'Unexpected MCP evidence status.' }

@@ -66,6 +66,9 @@ def stable(name: str) -> bool:
         return True  # Trust metadata, native/support JARs and every authored resource stay exact.
     if name.startswith(STABLE_PREFIXES):
         return True
+    if name in ("dev/c4lam/celeste/auth/WindowsArtifactHardware$Processor.class",
+                "dev/c4lam/celeste/auth/WindowsArtifactHardware$SystemApi.class"):
+        return True  # WMI enum spellings and JNA entry names are external ABI.
     canonical = "dev/celestebeta/host/"
     return name.startswith(canonical) and "/" not in name[len(canonical):]
 
@@ -147,7 +150,8 @@ def payload_boundary(name: str) -> bool:
         or name == "dev/c4lam/celeste/auth/InstallCredential.class" \
         or re.fullmatch(r"dev/c4lam/celeste/auth/HardwareFingerprint\$[^/]+Property\.class", name) is not None \
         or name in ("dev/c4lam/celeste/auth/HardwareIdentityV2$Processor.class",
-                    "dev/c4lam/celeste/auth/HardwareIdentityV2$SystemApi.class") \
+                    "dev/c4lam/celeste/auth/HardwareIdentityV2$SystemApi.class",
+                    "dev/c4lam/celeste/auth/WindowsFirmwareIdentity$FirmwareApi.class") \
         or re.fullmatch(r"dev/c4lam/celeste/render/font/FontData(?:\$[^/]+)?\.class", name) is not None
 
 

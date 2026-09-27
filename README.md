@@ -83,6 +83,10 @@ The five-file output contains A, B, two payload parts, and `beta-release.json`. 
 
 ## Authentication and publication
 
+The Windows [download-binding and recovery follow-up](docs/auth-recovery-and-download-binding.md)
+requires a new loader and a matching Bootstrap A/backend rollout. These source
+changes are separate from the currently published release described below.
+
 The current Windows payload is `celeste-plus-20260927-media-cleanup-01`,
 deployed and verified at Fly version **133** with native policy sequence **2**.
 Use the existing

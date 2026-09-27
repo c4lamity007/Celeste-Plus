@@ -214,6 +214,49 @@ public final class EnvironmentGate {
               [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);
               [DllImport("advapi32.dll", SetLastError=true)] static extern bool OpenProcessToken(IntPtr process, uint access, out IntPtr token);
               [DllImport("advapi32.dll", SetLastError=true)] static extern bool GetTokenInformation(IntPtr token, int kind, out int value, int size, out int needed);
+              [DllImport("kernel32.dll", SetLastError=true)] static extern uint GetSystemFirmwareTable(uint provider, uint table, [Out] byte[] buffer, uint size);
+              public static string[] ReadFirmware() {
+                uint size = GetSystemFirmwareTable(0x52534d42, 0, null, 0);
+                if (size < 8 || size > 4194304) throw new InvalidOperationException();
+                byte[] raw = new byte[(int)size];
+                if (GetSystemFirmwareTable(0x52534d42, 0, raw, size) != size) throw new InvalidOperationException();
+                return ParseFirmware(raw);
+              }
+              public static string[] ParseFirmware(byte[] raw) {
+                if (raw == null || raw.Length < 8 || raw.Length > 4194304
+                    || BitConverter.ToUInt32(raw, 4) != (uint)(raw.Length - 8)) throw new InvalidOperationException();
+                int offset = 8;
+                while (offset + 4 <= raw.Length) {
+                  int type = raw[offset], size = raw[offset + 1];
+                  if (size < 4 || size > raw.Length - offset) throw new InvalidOperationException();
+                  int strings = offset + size, end = strings;
+                  while (end + 1 < raw.Length && (raw[end] != 0 || raw[end + 1] != 0)) end++;
+                  if (end + 1 >= raw.Length) throw new InvalidOperationException();
+                  if (type == 1) {
+                    if (size < 6) throw new InvalidOperationException();
+                    return new string[] { FirmwareString(raw, strings, end, raw[offset + 4]),
+                                          FirmwareString(raw, strings, end, raw[offset + 5]) };
+                  }
+                  offset = end + 2;
+                  if (type == 127) break;
+                }
+                throw new InvalidOperationException();
+              }
+              static string FirmwareString(byte[] raw, int start, int end, int index) {
+                if (index == 0) return String.Empty;
+                int current = 1;
+                while (start < end) {
+                  int stop = start;
+                  while (stop < end && raw[stop] != 0) stop++;
+                  if (current == index) {
+                    if (stop == start || stop - start > 1024) throw new InvalidOperationException();
+                    for (int i = start; i < stop; i++) if (raw[i] > 127) throw new InvalidOperationException();
+                    return System.Text.Encoding.ASCII.GetString(raw, start, stop - start);
+                  }
+                  current++; start = stop + 1;
+                }
+                throw new InvalidOperationException();
+              }
               public static bool IsSandbox(int pid) {
                 IntPtr process = OpenProcess(0x1000, false, pid), token = IntPtr.Zero;
                 if (process == IntPtr.Zero) throw new InvalidOperationException();
@@ -239,12 +282,20 @@ public final class EnvironmentGate {
               }
             }
             '@
-              $facts = @(Get-CimInstance -ClassName Win32_ComputerSystem -Property Manufacturer,Model -OperationTimeoutSec 5)
-              if ($facts.Count -ne 1) { exit 91 }
+              try {
+                $facts = @(Get-CimInstance -ClassName Win32_ComputerSystem -Property Manufacturer,Model -OperationTimeoutSec 5)
+                if ($facts.Count -ne 1) { throw 'Platform query unavailable' }
+                $manufacturer = [string]$facts[0].Manufacturer
+                $model = [string]$facts[0].Model
+              } catch {
+                $firmware = [CelesteEnvironmentQuery]::ReadFirmware()
+                $manufacturer = $firmware[0]
+                $model = $firmware[1]
+              }
               $sandbox = [CelesteEnvironmentQuery]::IsSandbox(%d)
               [Console]::WriteLine('celeste-environment-1')
-              [Console]::WriteLine([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string]$facts[0].Manufacturer)))
-              [Console]::WriteLine([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string]$facts[0].Model)))
+              [Console]::WriteLine([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($manufacturer)))
+              [Console]::WriteLine([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($model)))
               [Console]::WriteLine([int]$sandbox)
             } catch { exit 91 }
             """.formatted(processId);

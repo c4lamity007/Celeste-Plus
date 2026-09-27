@@ -55,15 +55,18 @@ public final class BetaDeliveryClient {
     private final Clock clock;
     private final Transport transport;
     private final DpopProofSigner proofSigner;
+    private final java.util.function.Supplier<String> hardwareIdentity;
 
     public BetaDeliveryClient(URI origin, byte[] pinnedEd25519Key, String installerToken,
-                              String expectedDevice, long expectedUid, DpopProofSigner proofSigner) throws GeneralSecurityException {
-        this(origin, pinnedEd25519Key, installerToken, expectedDevice, expectedUid, proofSigner, Clock.systemUTC(), new HttpsTransport(origin, pinnedEd25519Key));
+                              String expectedDevice, long expectedUid, DpopProofSigner proofSigner,
+                              java.util.function.Supplier<String> hardwareIdentity) throws GeneralSecurityException {
+        this(origin, pinnedEd25519Key, installerToken, expectedDevice, expectedUid, proofSigner, hardwareIdentity, Clock.systemUTC(), new HttpsTransport(origin, pinnedEd25519Key));
     }
 
     /** Package-local offline seam. Production construction always uses bounded, nonredirecting HTTPS. */
     BetaDeliveryClient(URI origin, byte[] pinnedEd25519Key, String installerToken, String expectedDevice,
-                       long expectedUid, DpopProofSigner proofSigner, Clock clock, Transport transport) throws GeneralSecurityException {
+                       long expectedUid, DpopProofSigner proofSigner, java.util.function.Supplier<String> hardwareIdentity,
+                       Clock clock, Transport transport) throws GeneralSecurityException {
         if (origin == null || !"https".equalsIgnoreCase(origin.getScheme()) || origin.getHost() == null
             || origin.getRawUserInfo() != null || origin.getRawQuery() != null || origin.getRawFragment() != null
             || !(origin.getRawPath().isEmpty() || origin.getRawPath().equals("/"))
@@ -79,6 +82,8 @@ public final class BetaDeliveryClient {
         this.transport = java.util.Objects.requireNonNull(transport, "transport");
         if (proofSigner == null) throw invalid("Installation proof signer is required");
         this.proofSigner = proofSigner;
+        if (hardwareIdentity == null) throw invalid("Hardware identity provider is required");
+        this.hardwareIdentity = hardwareIdentity;
         installer();
     }
 
@@ -231,8 +236,16 @@ public final class BetaDeliveryClient {
         int transportLimit = envelope == null ? limit : Math.addExact(limit, ArtifactEnvelope.OVERHEAD);
         Map<String, String> headers = new LinkedHashMap<>();
         headers.put("Authorization", "DPoP " + installerToken);
-        headers.put("DPoP", envelope == null ? proofSigner.proof("GET", uri, installerToken)
-            : proofSigner.proof("GET", uri, installerToken, envelope.publicKey(), envelope.nonce()));
+        if (envelope == null) {
+            headers.put("DPoP", proofSigner.proof("GET", uri, installerToken));
+        } else {
+            final String hardware;
+            try { hardware = hardwareIdentity.get(); }
+            catch (RuntimeException unavailable) { throw new GeneralSecurityException("Hardware identity unavailable", unavailable); }
+            headers.put("DPoP", proofSigner.proofForArtifact("GET", uri, installerToken,
+                envelope.publicKey(), envelope.nonce(), hardware));
+            headers.put("X-Device-Id", hardware);
+        }
         headers.put("Accept", mediaType);
         headers.put("Cache-Control", "no-store");
         if (manifest != null) headers.put("X-Celeste-Beta-Manifest", manifest);

@@ -12,11 +12,11 @@ pub(crate) enum Denial {
 }
 
 impl Denial {
-    pub(crate) fn code(self) -> &'static str {
+    pub(crate) fn code(self) -> String {
         match self {
-            Self::VirtualMachine => "environment_vm",
-            Self::Sandbox => "environment_sandbox",
-            Self::Unavailable => "environment_unavailable",
+            Self::VirtualMachine => obfstr::obfstr!("environment_vm").to_owned(),
+            Self::Sandbox => obfstr::obfstr!("environment_sandbox").to_owned(),
+            Self::Unavailable => obfstr::obfstr!("environment_unavailable").to_owned(),
         }
     }
 }
@@ -25,13 +25,13 @@ impl fmt::Display for Denial {
     fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
         let message = match self {
             Self::VirtualMachine => {
-                "Celeste cannot run inside a virtual machine. Open it on your physical computer."
+                obfstr::obfstr!("Celeste cannot run inside a virtual machine. Open it on your physical computer.").to_owned()
             }
             Self::Sandbox => {
-                "Celeste cannot run inside a sandbox or container. Open it outside that environment."
+                obfstr::obfstr!("Celeste cannot run inside a sandbox or container. Open it outside that environment.").to_owned()
             }
             Self::Unavailable => {
-                "Celeste could not verify this environment. Restore access to the system information services and try again."
+                obfstr::obfstr!("Celeste could not verify this environment. Restore access to the system information services and try again.").to_owned()
             }
         };
         write!(out, "{message} ({})", self.code())
@@ -50,24 +50,34 @@ struct Facts {
 fn guest_platform(value: &str) -> bool {
     let value = value.trim().to_ascii_lowercase();
     [
-        "virtual machine",
-        "vmware",
-        "virtualbox",
-        "vbox",
-        "innotek",
-        "hvm domu",
-        "parallels",
-        "openstack",
-        "virtualmac",
-        "virtual platform",
-        "google compute engine",
+        obfstr::obfstr!("virtual machine"),
+        obfstr::obfstr!("vmware"),
+        obfstr::obfstr!("virtualbox"),
+        obfstr::obfstr!("vbox"),
+        obfstr::obfstr!("innotek"),
+        obfstr::obfstr!("hvm domu"),
+        obfstr::obfstr!("parallels"),
+        obfstr::obfstr!("openstack"),
+        obfstr::obfstr!("virtualmac"),
+        obfstr::obfstr!("virtual platform"),
+        obfstr::obfstr!("google compute engine"),
     ]
     .iter()
     .any(|needle| value.contains(needle))
         || value
             .split(|c: char| !c.is_ascii_alphanumeric())
-            .any(|word| matches!(word, "qemu" | "kvm" | "xen" | "bhyve" | "bochs"))
-        || (value.contains("amazon ec2") && !value.contains(".metal"))
+            .any(|word| {
+                [
+                    obfstr::obfstr!("qemu"),
+                    obfstr::obfstr!("kvm"),
+                    obfstr::obfstr!("xen"),
+                    obfstr::obfstr!("bhyve"),
+                    obfstr::obfstr!("bochs"),
+                ]
+                .contains(&word)
+            })
+        || (value.contains(obfstr::obfstr!("amazon ec2"))
+            && !value.contains(obfstr::obfstr!(".metal")))
 }
 
 fn decide(facts: &Facts) -> Result<(), Denial> {
@@ -105,15 +115,15 @@ fn guest_evidence(
     exclusive_guest_driver
         || (hypervisor
             && ([
-                "vmwarevmware",
-                "vboxvboxvbox",
-                "kvmkvmkvm",
-                "xenvmmxenvmm",
-                "bhyve bhyve",
-                "prl hyperv",
+                obfstr::obfstr!("vmwarevmware"),
+                obfstr::obfstr!("vboxvboxvbox"),
+                obfstr::obfstr!("kvmkvmkvm"),
+                obfstr::obfstr!("xenvmmxenvmm"),
+                obfstr::obfstr!("bhyve bhyve"),
+                obfstr::obfstr!("prl hyperv"),
             ]
             .contains(&vendor.as_str())
-                || (vendor != "microsoft hv" && shared_guest_hint)))
+                || (vendor != obfstr::obfstr!("microsoft hv") && shared_guest_hint)))
 }
 
 /// No network, persistence, credential access, or revocation occurs here.
@@ -133,7 +143,7 @@ fn probe() -> Result<Facts, Denial> {
 
     // Query only this process's token/module state. Installed host VM software
     // and HypervisorPresent are deliberately not guest/sandbox indicators.
-    let sandboxie: Vec<u16> = "SbieDll.dll\0".encode_utf16().collect();
+    let sandboxie: Vec<u16> = obfstr::obfstr!("SbieDll.dll\0").encode_utf16().collect();
     if unsafe { !GetModuleHandleW(sandboxie.as_ptr()).is_null() } || windows_app_container()? {
         return Ok(Facts {
             sandbox: true,
@@ -142,12 +152,12 @@ fn probe() -> Result<Facts, Denial> {
     }
     let control = RegKey::predef(HKEY_LOCAL_MACHINE)
         .open_subkey_with_flags(
-            "SYSTEM\\CurrentControlSet\\Control",
+            obfstr::obfstr!("SYSTEM\\CurrentControlSet\\Control"),
             KEY_READ | KEY_WOW64_64KEY,
         )
         .map_err(|_| Denial::Unavailable)?;
     // Microsoft PerfView uses this value's presence to identify Windows containers.
-    match control.get_raw_value("ContainerType") {
+    match control.get_raw_value(obfstr::obfstr!("ContainerType")) {
         Ok(_) => {
             return Ok(Facts {
                 sandbox: true,
@@ -163,16 +173,31 @@ fn probe() -> Result<Facts, Denial> {
         manufacturer: Option<String>,
         model: Option<String>,
     }
-    let com = COMLibrary::new().map_err(|_| Denial::Unavailable)?;
-    let wmi = WMIConnection::new(com).map_err(|_| Denial::Unavailable)?;
-    let systems: Vec<System> = wmi
-        .raw_query("SELECT Manufacturer,Model FROM Win32_ComputerSystem")
-        .map_err(|_| Denial::Unavailable)?;
-    let [system] = systems.as_slice() else {
-        return Err(Denial::Unavailable);
-    };
-    let vendor = system.manufacturer.as_deref().unwrap_or("");
-    let model = system.model.as_deref().unwrap_or("");
+    let platform = (|| -> Result<Vec<String>, Denial> {
+        let com = COMLibrary::new().map_err(|_| Denial::Unavailable)?;
+        let wmi = WMIConnection::new(com).map_err(|_| Denial::Unavailable)?;
+        let systems: Vec<System> = wmi
+            .raw_query(obfstr::obfstr!(
+                "SELECT Manufacturer,Model FROM Win32_ComputerSystem"
+            ))
+            .map_err(|_| Denial::Unavailable)?;
+        let [system] = systems.as_slice() else {
+            return Err(Denial::Unavailable);
+        };
+        let manufacturer = system.manufacturer.clone().unwrap_or_default();
+        let model = system.model.clone().unwrap_or_default();
+        if !meaningful(&manufacturer) || !meaningful(&model) {
+            return Err(Denial::Unavailable);
+        }
+        Ok(vec![manufacturer, model])
+    })()
+    .or_else(|_| {
+        let identity = crate::hardware_v2::firmware::read().map_err(|_| Denial::Unavailable)?;
+        if !meaningful(&identity.system[0]) || !meaningful(&identity.system[1]) {
+            return Err(Denial::Unavailable);
+        }
+        Ok(vec![identity.system[0].clone(), identity.system[1].clone()])
+    })?;
     let (hypervisor, hypervisor_vendor) = windows_hypervisor();
     let services = RegKey::predef(HKEY_LOCAL_MACHINE)
         .open_subkey_with_flags(
@@ -217,32 +242,116 @@ fn probe() -> Result<Facts, Denial> {
         #[serde(rename = "MACAddress")]
         mac_address: Option<String>,
     }
-    let adapters: Vec<Adapter> = wmi
-        .raw_query(obfstr::obfstr!(
-            "SELECT MACAddress FROM Win32_NetworkAdapter WHERE MACAddress IS NOT NULL"
-        ))
-        .map_err(|_| Denial::Unavailable)?;
-    shared |= adapters
-        .iter()
-        .filter_map(|adapter| adapter.mac_address.as_deref())
-        .any(|address| {
-            let prefix = address.to_ascii_lowercase().replace('-', ":");
-            [
-                "08:00:27:",
-                "00:05:69:",
-                "00:0c:29:",
-                "00:50:56:",
-                "00:1c:42:",
-            ]
-            .iter()
-            .any(|value| prefix.starts_with(value))
-        });
+    let adapters = (|| -> Result<Vec<String>, Denial> {
+        let com = COMLibrary::new().map_err(|_| Denial::Unavailable)?;
+        let wmi = WMIConnection::new(com).map_err(|_| Denial::Unavailable)?;
+        let adapters: Vec<Adapter> = wmi
+            .raw_query(obfstr::obfstr!(
+                "SELECT MACAddress FROM Win32_NetworkAdapter WHERE MACAddress IS NOT NULL"
+            ))
+            .map_err(|_| Denial::Unavailable)?;
+        Ok(adapters
+            .into_iter()
+            .filter_map(|adapter| adapter.mac_address)
+            .collect())
+    })()
+    .or_else(|_| windows_adapter_addresses())?;
+    shared |= adapters.iter().any(|address| guest_mac(address));
     Ok(Facts {
-        platform: vec![vendor.to_owned(), model.to_owned()],
+        platform: platform.clone(),
         guest: guest_evidence(hypervisor, &hypervisor_vendor, exclusive, shared),
-        complete: meaningful(vendor) && meaningful(model),
+        complete: platform.iter().all(|value| meaningful(value)),
         ..Facts::default()
     })
+}
+
+#[cfg(any(windows, test))]
+fn guest_mac(address: &str) -> bool {
+    let prefix = address.to_ascii_lowercase().replace('-', ":");
+    [
+        obfstr::obfstr!("08:00:27:"),
+        obfstr::obfstr!("00:05:69:"),
+        obfstr::obfstr!("00:0c:29:"),
+        obfstr::obfstr!("00:50:56:"),
+        "00:1c:42:",
+    ]
+    .iter()
+    .any(|value| prefix.starts_with(value))
+}
+
+#[cfg(windows)]
+fn windows_adapter_addresses() -> Result<Vec<String>, Denial> {
+    use winapi::um::{iphlpapi::GetAdaptersAddresses, iptypes::IP_ADAPTER_ADDRESSES};
+    // AF_UNSPEC plus INCLUDE_ALL_INTERFACES covers IPv4, IPv6 and unbound adapters.
+    // Skip address/DNS/name sublists: only each adapter MAC is used as a weak hint.
+    let mut needed = 0;
+    let status = unsafe {
+        GetAdaptersAddresses(
+            0,
+            0x12f,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            &mut needed,
+        )
+    };
+    if status == 232 {
+        return Ok(Vec::new());
+    } // ERROR_NO_DATA: no adapters.
+    if status != 111
+        || needed as usize > 1024 * 1024
+        || (needed as usize) < std::mem::size_of::<IP_ADAPTER_ADDRESSES>()
+    {
+        return Err(Denial::Unavailable);
+    }
+    // Allocate with the API structure's alignment; Windows fills this buffer.
+    let count = (needed as usize).div_ceil(std::mem::size_of::<IP_ADAPTER_ADDRESSES>());
+    let mut rows: Vec<IP_ADAPTER_ADDRESSES> =
+        (0..count).map(|_| unsafe { std::mem::zeroed() }).collect();
+    if unsafe {
+        GetAdaptersAddresses(
+            0,
+            0x12f,
+            std::ptr::null_mut(),
+            rows.as_mut_ptr(),
+            &mut needed,
+        )
+    } != 0
+    {
+        return Err(Denial::Unavailable);
+    }
+    let base = rows.as_ptr() as usize;
+    let end = base + rows.len() * std::mem::size_of::<IP_ADAPTER_ADDRESSES>();
+    let mut cursor = rows.as_ptr();
+    let mut result = Vec::new();
+    for _ in 0..4096 {
+        if cursor.is_null() {
+            return Ok(result);
+        }
+        let address = cursor as usize;
+        if address < base
+            || address
+                .checked_add(std::mem::size_of::<IP_ADAPTER_ADDRESSES>())
+                .is_none_or(|v| v > end)
+            || address % std::mem::align_of::<IP_ADAPTER_ADDRESSES>() != 0
+        {
+            return Err(Denial::Unavailable);
+        }
+        let row = unsafe { &*cursor };
+        if row.PhysicalAddressLength as usize > row.PhysicalAddress.len() {
+            return Err(Denial::Unavailable);
+        }
+        if row.PhysicalAddressLength > 0 {
+            result.push(
+                row.PhysicalAddress[..row.PhysicalAddressLength as usize]
+                    .iter()
+                    .map(|b| format!("{b:02x}"))
+                    .collect::<Vec<_>>()
+                    .join(":"),
+            );
+        }
+        cursor = row.Next;
+    }
+    Err(Denial::Unavailable)
 }
 
 #[cfg(all(windows, target_arch = "x86_64"))]
@@ -507,6 +616,37 @@ fn probe() -> Result<Facts, Denial> {
 mod tests {
     use super::*;
 
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "Read-only native adapter and firmware fallback query; no identifiers emitted"]
+    fn local_windows_fallback_queries() {
+        assert!(
+            windows_adapter_addresses().is_ok(),
+            "native adapters unavailable"
+        );
+        let identity = crate::hardware_v2::firmware::read().expect("firmware unavailable");
+        assert!(meaningful(&identity.system[0]) && meaningful(&identity.system[1]));
+    }
+
+    #[test]
+    fn fallback_mac_hints_keep_the_same_vm_rules() {
+        assert!(guest_mac("08-00-27-12-34-56"));
+        assert!(guest_mac("00:0C:29:12:34:56"));
+        assert!(!guest_mac("10:20:30:40:50:60"));
+        assert!(!guest_evidence(
+            true,
+            "Microsoft Hv",
+            false,
+            guest_mac("08:00:27:12:34:56")
+        ));
+        assert!(guest_evidence(
+            true,
+            "KVMKVMKVM",
+            false,
+            guest_mac("08:00:27:12:34:56")
+        ));
+    }
+
     #[test]
     fn guest_signals_preserve_physical_vbs_and_host_vm_software() {
         assert!(!guest_evidence(true, "Microsoft Hv", false, true));
@@ -594,7 +734,7 @@ mod tests {
         assert_eq!(detector_result(Some(1), "none\n", ""), Ok(false));
         for id in [
             "kvm",
-            "vmware",
+            obfstr::obfstr!("vmware"),
             "microsoft",
             "docker",
             "podman",

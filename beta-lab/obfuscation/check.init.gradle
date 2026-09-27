@@ -25,7 +25,7 @@ allprojects { project ->
                     if (!target) throw new GradleException('Supply -PobfuscationCheckClasspath=<fresh output file>')
                     def file = project.file(target)
                     if (file.exists()) throw new GradleException('Use a fresh verification classpath output')
-                    file.text = (project.files(output) + project.sourceSets.main.runtimeClasspath).asPath
+                    file.text = (project.files(output) + project.sourceSets.main.runtimeClasspath + project.configurations.testRuntimeClasspath).asPath
                 }
             }
         }

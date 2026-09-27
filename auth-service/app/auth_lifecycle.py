@@ -2,8 +2,25 @@
 from __future__ import annotations
 import hashlib
 import hmac
+import re
 import time
 from .auth_errors import failure
+
+
+def require_artifact_hardware(row, request) -> str:
+    """Plus downloads bind the live device's HWID to the same installation proof.
+
+    A device not yet enrolled with v2 uses its existing core fingerprint. Once
+    fresh dual-proof authentication enrolls v2, the legacy value stops working.
+    Call again after slow artifact work; only the initial guard consumes DPoP.
+    """
+    values = request.headers.getlist("x-device-id")
+    if len(values) != 1 or not re.fullmatch(r"[0-9a-f]{64}", values[0]):
+        raise failure("device_mismatch", "A valid device identity is required")
+    expected = row["hwid_sha256"] or bytes(row["hardware_core_hash"]).hex()
+    if not hmac.compare_digest(expected, values[0]):
+        raise failure("device_mismatch", "This installation belongs to a different device")
+    return values[0]
 
 
 def record_grant(connection, token: str, claims: dict) -> None:

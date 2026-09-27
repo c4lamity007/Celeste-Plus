@@ -2,10 +2,13 @@
 //! Only the final digest is cached; raw hardware values are never persisted/logged.
 #[cfg(any(windows, test))]
 use sha2::{Digest, Sha256};
+#[cfg(any(windows, test))]
+#[path = "windows_firmware.rs"]
+pub(crate) mod firmware;
 
 #[cfg(any(windows, test))]
-fn digest(cpu: &str, disk: &str, guid: &str) -> Result<String, &'static str> {
-    fn normalized(value: &str) -> Result<String, &'static str> {
+fn digest(cpu: &str, disk: &str, guid: &str) -> Result<String, String> {
+    fn normalized(value: &str) -> Result<String, String> {
         let value = value.trim().to_ascii_lowercase();
         if value.is_empty()
             || value.len() > 1024
@@ -15,7 +18,7 @@ fn digest(cpu: &str, disk: &str, guid: &str) -> Result<String, &'static str> {
                 "unknown" | "none" | "default string" | "to be filled by o.e.m."
             )
         {
-            return Err("Hardware identity is unavailable");
+            return Err(obfstr::obfstr!("Hardware identity is unavailable").to_owned());
         }
         Ok(value)
     }
@@ -31,10 +34,12 @@ fn digest(cpu: &str, disk: &str, guid: &str) -> Result<String, &'static str> {
 #[cfg(windows)]
 #[inline(never)]
 pub(crate) fn current() -> anyhow::Result<Option<String>> {
-    static VALUE: std::sync::OnceLock<Result<String, &'static str>> = std::sync::OnceLock::new();
+    static VALUE: std::sync::OnceLock<Result<String, String>> = std::sync::OnceLock::new();
     VALUE
         .get_or_init(|| {
-            windows::collect().map_err(|_| "Windows hardware identity could not be read")
+            windows::collect().map_err(|_| {
+                obfstr::obfstr!("Windows hardware identity could not be read").to_owned()
+            })
         })
         .clone()
         .map(Some)
@@ -47,13 +52,13 @@ pub(crate) fn current() -> anyhow::Result<Option<String>> {
 }
 
 #[cfg(any(windows, test))]
-fn processor_ids_from_smbios(raw: &[u8]) -> Result<Vec<String>, &'static str> {
+fn processor_ids_from_smbios(raw: &[u8]) -> Result<Vec<String>, String> {
     if raw.len() < 8 {
-        return Err("Invalid firmware table");
+        return Err(obfstr::obfstr!("Invalid firmware table").to_owned());
     }
     let length = u32::from_le_bytes(raw[4..8].try_into().unwrap()) as usize;
     if length != raw.len() - 8 {
-        return Err("Invalid firmware length");
+        return Err(obfstr::obfstr!("Invalid firmware length").to_owned());
     }
     let mut result = Vec::new();
     let mut offset = 8;
@@ -61,7 +66,7 @@ fn processor_ids_from_smbios(raw: &[u8]) -> Result<Vec<String>, &'static str> {
         let kind = raw[offset];
         let size = raw[offset + 1] as usize;
         if size < 4 || offset + size > raw.len() {
-            return Err("Invalid firmware structure");
+            return Err(obfstr::obfstr!("Invalid firmware structure").to_owned());
         }
         if kind == 4 && size >= 16 {
             let id = u64::from_le_bytes(raw[offset + 8..offset + 16].try_into().unwrap());
@@ -73,7 +78,7 @@ fn processor_ids_from_smbios(raw: &[u8]) -> Result<Vec<String>, &'static str> {
         let end = strings
             .windows(2)
             .position(|pair| pair == [0, 0])
-            .ok_or("Invalid firmware strings")?;
+            .ok_or_else(|| obfstr::obfstr!("Invalid firmware strings").to_owned())?;
         offset += size + end + 2;
         if kind == 127 {
             break;
@@ -82,35 +87,35 @@ fn processor_ids_from_smbios(raw: &[u8]) -> Result<Vec<String>, &'static str> {
     result.sort();
     result.dedup();
     if result.is_empty() {
-        return Err("Processor identity unavailable");
+        return Err(obfstr::obfstr!("Processor identity unavailable").to_owned());
     }
     Ok(result)
 }
 
 #[cfg(any(windows, test))]
-fn serial_from_descriptor(data: &[u8]) -> Result<String, &'static str> {
+fn serial_from_descriptor(data: &[u8]) -> Result<String, String> {
     // STORAGE_DEVICE_DESCRIPTOR fixed header: SerialNumberOffset at byte 24.
     if data.len() < 36 {
-        return Err("Invalid storage descriptor");
+        return Err(obfstr::obfstr!("Invalid storage descriptor").to_owned());
     }
     let declared = u32::from_le_bytes(data[4..8].try_into().unwrap()) as usize;
     let offset = u32::from_le_bytes(data[24..28].try_into().unwrap()) as usize;
     if declared > data.len() || declared < 36 || offset < 36 || offset >= declared {
-        return Err("Invalid storage serial offset");
+        return Err(obfstr::obfstr!("Invalid storage serial offset").to_owned());
     }
     let tail = &data[offset..declared];
     let length = tail
         .iter()
         .position(|byte| *byte == 0)
-        .ok_or("Unterminated storage serial")?;
+        .ok_or_else(|| obfstr::obfstr!("Unterminated storage serial").to_owned())?;
     if length == 0 || length > 256 {
-        return Err("Invalid storage serial");
+        return Err(obfstr::obfstr!("Invalid storage serial").to_owned());
     }
     let serial = std::str::from_utf8(&tail[..length])
-        .map_err(|_| "Invalid storage serial")?
+        .map_err(|_| obfstr::obfstr!("Invalid storage serial").to_owned())?
         .trim();
     if serial.is_empty() || !serial.is_ascii() {
-        return Err("Empty storage serial");
+        return Err(obfstr::obfstr!("Empty storage serial").to_owned());
     }
     Ok(serial.to_owned())
 }
@@ -152,7 +157,8 @@ mod windows {
         };
         ensure!(
             handle != INVALID_HANDLE_VALUE,
-            "System storage device is unavailable"
+            "{}",
+            obfstr::obfstr!("System storage device is unavailable")
         );
         Ok(Handle(handle))
     }
@@ -177,7 +183,8 @@ mod windows {
         };
         ensure!(
             ok != 0 && count as usize <= output.len(),
-            "System storage query failed"
+            "{}",
+            obfstr::obfstr!("System storage query failed")
         );
         output.truncate(count as usize);
         Ok(output)
@@ -187,18 +194,24 @@ mod windows {
         let length = unsafe { GetWindowsDirectoryW(path.as_mut_ptr(), path.len() as u32) } as usize;
         ensure!(
             length >= 3 && length < path.len() && path[1] == b':' as u16,
-            "Windows system drive is unavailable"
+            "{}",
+            obfstr::obfstr!("Windows system drive is unavailable")
         );
         let drive = char::from_u32(path[0] as u32)
             .filter(char::is_ascii_alphabetic)
-            .ok_or_else(|| anyhow!("Invalid system drive"))?;
+            .ok_or_else(|| anyhow!("{}", obfstr::obfstr!("Invalid system drive")))?;
         let volume = open(&format!("\\\\.\\{drive}:"))?;
         let extents = ioctl(&volume, IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS, &mut [])?;
-        ensure!(extents.len() >= 32, "Invalid system disk extents");
+        ensure!(
+            extents.len() >= 32,
+            "{}",
+            obfstr::obfstr!("Invalid system disk extents")
+        );
         let count = u32::from_le_bytes(extents[..4].try_into().unwrap()) as usize;
         ensure!(
             (1..=32).contains(&count) && 8 + count * 24 <= extents.len(),
-            "Invalid system disk count"
+            "{}",
+            obfstr::obfstr!("Invalid system disk count")
         );
         let mut serials = Vec::new();
         for index in 0..count {
@@ -218,13 +231,15 @@ mod windows {
         let length = unsafe { GetSystemFirmwareTable(provider, 0, std::ptr::null_mut(), 0) };
         ensure!(
             (8..=4 * 1024 * 1024).contains(&length),
-            "Firmware identity is unavailable"
+            "{}",
+            obfstr::obfstr!("Firmware identity is unavailable")
         );
         let mut data = vec![0u8; length as usize];
         ensure!(
             unsafe { GetSystemFirmwareTable(provider, 0, data.as_mut_ptr().cast(), length) }
                 == length,
-            "Firmware table changed"
+            "{}",
+            obfstr::obfstr!("Firmware table changed")
         );
         Ok(processor_ids_from_smbios(&data)
             .map_err(anyhow::Error::msg)?
@@ -252,7 +267,8 @@ mod windows {
                         && id.bytes().all(|b| b.is_ascii_hexdigit())
                         && id != "0000000000000000"
                         && id != "ffffffffffffffff"),
-                "Processor identity unavailable"
+                "{}",
+                obfstr::obfstr!("Processor identity unavailable")
             );
             ids.sort();
             ids.dedup();
