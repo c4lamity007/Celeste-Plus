@@ -4,8 +4,8 @@
 scope and results below describe the initial additive deployment. It was
 followed by the full backend rollout and Java repair at version 130. The exact
 protected launcher is now registered at native sequence 1, and the user confirmed
-“Loads successfully” after a full Minecraft restart. GitHub publication is ready
-but still draft at this record's freeze. See the [final run record](protection-run-20260927.md)
+“Loads successfully” after a full Minecraft restart. The GitHub release is
+published with verified downloads. See the [final run record](protection-run-20260927.md)
 for final hashes and the resolved injection regression.
 
 ## Deployed scope

@@ -4,8 +4,8 @@ This records execution for the Celeste-Plus repository. The full authentication
 backend and repaired Java release `celeste-plus-20260927-auth-hardening-02` are
 deployed and verified. The protected Windows launcher is registered at native
 policy sequence 1. After fully restarting Minecraft and retrying, the user
-confirmed: “Loads successfully.” GitHub publication is ready; its release is
-still a draft at this record's freeze. [Initial infrastructure evidence](native-infrastructure-rollout-20260927.md)
+confirmed: “Loads successfully.” The [GitHub release](https://github.com/c4lamity007/Celeste-Plus/releases/tag/celeste-plus-20260927-auth-hardening-01)
+is published and all three asset downloads have verified hashes. [Initial infrastructure evidence](native-infrastructure-rollout-20260927.md)
 
 ## Completed
 
@@ -217,10 +217,11 @@ the repair**, because the old Bootstrap A remains resident in its JVM.
 
 ## Publication and limits
 
-The GitHub draft for `celeste-plus-20260927-auth-hardening-01` contains the
+The published GitHub release `celeste-plus-20260927-auth-hardening-01` contains the
 protected `Celeste+.exe`, `release.json` and `SHA256SUMS.txt`; their final bytes
-were verified and the metadata references Java release `...-02`. It is ready
-for publication after the source push. Private MAPs, instruction evidence,
+were downloaded and verified after publication; the metadata references Java
+release `...-02`. The release targets source commit `5525518150d234ea4a08eae7888ca37c756f6dda`.
+Private MAPs, instruction evidence,
 publication keys and signed authority envelopes are not public release assets.
 
 The user confirmed “Loads successfully” after restarting and retrying the

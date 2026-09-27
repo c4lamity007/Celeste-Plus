@@ -85,7 +85,7 @@ the initial-publication example against that nonempty policy. The full backend
 and repaired Java catalog `celeste-plus-20260927-auth-hardening-02` are live at
 version 130; the native executable and native release ID remain unchanged.
 After fully restarting Minecraft, the user confirmed successful Load. GitHub
-publication is ready but remains draft at this record's freeze.
+publication is complete, with all three asset downloads verified against their hashes.
 
 Publish only the executable and a public hash/summary. Private MAPs, project
 addresses, process captures, publication envelopes and private keys stay outside

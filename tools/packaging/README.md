@@ -378,7 +378,8 @@ repaired A/B artifacts pass 442 assertions per run. **Fully restart Minecraft**
 to unload the old resident A before retrying. The user then confirmed “Loads
 successfully”; no game performance or general module test is implied.
 
-GitHub publication is ready but still draft at this record's freeze. The user
+The [GitHub release](https://github.com/c4lamity007/Celeste-Plus/releases/tag/celeste-plus-20260927-auth-hardening-01)
+is published; the executable and both metadata downloads passed hash verification. The user
 authorized **Unknown publisher** for this exact Windows release. The executable
 is **Authenticode unsigned**; the strict Sign helper was not used or weakened.
 The local publication identity supplies neither a Windows certificate nor
