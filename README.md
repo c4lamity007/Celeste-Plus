@@ -83,17 +83,32 @@ The five-file output contains A, B, two payload parts, and `beta-release.json`. 
 
 ## Authentication and publication
 
-The Windows [download-binding and recovery follow-up](docs/auth-recovery-and-download-binding.md)
-requires a new loader and a matching Bootstrap A/backend rollout. These source
-changes are separate from the currently published release described below.
+The Windows [download-binding and recovery release](docs/releases/20260927-auth-recovery.md)
+is published as `celeste-plus-20260927-auth-recovery-01`, deployed and verified at
+Fly version **134** with signed native policy sequence **3**. It adds hardware
+proof on every Plus artifact download, heartbeat recovery, Windows WMI fallbacks,
+early TLS checks, expanded string protection and owned bootstrap cleanup.
 
-The current Windows payload is `celeste-plus-20260927-media-cleanup-01`,
+**Use the [new Windows loader](https://github.com/c4lamity007/Celeste-Plus/releases/tag/celeste-plus-20260927-auth-recovery-01)
+and fully restart Minecraft.** Its 14 selected authorization functions use
+VMProtect Ultra at 100% complexity. All 14 protection paths, 26 deployed backend
+files, 43 server artifact files and three actual GitHub asset downloads passed
+verification. The loader is about 65 MiB; its measured startup check took a median
+of 3.27 seconds on the development PC. Final account activation and Minecraft
+loading remain separate user checks. Windows still displays **Unknown publisher**
+under the accepted release preference. No paid VMProtect upgrade was needed.
+
+See the [implementation and rollback details](docs/auth-recovery-and-download-binding.md).
+
+### Previous media release
+
+The preceding Windows payload was `celeste-plus-20260927-media-cleanup-01`,
 deployed and verified at Fly version **133** with native policy sequence **2**.
-Use the existing
+That release used the
 [`protocol 2 loader`](https://github.com/c4lamity007/Celeste-Plus/releases/tag/celeste-plus-20260927-auth-v2-01).
 It provides pinned transport policies, encrypted delivery, hardware/process session
-binding and grant rotation. **Fully restart Minecraft to load the media cleanup
-repair; no new loader is needed.**
+binding and grant rotation. Its media repair required a Minecraft restart and
+retained that loader; the current auth-recovery release requires its new loader.
 The executable remains Authenticode unsigned under the user's accepted
 **Unknown publisher** preference. All 14 selected VMProtect paths and all three
 published asset downloads passed verification. The user confirmed injection and

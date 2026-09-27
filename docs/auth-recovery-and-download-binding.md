@@ -1,8 +1,9 @@
 # Windows authentication follow-up
 
 This revision changes the Plus loader, Bootstrap A, runtime and shared backend.
-It is a source change until a coordinated release is recorded. The existing
-published protocol 2 loader does not send the new artifact hardware proof.
+The [coordinated release](releases/20260927-auth-recovery.md) is live at Fly version
+134 with signed native policy sequence 3. The previous protocol 2 loader does
+not send the new artifact hardware proof; use the new loader and restart Minecraft.
 
 ## Artifact hardware binding
 

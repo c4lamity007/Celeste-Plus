@@ -2,9 +2,18 @@
 
 Release ID: `celeste-plus-20260927-auth-recovery-01`.
 
-Status: native and Java release candidates passed their exact-artifact gates.
-Coordinated publication is pending. The currently live service remains version
-133 until a deployment result is recorded here.
+Status: [published and verified](https://github.com/c4lamity007/Celeste-Plus/releases/tag/celeste-plus-20260927-auth-recovery-01).
+The matching backend and protected Java are live at Fly version **134**; signed
+native policy sequence **3** includes the reviewed loader and retains both prior
+hashes. All three published asset bodies were downloaded and verified.
+
+Source commit: `beaafbb250ca613926e2e865a83fe1b59f250818` in **Celeste-Plus**.
+Deployed image digest:
+`sha256:ec8ea205a2fd2a0d81bd7a1126e717d2c070cc96d8d94230a4ed6640ecb13fea`.
+Live verification covered all 26 backend files, 43 artifact files, preserved
+Standard configuration/server trust, fresh signed policies and unauthorized
+download rejection. A private online SQLite backup passed its integrity check
+before deployment; no license reset or database rollback was performed.
 
 ## Changes
 
@@ -28,7 +37,7 @@ The [implementation record](../auth-recovery-and-download-binding.md) covers
 recovery limits, interrupted writes, persistent file locks and rollback coupling.
 No release automation, renewal UI or payment-provider work is included.
 
-## Candidate identities
+## Release identities
 
 | Item | SHA-256 |
 | --- | --- |
@@ -39,8 +48,12 @@ No release automation, renewal UI or payment-provider work is included.
 | Native protection receipt | `cf23a45d5e2c83cb2198b95e2ccd8df5a9308a4bf1efc07d7cca77588d8adafb` |
 | Native verification report | `3091750c4500fca947aed70aef1951455e34fb6a83166215809393e87c326b17` |
 | Private review index | `ae5fc6d0410593b79c9206ef45e8e873bf08cdfc5308ad0f91e2b611f3e4b5f9` |
+| Canonical LF native verifier | `371c98b05e77d45604022b56b4ea6106f5c9f302e33c744a780e8812410f4730` |
 | Java protection receipt | `f55f911ff9437f376e0fc483b61865af6f06cb0894423914ba69643f2a05e7e0` |
 | Bootstrap A | `73a47e8d4b0df1a24ee936ef2ca60a0d0353e4c0ec71903fbaa981c9cfd88df3` |
+| Live sequence 3 verification | `408bfe28114160a441b24d1c665392827ca5ba0effee88a8861d174cc041e46b` |
+| GitHub publication record | `e77f1a59b44fdd577c503b61739da1a6a8fae3f542d09db8e659de696ba1d9b3` |
+| Actual asset download verification | `b68f10fd1e82dd469b667aaa92de45f1036a2f1fbf2ba6009edb8a3ec9c1b5a6` |
 
 ## Completed checks
 
@@ -76,9 +89,9 @@ or certificate purchase is required for this release path.
 
 ## Coordinated rollout
 
-The new backend requires this loader and Bootstrap A together. Old Plus loaders
+The deployed backend requires this loader and Bootstrap A together. Old Plus loaders
 do not send the new artifact hardware proof. Use the new loader and **fully
-restart Minecraft** after publication; existing resident Bootstrap A cannot be
+restart Minecraft** before loading; existing resident Bootstrap A cannot be
 replaced inside a running game.
 
 Keep the previous image, catalog and signed native policy for rollback. Restore

@@ -8,15 +8,18 @@ certificate rotation, release prerequisites and rollback steps, read the
 [protocol 2 record](../../docs/auth-protocol-v2-20260927.md). The historical
 seven-target native approval below applies only to its exact old bytes.
 
-The Windows protocol 2 release was [published and verified](../../docs/releases/20260927-auth-v2.md)
-at Fly version 132 and native policy sequence 2. The subsequent
-[media cleanup payload](../../docs/releases/20260927-media-cleanup.md) is live at
-version 133 and uses the same protocol 2 loader. Fully restart Minecraft for the
-updated resident support archive. All 14 selected native paths and downloaded
-assets passed verification, and the user confirmed injection and both media HUDs
-on the preceding payload. Final-payload Minecraft Stop/Load remains a separate
-game check. Authenticode remains unsigned under the accepted manual release
-preference, with no automatic CI exception.
+The current [auth recovery and Ultra release](../../docs/releases/20260927-auth-recovery.md)
+is published at Fly version 134 and signed native policy sequence 3. Use its new
+Windows loader and fully restart Minecraft. All 14 selected native paths, the
+matched backend/Java artifacts and three downloaded release assets passed
+verification. Final released-binary login, Minecraft loading and Stop/Load remain
+separate user checks. Authenticode remains unsigned under the accepted manual
+release preference, with no automatic CI exception.
+
+The [protocol 2 release](../../docs/releases/20260927-auth-v2.md) at version 132
+and [media cleanup payload](../../docs/releases/20260927-media-cleanup.md) at
+version 133 are historical. Their loader does not send the new per-download
+hardware proof required by version 134.
 
 The goal is strong protection at authorization boundaries while keeping rendering,
 input, cryptography and bulk processing fast. There is no universal “maximum”
