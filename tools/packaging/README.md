@@ -74,18 +74,26 @@ Use the installed, registered **VMProtect Lite 3.10.4** GUI. Lite has no console
 compiler; do not pass console arguments to `VMProtect.exe` and describe that as
 CI automation. [Official edition comparison](https://vmpsoft.com/vmprotect/purchase)
 
-| Control | Initial profile |
+The September 27 successful compile used the following saved GUI settings.
+They establish a compiled candidate; performance and independent transformed-code
+coverage still need verification. [Run evidence](../../docs/protection-run-20260927.md)
+
+| Control | Compiled candidate |
 | --- | --- |
-| Small identity/freshness/DPoP decisions | Ultra, only for individually mapped functions |
-| Bounded signature/catalog/token validators | Virtualization; compare Ultra separately |
+| Seven validated authorization aliases | Virtualization for all seven; no Ultra |
 | UI/rendering, polling, bulk hashing, crypto/TLS libraries | Native |
 | Memory protection | On, then verify compatibility |
 | VM version / instances / complexity | Current/default / default / default (20% in the installed GUI) |
-| Pack output / import protection / resource protection | Off for the measured baseline |
+| Pack output / import protection / resource protection | On / off / on |
 | Strip debug | On |
 | Strip relocations | Off |
 | VMP serial/HWID locking | Off; Celeste's server/device policy remains authoritative |
-| Additional VMP debugger/VM detectors | Separate compatibility experiment; existing Celeste VM/sandbox gate stays enabled |
+| Additional VMP debugger/VM detectors | Off; existing Celeste VM/sandbox gate stays enabled |
+
+The saved template records `Options="332032"`. Preserve the GUI-generated
+template; the bundled help does not document its serialized bit assignments.
+Packing/resource protection off and selective Ultra remain separate comparison
+runs, with no performance result claimed for either configuration.
 
 The vendor describes Ultra as the expensive mutation-plus-virtualization mode.
 Applying it to everything is not a performance optimization.
@@ -175,11 +183,37 @@ This creates `Celeste+.exe`, its matching `Celeste+.map`, candidate source hashe
 and metadata results. MAP flags apply only to the final Rust link. Keep the map
 private and never use addresses from another build.
 
-### 4. Run VMProtect Lite
+### 4. Prepare aliases and run VMProtect Lite
 
-1. Open the fresh `Celeste+.exe` with its same-build `.map` beside it.
-2. Add only the mapped authorization functions listed in the settings document.
-   Confirm their addresses and inspect any code absorbed through inlining.
+The raw Rust names did not resolve in the first GUI compile. Create a fresh
+private alias bundle using the matching input, original MAP and candidate record:
+
+```powershell
+python tools/packaging/prepare_vmprotect_map.py prepare `
+  --binary '<native-input>/Celeste+.exe' `
+  --original-map '<native-input>/Celeste+.map' `
+  --candidate '<native-input>/candidate.json' `
+  --output-directory '<fresh-alias-directory>'
+
+python tools/packaging/prepare_vmprotect_map.py validate `
+  --binary '<alias-directory>/Celeste+.exe' `
+  --original-map '<alias-directory>/Celeste+.original.map' `
+  --candidate '<alias-directory>/candidate.json' `
+  --alias-map '<alias-directory>/Celeste+.map' `
+  --mapping-record '<alias-directory>/mapping.json'
+```
+
+Preparation copies the executable byte-for-byte, retains the original MAP and
+changes only seven reviewed MAP labels. It verifies candidate hashes, unique
+symbols, executable ranges and PE exception/unwind boundaries. `mapping.json`
+is private selection evidence, with status `mapping-only-not-protection-evidence`.
+Keep the entire bundle private. Rebuilds require a new matching bundle.
+
+1. Open the alias bundle's unchanged `Celeste+.exe` with its derived `.map`
+   beside it.
+2. Add exactly the seven validated aliases. Confirm that every selection resolves
+   and inspect any code absorbed through inlining. Use Virtualization to reproduce
+   the successful compile; evaluate Ultra in a separate comparison.
 3. Choose each function's mode, review the options above, and save the `.vmp`
    project beside this input. Preserve this GUI-generated template; do not invent
    undocumented numeric option masks.
@@ -196,6 +230,7 @@ If using the installed `vmprotect-control` MCP bridge, its supported order is
 directory must be within its explicitly configured allowed roots. A project with
 no selected procedures is not a protection preset. The bridge needs an unlocked
 desktop and does not supply signing or an independent protection verifier.
+The exact input root for the recorded September 27 run was approved and configured.
 
 ### 5. Verify function, performance and final bytes
 
@@ -209,17 +244,47 @@ Treat no functional regressions as mandatory. Set an explicit latency/size budge
 for the intended hardware before escalating individual functions to Ultra or
 raising complexity. No unmeasured FPS or “zero overhead” claim is acceptable.
 
-Then protect the unsigned native input, sign it with the reviewed Authenticode
-certificate, verify the signature/timestamp, and run the independent protection
-verifier against those final signed bytes. The publication receipt must bind the
-current source, approved protector/config/verifier and final executable hash.
-`protect-sign-windows-native.ps1` enforces separate Prepare/Sign phases; its
-approved adapter bundle must support the installed tool edition. Its Prepare
-phase builds its own candidate, and Sign requires that phase's
-`protected-candidates.json`. It cannot currently adopt the manually protected
-candidate from steps 3–4. Integrating Lite requires a reviewed adapter workflow
-that retains the matching MAP and writes genuine verification evidence; manual
-GUI compilation does not supply that adapter or approve its output.
+Obtain genuine independent transformed-code evidence for the unsigned GUI output.
+The verifier must already be approved by `native-protection-policy.json`. Its
+receipt/report must bind the input, source, protector, saved project, output,
+original MAP, derived MAP, alias record and actual compiler evidence, including
+the transformation and mode of every selected function. A completed GUI job or
+changed output bytes cannot substitute for that report.
+
+The GUI importer can then produce the normal Sign layout:
+
+```powershell
+python tools/packaging/import_gui_native_candidate.py `
+  --candidate-directory '<original-native-input-directory>' `
+  --protected-binary '<actual-GUI-output.exe>' `
+  --receipt '<genuine-approved-unsigned-protection-receipt.json>' `
+  --compile-evidence '<actual-compiler-evidence-file>' `
+  --derived-map '<alias-directory>/Celeste+.map' `
+  --map-alias-record '<alias-directory>/mapping.json' `
+  --release-id '<release-id>' `
+  --output '<fresh-sign-layout-directory>'
+```
+
+The importer does not execute a verifier, approve a tool, sign, or publish. It
+revalidates all inputs, checks metadata and current source hashes, and writes
+`protected-candidates.json` only after successful validation. The current empty
+approved-protector policy intentionally refuses this step.
+
+After a genuine import succeeds, sign with the reviewed Authenticode identity:
+
+```powershell
+pwsh -NoProfile -File tools/packaging/protect-sign-windows-native.ps1 `
+  -Mode Sign -Bundle '<approved-adapter-bundle.zip>' `
+  -BundleSha256 '<reviewed-bundle-sha256>' -ReleaseId '<same-release-id>' `
+  -OutputDirectory '<sign-layout-directory>'
+```
+
+Supply signing credentials through the existing protected release environment,
+never command text or source. The Sign phase verifies its approved adapter bundle,
+signs and verifies the signature/timestamp, then runs the independent verifier
+again against the final signed bytes. The final publication receipt binds those
+exact bytes. The separate Prepare phase remains available for approved automated
+adapters; importing GUI output does not bypass the Sign or publication gates.
 
 ## Publish in the correct order
 
@@ -250,8 +315,8 @@ native approval endpoint returned 404, and the publication public-key setting
 was absent. See the run evidence for what was actually built and verified.
 
 The [September 27 run record](../../docs/protection-run-20260927.md) separates
-completed Java/native builds from the remaining native protection and production
-release prerequisites.
+completed Java protection and native compilation from the remaining independent
+coverage, runtime verification, signing and production release prerequisites.
 
 These are missing release inputs, not confirmation prompts. Do not fabricate a
 receipt, approve a tool based only on its filename, substitute a self-signed

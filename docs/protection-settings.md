@@ -1,9 +1,9 @@
 # Native protection settings for Celeste+
 
-This is a recommended starting profile, not a protection receipt or a measured
-performance result. It targets the Windows Rust launcher. The Java host and
-payload have a separate protection pipeline. Keep server authorization, DPoP,
-fresh manifests and runtime expiry in place.
+This records the compiled Windows Rust launcher profile and proposed comparison
+settings. It is not a protection receipt or a measured performance result. The
+Java host and payload have a separate protection pipeline. Keep server
+authorization, DPoP, fresh manifests and runtime expiry in place.
 
 ## Tool and modes
 
@@ -22,10 +22,40 @@ middle tradeoff, and Ultra as mutation followed by virtualization, with the
 highest cost. Use Ultra selectively. No documented setting establishes a
 universal optimum for this application. [Compilation modes](https://www.vmpsoft.com/vmprotect/user-manual/working-with-vmprotect/page/2/)
 
-## Recommended starting profile
+## Profile that compiled on September 27
 
-These choices are engineering recommendations for this code, pending a real
-protected-build comparison.
+The successful GUI job selected all seven verified MAP aliases with
+**Virtualization**. No selected function used Ultra. The input executable was
+unchanged by the alias preparation. The saved project recorded:
+
+| Setting | Observed value |
+| --- | --- |
+| Saved XML options | `332032`, preserved from the GUI template |
+| Memory Protection | On |
+| Import Protection | Off |
+| Resource Protection | On |
+| Pack output | On |
+| Strip Debug Information | On |
+| Strip Relocations | Off |
+| Additional debugger / virtualization-tool detection | Off / off |
+| VM complexity | Default 20% |
+
+The installed bundled help describes the symbolic project options but does not
+document their serialized numeric bit assignments. Do not derive new masks from
+the enum ordering. Change options through the supported GUI and retain its saved
+project plus actual compiler evidence.
+
+The emitted output passed the static metadata check and rendered the activation
+screen in a controlled startup smoke. It failed closed because native approval
+could not be obtained. No account activation or game Load was performed; native
+performance and independent transformed-function coverage remain unverified.
+See [the exact run record](protection-run-20260927.md).
+
+## Proposed comparison profile
+
+These choices are engineering recommendations for a separate comparison. They
+were not the settings of the completed compile above. In particular, packing
+and resource protection were on in that run, and no Ultra comparison was run.
 
 | Setting | Starting choice | Reason / verification needed |
 | --- | --- | --- |
@@ -86,6 +116,19 @@ reviewed marker/address mapping; never reuse old addresses after rebuilding.
 Do not ship private symbol files. A new metadata-free build needs its own
 mapping and evidence. [Function selection](https://vmpsoft.com/vmprotect/user-manual)
 
+The first GUI compile with raw Rust MAP names did not resolve its selections,
+and its output was rejected. `tools/packaging/prepare_vmprotect_map.py` now
+derives seven readable aliases from the exact native candidate. It validates the
+candidate's executable/MAP hashes, unique target symbols, executable sections,
+PE exception-function ranges and simple unwind records before changing only the
+MAP labels. Executable bytes and the original MAP remain intact. The derived
+MAP and `mapping.json` contain private build details and stay out of Git.
+
+The helper's `validate` command independently re-derives the expected mapping.
+Its result is selection evidence only. The GUI must resolve every alias, and an
+approved independent verifier must still prove every selected transformation.
+Exact prepare/validate commands are in [the runbook](../tools/packaging/README.md).
+
 If SDK markers are introduced later, review Rust calling conventions, optimized
 control flow, all `?`/early returns and destruction paths. Never remove
 zeroization, move secrets into logs, replace secure randomness, or change
@@ -106,3 +149,11 @@ signed file. Keep the project, protector/configuration hashes, compiler/map
 identity and independent verification report together. A successful VMProtect
 compilation, renamed section or missing strings alone does not establish which
 authorization code was virtualized. Follow [the native publication contract](../tools/packaging/NATIVE-RELEASE.md).
+
+`tools/packaging/import_gui_native_candidate.py` can import genuine verified GUI
+output into the existing Sign layout. It checks the original and derived MAPs,
+alias record, project selection, compiler evidence, source inventory and an
+approved protection receipt before creating its completion marker. It does not
+create missing verifier evidence or approve a tool. Sign then requires a fresh
+verification receipt over the final Authenticode-signed bytes. The empty
+approved-protector policy continues to block production import/publication.
