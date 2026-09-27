@@ -1,4 +1,4 @@
-name: Celeste+ platform candidates
+name: Celeste+ Windows candidate
 
 on:
   push:
@@ -25,18 +25,6 @@ jobs:
             runner: windows-2022
             rust_target: x86_64-pc-windows-msvc
             executable: CelestePlus.exe
-          - platform: linux-x64
-            runner: ubuntu-22.04
-            rust_target: x86_64-unknown-linux-gnu
-            executable: CelestePlus
-          - platform: macos-arm64
-            runner: macos-15
-            rust_target: aarch64-apple-darwin
-            executable: CelestePlus
-          - platform: macos-x64
-            runner: macos-15-intel
-            rust_target: x86_64-apple-darwin
-            executable: CelestePlus
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -154,6 +142,8 @@ jobs:
         run: |
           python -m unittest discover -s tests -p test_prepare_runtime.py
           python -m unittest discover -s beta-lab/obfuscation -p test_prepare_obfuscation.py
+          python -m unittest discover -s beta-lab/obfuscation -p test_protect_java_release.py
+          python -m unittest discover -s tests -p test_protect_java_release.py
 
       - name: Record Linux ELF dependency floor
         if: runner.os == 'Linux'
@@ -215,8 +205,7 @@ jobs:
             --abi-report build/celeste-plus-abi/native-abi.txt \
             --output 'build/celeste-plus-ci/${{ matrix.platform }}'
 
-      # These archives are intentionally unsigned CI evidence. Shipping macOS
-      # builds still requires signing/notarization in a separately authorized flow.
+      # This archive is unsigned Windows CI evidence; production uses separate gates.
       - name: Save unsigned platform candidate
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -226,7 +215,7 @@ jobs:
           retention-days: 7
 
   auth-and-release-tests:
-    runs-on: ubuntu-22.04
+    runs-on: windows-2022
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -236,7 +225,9 @@ jobs:
       - name: Install declared service test dependencies
         run: python -m pip install -r auth-service/requirements.txt
       - name: Check authentication and native publication gates
+        shell: bash
         run: |
+          set -euo pipefail
           python -m unittest discover -s tests -p test_protect_java_release.py
           python -m unittest discover -s tools/qa -p 'test_*.py'
           python -m unittest discover -s beta-lab/release-package -p 'test_*.py'

@@ -17,7 +17,7 @@ cargo test --locked --release --manifest-path beta-lab/native-launcher/Cargo.tom
 cargo build --locked --release --manifest-path beta-lab/native-launcher/Cargo.toml
 ```
 
-On other platforms, `./gradlew` builds and checks the Java host. The native launcher also has Linux and macOS implementations, with separate candidate CI jobs. Desktop credential storage, attach behavior, and gameplay require platform-specific runtime verification; a successful CI build does not establish those results.
+Development, candidate CI and release verification currently target Windows x64 on the user's actual system. Linux and macOS implementations remain available for later work; their runtime behavior is unverified. A successful CI build does not establish desktop credential storage, attach behavior or gameplay results.
 
 Outputs are ignored by Git:
 

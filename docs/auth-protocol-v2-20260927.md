@@ -3,6 +3,9 @@
 ## Status
 
 This is the implementation record for the next coordinated Celeste+ release.
+The current release and client verification scope is Windows x64, per the user's
+request. Candidate and service-test CI now use Windows; Linux and macOS client
+work is deferred. The existing Fly backend remains part of the matched release.
 It is **not a production deployment record**. The live release remains
 `celeste-plus-20260927-double-anchor-01`, Fly version 131, until a separate
 coordinated rollout is completed. The old published loader cannot use protocol 2
@@ -90,24 +93,39 @@ authentication, game injection or completed publication:
 | --- | --- |
 | Shared backend | 429 passed, one Windows symlink privilege skip; 195 focused checks after the final cloud-session conflict correction. `build/module-qa/backend-protocol-v2-final*.xml` |
 | Cross-language fixtures | Reproducible backend vectors; Rust and Java consume the signed TLS policy and AEAD/schema vectors. Actual local Windows hardware digests matched without printing hardware values. |
-| Native | 113 passed, six opt-in checks skipped, pinned Rust `-D warnings` passed. Real local environment/debug checks and TLS loopback pin/hostname rejection before HTTP bytes. `build/native-hardening-qa/native-checks.json` |
+| Native | Candidate 04: 114 passed, six opt-in checks skipped, pinned Rust `-D warnings` passed. Real local environment/debug checks and TLS loopback pin/hostname rejection before HTTP bytes. The Windows thread-context buffer has the required 16-byte alignment and the timing sampler stays outside virtualization. `build/native-hardening-qa/native-checks-04.json` |
+| VMProtect MCP | 107 passed, two Windows permission skips. Compile 05 recorded the exact **No** response and two stable output reads in about 41 seconds. No output was executed by the bridge. Its input was subsequently rejected by startup testing; a new compile and independent protection review are required for candidate 04. `build/protection-20260927-v2/mcp-compile-05/compile-evidence.json` |
 | Java | Host `check assemble`; delivery 1137, TLS 32, runtime protocol 933, hardware 17, support custody 12. Lifecycle 33 deterministic scenarios plus the actual 30-second heartbeat timer. `build/module-qa/java-auth-v2-final/` |
 | Full runtime | Reconstructed from the pinned core plus 192 verified overlay files; root `:build` passed. The helper selects only the root runtime build and rejects CRLF overlay text before Git normalization can invalidate its hashes. `build/module-qa/runtime-auth-v2-build-02.log` |
 | Fresh protected Java | All 18 stages passed for `celeste-plus-20260927-auth-v2-01`: 792 actual payload classes verified, 260 stable entries retained, 851 actual protected-bootstrap checks in each of three JVMs. Windows account lookup and canonical process-session linkage were exercised. `build/module-qa/java-protected-auth-v2-20260927-02/` |
 | Publisher | 15 tests exercise real Ed25519 registration preparation/readback, failure before mutation, nonce/signer rejection, private release ordering and retry identity. OS signing/protection gates and network are fixture boundaries. |
 | Packaging tools | 165 passed, one optional skip. Includes explicit 14-function profile validation, importer coverage checks and refusal to apply historical protection evidence to current source. `build/module-qa/packaging-auth-v2-final-02.log` |
+| Staged backend/catalog | 144 passed, one Windows symlink privilege skip. Uses the actual four protected artifact bodies with AEAD, preserves Standard/Both scope, and migrates a prior-schema fixture twice without losing existing rows. `build/fly-rollout-20260927/auth-v2-rollout-verification.json` |
+
+GitHub Actions run `36346071298` for source revision `332e666` did not start any
+jobs because of an account billing or spending-limit block. It supplies no CI
+test evidence; the results above are local checks. Paid account settings were
+not changed.
 
 The fresh Java receipt is SHA-256
 `0ad0e352b383e5c4545796f6940933cf5877a12f8dac1cecede77c50f0bb3665`.
-The earlier candidate's cold verification-fixture medians were 0.332 seconds
-before protection and 0.399 seconds after protection. These include JVM startup
-and verification; they do not measure Minecraft startup or FPS. Candidate 02
+Candidate 02's cold verification-fixture medians were 0.369 seconds before
+protection and 0.433 seconds after protection. These include JVM startup and
+verification; they do not measure Minecraft startup or FPS. This candidate
 regenerated evidence after line-ending normalization; its runtime input JAR was
 byte-identical to candidate 01.
 
 A failed protection run is retained as failure evidence. An MCP compile result
 called `compiled-pending-independent-review` is not a protection receipt.
 Historical seven-function coverage cannot approve newly built native source.
+
+Startup testing caught a native release-build defect before deployment: the
+dependency's Windows `CONTEXT` type had eight-byte alignment, but x64
+`GetThreadContext` requires sixteen. The optimized build passed a misaligned
+buffer, received error 998 and correctly denied startup. An explicitly aligned
+wrapper fixes the API call; the denial policy is unchanged. The optimized
+diagnostic reproduced the failure before the fix and passed afterward. Rejected
+candidate 03 and its protected output remain diagnostic evidence only.
 
 ## Provisioning and costs
 

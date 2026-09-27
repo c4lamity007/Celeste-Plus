@@ -69,6 +69,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Dependency installation failed.' }
           python -m unittest discover -s tools/qa -p 'test_*.py'
           if ($LASTEXITCODE -ne 0) { throw 'Release gate tests failed.' }
+          python -m unittest discover -s beta-lab/obfuscation -p test_protect_java_release.py
+          if ($LASTEXITCODE -ne 0) { throw 'Java source receipt tests failed.' }
+          python -m unittest discover -s tests -p test_protect_java_release.py
+          if ($LASTEXITCODE -ne 0) { throw 'Java protection runner tests failed.' }
           Push-Location auth-service
           try {
             python -m pytest tests -q

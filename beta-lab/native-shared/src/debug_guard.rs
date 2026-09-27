@@ -76,6 +76,11 @@ pub(crate) fn require_clear() -> Result<(), DebugError> {
 }
 
 #[cfg(all(windows, target_arch = "x86_64"))]
+// winapi's CONTEXT has only 8-byte Rust alignment; Windows x64 needs 16.
+#[repr(C, align(16))]
+struct AlignedThreadContext(winapi::um::winnt::CONTEXT);
+
+#[cfg(all(windows, target_arch = "x86_64"))]
 #[inline(never)]
 fn hardware_breakpoints() -> Result<bool, DebugError> {
     use winapi::um::{
@@ -83,7 +88,7 @@ fn hardware_breakpoints() -> Result<bool, DebugError> {
         processthreadsapi::{
             GetCurrentThreadId, GetThreadContext, OpenThread, ResumeThread, SuspendThread,
         },
-        winnt::{CONTEXT, CONTEXT_DEBUG_REGISTERS, THREAD_GET_CONTEXT, THREAD_SUSPEND_RESUME},
+        winnt::{CONTEXT_DEBUG_REGISTERS, THREAD_GET_CONTEXT, THREAD_SUSPEND_RESUME},
     };
     // GetThreadContext on the current running thread is not valid. A helper
     // suspends only this caller, captures debug registers, and ALWAYS resumes it.
@@ -101,13 +106,13 @@ fn hardware_breakpoints() -> Result<bool, DebugError> {
     let raw = target as usize;
     let helper = std::thread::Builder::new().spawn(move || {
         let target = raw as winapi::shared::ntdef::HANDLE;
-        let mut context: CONTEXT = unsafe { std::mem::zeroed() };
-        context.ContextFlags = CONTEXT_DEBUG_REGISTERS;
+        let mut context: AlignedThreadContext = unsafe { std::mem::zeroed() };
+        context.0.ContextFlags = CONTEXT_DEBUG_REGISTERS;
         let suspended = unsafe { SuspendThread(target) };
         if suspended == u32::MAX {
             return Err(DebugError::Unavailable);
         }
-        let captured = unsafe { GetThreadContext(target, &mut context) };
+        let captured = unsafe { GetThreadContext(target, &mut context.0) };
         let resumed = unsafe { ResumeThread(target) };
         if resumed == u32::MAX {
             // The caller cannot safely continue if the only resume failed.
@@ -122,8 +127,8 @@ fn hardware_breakpoints() -> Result<bool, DebugError> {
             return Err(DebugError::Unavailable);
         }
         Ok(has_hardware_breakpoint(
-            [context.Dr0, context.Dr1, context.Dr2, context.Dr3],
-            context.Dr7,
+            [context.0.Dr0, context.0.Dr1, context.0.Dr2, context.0.Dr3],
+            context.0.Dr7,
         ))
     });
     let result = match helper {
@@ -145,6 +150,7 @@ fn has_hardware_breakpoint(addresses: [u64; 4], control: u64) -> bool {
 }
 
 #[cfg(all(windows, target_arch = "x86_64"))]
+#[inline(never)]
 fn timing_anomaly() -> bool {
     use std::arch::x86_64::{_mm_lfence, _rdtsc};
     let mut minimum = u64::MAX;
@@ -209,6 +215,15 @@ pub(crate) fn require_clear() -> Result<(), DebugError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(all(windows, target_arch = "x86_64"))]
+    #[test]
+    fn context_buffer_guarantees_windows_x64_abi_alignment() {
+        assert_eq!(std::mem::align_of::<AlignedThreadContext>(), 16);
+        let contexts: [AlignedThreadContext; 2] = unsafe { std::mem::zeroed() };
+        for context in &contexts {
+            assert_eq!(std::ptr::addr_of!(context.0) as usize % 16, 0);
+        }
+    }
     #[test]
     #[ignore = "Opt-in local self-debugger probe; no authentication, remote requests, or process enumeration"]
     fn actual_self_probe_without_debugger_is_clear() {

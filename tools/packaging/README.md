@@ -254,7 +254,7 @@ does not issue a protection receipt:
 
 ```powershell
 pwsh -NoProfile -File tools/packaging/run_vmprotect_mcp.ps1 `
-  -InputDirectory 'build/protection-20260927-v2/native-candidate-02' `
+  -InputDirectory 'build/protection-20260927-v2/native-candidate-04' `
   -Profile auth-v2-14 `
   -ProjectTemplate '<reviewed-v2-template.vmp>' `
   -McpPluginDirectory '<installed-vmprotect-control-plugin>' `
@@ -268,10 +268,10 @@ publication artifact:
 
 | Local evidence | SHA-256 |
 | --- | --- |
-| `build/protection-20260927-v2/native-candidate-02/Celeste+.exe` (7,601,664 bytes) | `9298b5c89f8966acd346af07c3bad70b6adb81f1240de1e9d7842afca7dd2097` |
-| Matching original private MAP | `76af2433913d9373645e38c97b6b5e98b008b0d40f659a7013c04ac200a29b66` |
-| `build/protection-20260927-v2/aliased-input-02/mapping.json` | `77330905c5a9c4214c22a81cb549cf4e5f36401ae481aea4195ca5c7e16c0bbe` |
-| `build/protection-20260927-v2/auth-v2-14.template.vmp` | `bc840eea370c09f27ce8203f48cd43233bb8d2f19cabc4115b7518efba336d82` |
+| `build/protection-20260927-v2/native-candidate-04/Celeste+.exe` (7,601,664 bytes) | `dfb3285b002c02748b389b88a7db3bd38f9a85260e715e17d798f3e76d1e68b0` |
+| Matching original private MAP | `f4734f32d69930b5da9d1ea7de1ac935f7129982213a3b0a2b12bd1b0962d3eb` |
+| `build/protection-20260927-v2/aliased-input-04/mapping.json` | `9faef0aafb916ddd11eda77d9bbc84cbb1b436d0073039abb8bc5cacb6006f52` |
+| `build/protection-20260927-v2/auth-v2-14-04.template.vmp` | `bc840eea370c09f27ce8203f48cd43233bb8d2f19cabc4115b7518efba336d82` |
 
 The template retains the historical GUI-exported `Options="332032"` and 20%
 complexity; only input/output paths and the 14 alias selections were replaced.
@@ -279,6 +279,16 @@ All selections request Virtualization. It is a derived template, not a fresh
 GUI export or independent coverage evidence. The release build passed locked
 Rust 1.97.1 compilation with warnings denied and metadata stripping. Private
 MAPs, addresses and projects stay out of Git and public downloads.
+
+Candidate 04 keeps the calibrated debugger timing probe in a separate native
+function. Disassembly confirms that its protected decision wrapper calls the
+probe without including its RDTSC/fence sampling sequence. Crypto and HTTP inner
+work remains in called native library functions. The fresh native checks passed
+114 tests (six optional tests ignored), the local debugger probe and warnings
+denied compilation. It also corrects the Windows x64 context buffer to its
+required 16-byte alignment: the earlier optimized input exited during the debugger
+check, while candidate 04 remained alive with its native window and closed normally.
+This startup check did not log in, attach to a game or measure protected-runtime overhead.
 
 ### 5. Verify function, performance and final bytes
 

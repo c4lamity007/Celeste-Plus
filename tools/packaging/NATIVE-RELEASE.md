@@ -35,9 +35,11 @@ forming a signed publication request. Retain approved existing binary hashes;
 only use explicit initial-publication mode after confirming an empty policy.
 Use the reviewed API origin `https://qb0f90cf11f4d1d52.fly.dev`.
 
-The CI workflow runs offline checks and archives unsigned platform candidates.
-No production release job is enabled in this repository. A source push is not
-a service deployment, signed distribution, or in-game verification.
+The platform CI workflow runs offline checks and archives unsigned candidates.
+The separate `release.yml` workflow requires a provisioned protected runner,
+reviewed adapter bundle and trusted Windows signing identity. It refuses missing
+prerequisites; a source push does not provision them, deploy the service or
+verify the client in-game. See the [protocol 2 record](../../docs/auth-protocol-v2-20260927.md).
 
 ## Explicit Windows publisher exception for September 27
 
