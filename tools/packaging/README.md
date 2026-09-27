@@ -33,6 +33,40 @@ VMProtect protects native machine code. It does not turn ordinary Java JARs into
 protected native code. Do not enable the Java tool's experimental native modes
 without separately verifying their JNI, classloader and platform requirements.
 
+### Windows media resource pair
+
+Package both `MediaPlayerInfo.dll` and `CelesteMediaCleanup.dll`. The existing
+playback DLL's cleanup export requires the authored JNI forwarding shim; omitting
+that resource can leave the JVM alive after playback polling finishes. Build the
+reviewed pinned shim from an already prepared core:
+
+```powershell
+python tools/build_media_cleanup.py --runtime-core build/runtime-core `
+  --java-home '<Java-21-JDK-directory>' --output '<fresh-cleanup-build-directory>'
+```
+
+This uses installed MSVC x64 tools, validates the pinned C++ source and JNI
+export, and records source/compiler/output hashes. It never installs a compiler
+or executes the DLL. Supply the result with `--media-cleanup-dll` alongside
+`--media-dll` when using `prepare_runtime.py --build` on a fresh runtime. For an
+incremental root build, the same `MEDIA_OVERRIDE` init script accepts the explicit
+`MEDIA_PLAYER_INFO_DLL` and `MEDIA_CLEANUP_DLL` environment paths. Run the root
+`:build` task only.
+
+After protection, check the actual signed-support input in separate owned JVMs:
+
+```powershell
+python tools/qa/media_bridge_smoke.py `
+  --support-jar '<protected-candidate>/package/host-support/celeste-beta-media.jar' `
+  --java-home '<Java-21-JDK-directory>' --output '<fresh-media-smoke-directory>'
+```
+
+The check reads session counts and cycle state, then verifies direct cleanup,
+shutdown-hook cleanup and same-JVM reinitialization. It does not change playback
+or log songs. It terminates only its own timed-out child. Successful JNI checks
+are separate from Minecraft UI verification. See the
+[media cleanup record](../../docs/releases/20260927-media-cleanup.md).
+
 ## Authentication flow
 
 1. The native launcher checks the environment and obtains a fresh signed native

@@ -94,7 +94,8 @@ def source_inputs():
     paths = list((ROOT / 'beta-lab').rglob('*.java')) + list(PROFILES.glob('*.json'))
     paths += [ROOT / path for path in ('build.gradle', 'gradle.properties', 'settings.gradle',
         'core.lock.json', 'runtime-overlay/manifest.json',
-        'tools/protect_java_release.py', 'tools/prepare_runtime.py', 'tools/validate_package.py',
+        'tools/protect_java_release.py', 'tools/prepare_runtime.py', 'tools/build_media_cleanup.py',
+        'tools/validate_package.py',
         'beta-lab/obfuscation/check.init.gradle', 'beta-lab/obfuscation/prepare_obfuscation.py',
         'beta-lab/release-package/package_beta.py')]
     result = {p.relative_to(ROOT).as_posix(): digest(bounded(p)) for p in sorted(set(paths))}

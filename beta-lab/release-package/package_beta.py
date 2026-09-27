@@ -39,6 +39,25 @@ def require(condition: bool, message: str) -> None:
         raise ValueError(message)
 
 
+def validate_media_support(media: dict[str, bytes]) -> None:
+    """Windows playback and its JVM-exit cleanup must be delivered together."""
+    prefix = "mediaplayerinfo/natives/win/"
+    playback = media.get(prefix + "MediaPlayerInfo.dll")
+    cleanup = media.get(prefix + "CelesteMediaCleanup.dll")
+    if playback is None and cleanup is None:
+        return
+    require(playback is not None and cleanup is not None,
+            "Windows media requires both MediaPlayerInfo.dll and CelesteMediaCleanup.dll")
+    for name, data in (("MediaPlayerInfo.dll", playback), ("CelesteMediaCleanup.dll", cleanup)):
+        require(len(data) >= 64 and data[:2] == b"MZ", f"Invalid Windows media DLL: {name}")
+        offset = int.from_bytes(data[60:64], "little")
+        require(64 <= offset <= len(data) - 26, f"Invalid Windows media PE header: {name}")
+        pe = data[offset:offset + 26]
+        require(pe[:4] == b"PE\x00\x00" and int.from_bytes(pe[4:6], "little") == 0x8664
+                and int.from_bytes(pe[22:24], "little") & 0x2000 and pe[24:26] == b"\x0b\x02",
+                f"Windows media must use x64 DLLs: {name}")
+
+
 def read_zip(data: bytes, label: str) -> dict[str, bytes]:
     require(len(data) <= MAX_PART, f"{label}: compressed input exceeds 64 MiB")
     result: dict[str, bytes] = {}
@@ -202,6 +221,7 @@ def prepare(args: argparse.Namespace) -> None:
     bridges = {name: data for name, data in source.items() if name.startswith(CANONICAL_BRIDGE)}
     media = {name: data for name, data in source.items() if name.startswith(MEDIA) or name.startswith("mediaplayerinfo/")}
     require(bool(bridges) and bool(media), "Actual client must contain canonical bridge and native-media support inputs")
+    validate_media_support(media)
     require(all(name.endswith(".class") for name in bridges), "Unexpected canonical-bridge resource")
     support["celeste-beta-bridges.jar"] = zip_bytes(bridges)
     support["celeste-beta-media.jar"] = zip_bytes(media)

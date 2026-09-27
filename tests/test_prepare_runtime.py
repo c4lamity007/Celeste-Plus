@@ -1,5 +1,6 @@
 """Offline owned fixtures; the media check copies resources with Gradle, never runs a DLL or game."""
 from pathlib import Path
+import contextlib
 import importlib.util
 import io
 import json
@@ -9,6 +10,7 @@ import subprocess
 import tarfile
 import tempfile
 import unittest
+from unittest.mock import patch
 import zlib
 
 REPO = Path(__file__).resolve().parents[1]
@@ -258,13 +260,26 @@ class PrepareChecks(unittest.TestCase):
             tool.media_bridge(self.repo, windows=True)
 
     def test_media_override_replaces_only_root_media_resource_without_editing_core(self):
+        self.exercise_media_override({'MEDIA_PLAYER_INFO_DLL': 'MediaPlayerInfo.dll'})
+
+    def test_cleanup_only_override_keeps_original_media_and_child_resources(self):
+        self.exercise_media_override({'MEDIA_CLEANUP_DLL': 'CelesteMediaCleanup.dll'})
+
+    def test_both_media_overrides_keep_unrelated_and_child_resources(self):
+        self.exercise_media_override({'MEDIA_PLAYER_INFO_DLL': 'MediaPlayerInfo.dll',
+                                      'MEDIA_CLEANUP_DLL': 'CelesteMediaCleanup.dll'})
+
+    def exercise_media_override(self, selected_names):
         if not shutil.which('java'):
             self.skipTest('Java unavailable for offline Gradle resource fixture')
         destination = self.repo/'media fixture'
         destination.mkdir()
         (destination/'.prepare').mkdir()
-        selected = self.repo/'explicit bridge.dll'
-        selected.write_bytes(dll())
+        selected = {}
+        for variable, name in selected_names.items():
+            path = self.repo/('explicit ' + name)
+            path.write_bytes(dll() + name.encode())
+            selected[variable] = path
         default = destination/'legacy/MediaPlayerInfo.dll'
         default.parent.mkdir()
         default.write_bytes(b'old media must not be packaged')
@@ -272,11 +287,14 @@ class PrepareChecks(unittest.TestCase):
         resource.mkdir(parents=True)
         (resource/'keep.txt').write_bytes(b'keep unrelated runtime resources')
         (resource/'mediaplayerinfo/natives/win').mkdir(parents=True)
-        (resource/'mediaplayerinfo/natives/win/CelesteMediaCleanup.dll').write_bytes(b'keep the distinct cleanup bridge')
+        original_cleanup = resource/'mediaplayerinfo/natives/win/CelesteMediaCleanup.dll'
+        original_cleanup.write_bytes(b'keep the distinct cleanup bridge')
         child = destination/'child'
         (child/'src/main/resources/mediaplayerinfo/natives/win').mkdir(parents=True)
         child_media = child/'src/main/resources/mediaplayerinfo/natives/win/MediaPlayerInfo.dll'
         child_media.write_bytes(b'child resource must stay unchanged')
+        child_cleanup = child_media.with_name('CelesteMediaCleanup.dll')
+        child_cleanup.write_bytes(b'child cleanup must stay unchanged')
         (child/'build.gradle').write_text("plugins { id 'java' }\n", encoding='utf-8')
         (destination/'settings.gradle').write_text("rootProject.name = 'owned-media-fixture'\ninclude 'child'\n", encoding='utf-8')
         build_source = "plugins { id 'java' }\nprocessResources { from('legacy/MediaPlayerInfo.dll') { into 'mediaplayerinfo/natives/win' } }\n"
@@ -285,16 +303,52 @@ class PrepareChecks(unittest.TestCase):
         command = ([str(REPO/'gradlew.bat')] if os.name == 'nt' else ['sh', str(REPO/'gradlew')])
         command += ['--no-daemon', '--offline', '-p', str(destination), '--init-script', str(init), ':processResources', ':child:processResources']
         environment = os.environ.copy()
-        environment['MEDIA_PLAYER_INFO_DLL'] = str(tool.media_bridge(selected, windows=True))
+        environment.pop('MEDIA_PLAYER_INFO_DLL', None)
+        environment.pop('MEDIA_CLEANUP_DLL', None)
+        for variable, path in selected.items():
+            environment[variable] = str(tool.media_bridge(path, windows=True))
         result = subprocess.run(command, env=environment, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=120)
         self.assertEqual(result.returncode, 0, result.stdout.decode(errors='replace')[-6000:])
-        self.assertEqual((destination/'build/resources/main/mediaplayerinfo/natives/win/MediaPlayerInfo.dll').read_bytes(), selected.read_bytes())
+        expected_media = selected['MEDIA_PLAYER_INFO_DLL'] if 'MEDIA_PLAYER_INFO_DLL' in selected else default
+        expected_cleanup = selected['MEDIA_CLEANUP_DLL'] if 'MEDIA_CLEANUP_DLL' in selected else original_cleanup
+        self.assertEqual((destination/'build/resources/main/mediaplayerinfo/natives/win/MediaPlayerInfo.dll').read_bytes(), expected_media.read_bytes())
         self.assertEqual((destination/'build/resources/main/keep.txt').read_bytes(), b'keep unrelated runtime resources')
-        self.assertEqual((destination/'build/resources/main/mediaplayerinfo/natives/win/CelesteMediaCleanup.dll').read_bytes(), b'keep the distinct cleanup bridge')
+        self.assertEqual((destination/'build/resources/main/mediaplayerinfo/natives/win/CelesteMediaCleanup.dll').read_bytes(), expected_cleanup.read_bytes())
         self.assertEqual((child/'build/resources/main/mediaplayerinfo/natives/win/MediaPlayerInfo.dll').read_bytes(), child_media.read_bytes())
+        self.assertEqual((child/'build/resources/main/mediaplayerinfo/natives/win/CelesteMediaCleanup.dll').read_bytes(), child_cleanup.read_bytes())
         self.assertEqual((destination/'build.gradle').read_text(), build_source)
         with self.assertRaises(FileExistsError):
             tool.media_override(destination)
+
+    def test_cleanup_cli_requires_build_and_validates_before_preparing(self):
+        with patch.object(tool, 'prepare') as prepare, contextlib.redirect_stderr(io.StringIO()):
+            for args in (['--media-cleanup-dll', 'missing.dll'], ['--media-dll', 'missing.dll']):
+                with self.subTest(args=args), self.assertRaises(SystemExit) as rejected:
+                    tool.main(args)
+                self.assertEqual(rejected.exception.code, 2)
+            bad = self.repo/'bad-cleanup.dll'
+            for encoded in (b'not-a-dll', dll(machine=0x14c), dll(characteristics=2)):
+                bad.write_bytes(encoded)
+                with self.subTest(encoded=encoded[:2]), self.assertRaises(SystemExit) as rejected:
+                    tool.main(['--build', '--media-cleanup-dll', str(bad)])
+                self.assertEqual(rejected.exception.code, 1)
+            prepare.assert_not_called()
+
+    def test_explicit_cleanup_cli_does_not_import_an_ambient_media_override(self):
+        selected = self.repo/'explicit cleanup.dll'
+        selected.write_bytes(dll())
+        destination = self.repo/'prepared'
+        (destination/'.prepare').mkdir(parents=True)
+        validate = tool.media_bridge
+        with patch.object(tool, 'prepare', return_value=destination), \
+                patch.object(tool, 'media_bridge', side_effect=lambda p, **kw: validate(p, windows=True)), \
+                patch.dict(os.environ, {'MEDIA_PLAYER_INFO_DLL': 'unrequested.dll', 'MEDIA_CLEANUP_DLL': 'also-unrequested.dll'}), \
+                patch.object(tool.subprocess, 'run') as run, contextlib.redirect_stdout(io.StringIO()):
+            tool.main(['--build', '--media-cleanup-dll', str(selected)])
+        environment = run.call_args.kwargs['env']
+        self.assertNotIn('MEDIA_PLAYER_INFO_DLL', environment)
+        self.assertEqual(environment['MEDIA_CLEANUP_DLL'], str(selected.resolve()))
+        self.assertIn('--init-script', run.call_args.args[0])
 
 
 if __name__=='__main__':

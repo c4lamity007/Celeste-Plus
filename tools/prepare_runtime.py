@@ -27,21 +27,32 @@ FONT_ASSETS = PurePosixPath("src/main/resources/assets/celeste/fonts")
 HUD_GLYPHS = PurePosixPath("src/main/resources/assets/celeste/textures/hud/glyphs")
 LICENSES = PurePosixPath("src/main/resources/META-INF/licenses/celeste")
 RESERVED = {"con", "prn", "aux", "nul", *(f"com{i}" for i in range(1, 10)), *(f"lpt{i}" for i in range(1, 10))}
-MEDIA_OVERRIDE = '''// Optional operator-supplied Windows media bridge; no pinned source is edited.
+MEDIA_OVERRIDE = '''// Explicit Windows media DLL inputs; no pinned source is edited.
 gradle.projectsEvaluated {
-    def supplied = System.getenv('MEDIA_PLAYER_INFO_DLL')
-    if (!supplied) throw new GradleException('Explicit media bridge path is missing')
-    def bridge = new File(supplied).canonicalFile
-    if (!bridge.isFile()) throw new GradleException('Explicit media bridge is unavailable')
+    def selected = [:]
+    ['MEDIA_PLAYER_INFO_DLL': 'MediaPlayerInfo.dll',
+     'MEDIA_CLEANUP_DLL': 'CelesteMediaCleanup.dll'].each { variable, name ->
+        def supplied = System.getenv(variable)
+        if (supplied) {
+            def input = new File(supplied).canonicalFile
+            if (!input.isFile()) throw new GradleException('Explicit media DLL is unavailable: ' + name)
+            selected[name] = input
+        }
+    }
+    if (selected.isEmpty()) throw new GradleException('Explicit media DLL paths are missing')
     gradle.rootProject.tasks.named('processResources').configure {
         eachFile { entry ->
-            if (entry.path == 'mediaplayerinfo/natives/win/MediaPlayerInfo.dll' &&
-                    entry.file.canonicalFile != bridge) entry.exclude()
+            selected.each { name, input ->
+                if (entry.path == 'mediaplayerinfo/natives/win/' + name &&
+                        entry.file.canonicalFile != input) entry.exclude()
+            }
         }
-        from(bridge) {
-            into 'mediaplayerinfo/natives/win'
-            rename { 'MediaPlayerInfo.dll' }
-            duplicatesStrategy = org.gradle.api.file.DuplicatesStrategy.EXCLUDE
+        selected.each { name, input ->
+            from(input) {
+                into 'mediaplayerinfo/natives/win'
+                rename { name }
+                duplicatesStrategy = org.gradle.api.file.DuplicatesStrategy.EXCLUDE
+            }
         }
     }
 }
@@ -317,17 +328,25 @@ def main(argv=None) -> None:
     parser.add_argument("--core-checkout", type=Path, help="Read the exact commit from a local Celeste Git repository; no checkout edits")
     parser.add_argument("--build", action="store_true", help="Run the prepared core's Gradle build after verification")
     parser.add_argument("--media-dll", type=Path, help="External MediaPlayerInfo.dll supplied to the optional runtime build")
+    parser.add_argument("--media-cleanup-dll", type=Path, help="Compiled CelesteMediaCleanup.dll supplied to the optional Windows runtime build")
     args = parser.parse_args(argv)
-    if args.media_dll is not None and not args.build:
-        parser.error("--media-dll requires --build")
+    if (args.media_dll is not None or args.media_cleanup_dll is not None) and not args.build:
+        parser.error("--media-dll and --media-cleanup-dll require --build")
     try:
         media = media_bridge(args.media_dll, windows=os.name == "nt") if args.media_dll is not None else None
+        cleanup = media_bridge(args.media_cleanup_dll, windows=os.name == "nt") if args.media_cleanup_dll is not None else None
         destination = prepare(Path(__file__).resolve().parents[1], args.core_checkout)
         if args.build:
             environment = os.environ.copy()
+            # Only explicit CLI inputs may override the pinned root resources.
+            environment.pop("MEDIA_PLAYER_INFO_DLL", None)
+            environment.pop("MEDIA_CLEANUP_DLL", None)
             init_script = None
             if media is not None:
                 environment["MEDIA_PLAYER_INFO_DLL"] = str(media)
+            if cleanup is not None:
+                environment["MEDIA_CLEANUP_DLL"] = str(cleanup)
+            if media is not None or cleanup is not None:
                 init_script = media_override(destination)
             subprocess.run(gradle_command(destination, windows=os.name == "nt", init_script=init_script),
                            cwd=destination, env=environment, check=True)

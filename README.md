@@ -53,7 +53,7 @@ python tools/prepare_runtime.py --core-checkout ../Celeste
 python -m unittest discover -s tests -p test_prepare_runtime.py
 ```
 
-The helper verifies the pin and overlay hashes, then creates a fresh `build/runtime-core`. It refuses existing output and never deletes it automatically. To also build the full remapped runtime, use `--build`; if the core requires an externally supplied media library, add `--media-dll <path-to-MediaPlayerInfo.dll>`. The resulting packaging input is `build/runtime-core/build/libs/celeste-client-1.0.0.jar`. Follow the pinned core's requirements for licensed dependencies and assets.
+The helper verifies the pin and overlay hashes, then creates a fresh `build/runtime-core`. It refuses existing output and never deletes it automatically. To also build the full remapped runtime, use `--build`; for Windows media, supply `--media-dll <path-to-MediaPlayerInfo.dll>` and `--media-cleanup-dll <path-to-CelesteMediaCleanup.dll>`. The cleanup DLL is compiled from the pinned core source with `tools/build_media_cleanup.py`; see the [media shutdown record](docs/releases/20260927-media-cleanup.md). Windows release packaging rejects a missing cleanup helper. The resulting packaging input is `build/runtime-core/build/libs/celeste-client-1.0.0.jar`. Follow the pinned core's requirements for licensed dependencies and assets.
 
 ## Local package validation
 
