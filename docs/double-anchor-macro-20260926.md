@@ -80,7 +80,8 @@ QA runner's unqualified `build` also selects an unused legacy bootstrap loader,
 which fails on missing `EnvironmentGate` / `PortableCredentialProtection` imports.
 That broader build failure remains separate from the successful game build.
 
-The five-tick revision supersedes the six-tick replacement timing documented in
-[the previous release](releases/20260926-anchor-packets.md). Source/build validation
-and a protected production release are separate; this revision needs live gameplay
-verification with its own loaded build identity.
+The five-tick revision is published as
+[`celeste-plus-20260927-double-anchor-01`](releases/20260927-double-anchor.md)
+at Fly version 131. It supersedes the six-tick replacement timing in the previous
+release. Protected packaging, actual-catalog auth tests and live deployment checks
+passed; the sequence still needs live gameplay verification with this build.

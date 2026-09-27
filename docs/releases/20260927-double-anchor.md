@@ -35,6 +35,8 @@ Windows loader and its server allowlist remain the approved native release.
   of three fresh JVM runs. The authentication ABI repair is retained.
 - All 188 runtime overlay files and the locked manifest were verified before
   building. The built coordinator contains the new combined explode/replace action.
+- Auth delivery tests using the actual protected catalog passed 95 checks, with
+  one Windows symlink-privilege skip. The tested backend matches the live source.
 
 The behavior fixture models Minecraft prediction and server handling. It is not
 live gameplay or anticheat acceptance evidence. This exact release still needs
@@ -54,4 +56,24 @@ Generated artifacts, mappings and local evidence remain ignored.
 
 ## Publication
 
-Prepared and protected; production rollout verification is pending.
+Published on 2026-09-27 at Fly version **131**. Implementation commit:
+`47f3307b0c07a144f6a0d97660e6f9990cbc6822` in `c4lamity007/Celeste-Plus`.
+
+Image: `registry.fly.io/qb0f90cf11f4d1d52@sha256:36a491e47ccf51e9327d1d6c7073f04fda71a13791f0370e240492756b7327ba`.
+The machine passed its health check. Live verification matched all five new
+catalog files, preserved all 23 existing artifacts and all 21 backend source files,
+and verified signed native manifests, fresh nonce binding and unauthorized request
+rejection. Native policy remains sequence 1 for the existing approved loader.
+
+Only the active Plus release directory changed. Standard Celeste remains
+`celeste-20260922-bootstrap-verifyfix-01`; the database mount, backend and server
+verification keys remain unchanged.
+
+Live evidence: `build/fly-rollout-20260927/double-anchor-live-verification.json`,
+SHA-256 `e4ce253fd837a619f1f30dc1a591ad692282877f20309e20224e482c30f6325f`.
+Actual-catalog test evidence: `build/module-qa/double-anchor-release-catalog-review/result.json`.
+
+Use the existing Celeste+ loader. Fully restart Minecraft, then load Celeste+ to
+start with the new bootstrap and payload. The earlier user-confirmed injection
+success applies to the preceding auth repair; live gameplay for this new sequence
+remains unverified.
