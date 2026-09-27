@@ -11,23 +11,26 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub(crate) fn thumbprint(key: &SigningKey) -> String {
     // RFC 7638: include only these JWK members, in lexicographic order.
     let public = URL_SAFE_NO_PAD.encode(key.verifying_key().as_bytes());
-    let canonical = format!(r#"{{"crv":"Ed25519","kty":"OKP","x":"{public}"}}"#);
+    let canonical =
+        serde_json::to_string(&json!({(obfstr::obfstr!("crv")):obfstr::obfstr!("Ed25519"),
+        (obfstr::obfstr!("kty")):obfstr::obfstr!("OKP"),(obfstr::obfstr!("x")):public}))
+        .expect("Fixed public JWK is serializable");
     URL_SAFE_NO_PAD.encode(Sha256::digest(canonical.as_bytes()))
 }
 
 pub(crate) fn confirmation(claims: &Value) -> Result<&str> {
     let confirmation = claims
-        .get("cnf")
+        .get(obfstr::obfstr!("cnf"))
         .and_then(Value::as_object)
-        .context("Server token omitted its DPoP key binding")?;
+        .context(obfstr::obfstr!("Server token omitted its DPoP key binding").to_owned())?;
     ensure!(confirmation.len() == 1, "Invalid DPoP confirmation members");
     let jkt = confirmation
-        .get("jkt")
+        .get(obfstr::obfstr!("jkt"))
         .and_then(Value::as_str)
-        .context("Server token omitted its DPoP key thumbprint")?;
+        .context(obfstr::obfstr!("Server token omitted its DPoP key thumbprint").to_owned())?;
     let decoded = URL_SAFE_NO_PAD
         .decode(jkt)
-        .context("Invalid DPoP key thumbprint")?;
+        .context(obfstr::obfstr!("Invalid DPoP key thumbprint").to_owned())?;
     ensure!(
         decoded.len() == 32 && URL_SAFE_NO_PAD.encode(&decoded) == jkt,
         "Invalid DPoP key thumbprint"
@@ -49,11 +52,22 @@ pub(crate) fn proof(
     url: &str,
     token: Option<&str>,
 ) -> Result<String> {
+    proof_bound(key, method, url, token, None, None)
+}
+
+pub(crate) fn proof_bound(
+    key: &SigningKey,
+    method: &str,
+    url: &str,
+    token: Option<&str>,
+    delivery: Option<(&str, &str)>,
+    hwid: Option<&str>,
+) -> Result<String> {
     // All Celeste API routes are canonical, query-free HTTPS URLs. Fail closed
     // rather than signing one URI while the HTTP client normalizes another.
     let parsed = ureq::get(url)
         .request_url()
-        .context("Invalid DPoP request URL")?;
+        .context(obfstr::obfstr!("Invalid DPoP request URL").to_owned())?;
     let parsed = parsed.as_url();
     ensure!(
         parsed.scheme() == "https"
@@ -70,24 +84,46 @@ pub(crate) fn proof(
         "DPoP requires an uppercase HTTP method"
     );
     let mut random = [0_u8; 32];
-    OsRng
-        .try_fill_bytes(&mut random)
-        .context("System randomness is unavailable for a fresh DPoP proof")?;
+    OsRng.try_fill_bytes(&mut random).context(
+        obfstr::obfstr!("System randomness is unavailable for a fresh DPoP proof").to_owned(),
+    )?;
     let mut claims = json!({
-        "jti": URL_SAFE_NO_PAD.encode(random),
-        "htm": method,
-        "htu": url,
-        "iat": SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs(),
+        (obfstr::obfstr!("jti")): URL_SAFE_NO_PAD.encode(random),
+        (obfstr::obfstr!("htm")): method,
+        (obfstr::obfstr!("htu")): url,
+        (obfstr::obfstr!("iat")): SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs(),
     });
     if let Some(token) = token {
         ensure!(
             !token.is_empty() && token.bytes().all(|byte| (b'!'..=b'~').contains(&byte)),
             "DPoP requires an ASCII access token"
         );
-        claims["ath"] = json!(URL_SAFE_NO_PAD.encode(Sha256::digest(token.as_bytes())));
+        claims[obfstr::obfstr!("ath")] =
+            json!(URL_SAFE_NO_PAD.encode(Sha256::digest(token.as_bytes())));
     }
-    let header = json!({"typ":"dpop+jwt", "alg":"EdDSA", "jwk": {
-        "kty":"OKP", "crv":"Ed25519", "x":URL_SAFE_NO_PAD.encode(key.verifying_key().as_bytes())
+    if let Some((public, nonce)) = delivery {
+        for (value, length) in [(public, 32), (nonce, 24)] {
+            let decoded = URL_SAFE_NO_PAD.decode(value)?;
+            ensure!(
+                decoded.len() == length && URL_SAFE_NO_PAD.encode(decoded) == value,
+                "Invalid artifact proof binding"
+            );
+        }
+        claims[obfstr::obfstr!("cek")] = json!(public);
+        claims[obfstr::obfstr!("cnonce")] = json!(nonce);
+    }
+    if let Some(hwid) = hwid {
+        ensure!(
+            hwid.len() == 64
+                && hwid
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
+            "Invalid hardware proof binding"
+        );
+        claims[obfstr::obfstr!("hwid")] = json!(hwid);
+    }
+    let header = json!({(obfstr::obfstr!("typ")):obfstr::obfstr!("dpop+jwt"), (obfstr::obfstr!("alg")):obfstr::obfstr!("EdDSA"), (obfstr::obfstr!("jwk")): {
+        (obfstr::obfstr!("kty")):obfstr::obfstr!("OKP"), (obfstr::obfstr!("crv")):obfstr::obfstr!("Ed25519"), (obfstr::obfstr!("x")):URL_SAFE_NO_PAD.encode(key.verifying_key().as_bytes())
     }});
     let unsigned = format!(
         "{}.{}",
@@ -105,6 +141,68 @@ pub(crate) fn proof(
 mod tests {
     use super::*;
     use ed25519_dalek::{Signature, Verifier};
+
+    #[test]
+    fn artifact_and_hardware_extensions_are_inside_the_installation_signature() {
+        let key = SigningKey::from_bytes(&[0x41; 32]);
+        let public = URL_SAFE_NO_PAD.encode([3; 32]);
+        let nonce = URL_SAFE_NO_PAD.encode([4; 24]);
+        let hwid = "a".repeat(64);
+        let jwt = proof_bound(
+            &key,
+            "GET",
+            "https://auth.example.test/v1/beta/artifact",
+            Some("token"),
+            Some((&public, &nonce)),
+            Some(&hwid),
+        )
+        .unwrap();
+        let claims = parts(&jwt).1;
+        assert_eq!(claims["cek"], public);
+        assert_eq!(claims["cnonce"], nonce);
+        assert_eq!(claims["hwid"], hwid);
+        let (unsigned, signature) = jwt.rsplit_once('.').unwrap();
+        let signature = Signature::from_slice(&URL_SAFE_NO_PAD.decode(signature).unwrap()).unwrap();
+        key.verifying_key()
+            .verify_strict(unsigned.as_bytes(), &signature)
+            .unwrap();
+        for field in ["cek", "cnonce", "hwid"] {
+            let mut modified = claims.clone();
+            modified[field] = json!("different");
+            let changed = format!(
+                "{}.{}",
+                unsigned.split('.').next().unwrap(),
+                URL_SAFE_NO_PAD.encode(serde_json::to_vec(&modified).unwrap())
+            );
+            assert!(
+                key.verifying_key()
+                    .verify_strict(changed.as_bytes(), &signature)
+                    .is_err()
+            );
+        }
+        assert!(
+            proof_bound(
+                &key,
+                "GET",
+                "https://auth.example.test/v1/beta/artifact",
+                Some("token"),
+                Some((&nonce, &public)),
+                None
+            )
+            .is_err()
+        );
+        assert!(
+            proof_bound(
+                &key,
+                "POST",
+                "https://auth.example.test/v1/validate",
+                Some("token"),
+                None,
+                Some("A".repeat(64).as_str())
+            )
+            .is_err()
+        );
+    }
 
     fn parts(jwt: &str) -> (Value, Value) {
         let parts = jwt.split('.').collect::<Vec<_>>();
@@ -166,7 +264,7 @@ mod tests {
         let url = "https://auth.example.test/v1/installer/complete";
         let first = parts(&proof(&key, "POST", url, None).unwrap()).1;
         let second = parts(&proof(&key, "POST", url, None).unwrap()).1;
-        assert!(first.get("ath").is_none());
+        assert!(first.get(obfstr::obfstr!("ath")).is_none());
         assert_ne!(first["jti"], second["jti"]);
     }
 

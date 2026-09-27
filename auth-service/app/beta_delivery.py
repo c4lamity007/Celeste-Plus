@@ -43,6 +43,8 @@ from .products import PLUS, require_entitlement, require_claim_product
 from .security import GrantSigner, canonical_json
 from .dpop import access_token
 from .token_revocation import require_unrevoked
+from .artifact_envelope import encrypt, recipient
+from .auth_errors import failure
 
 
 RELEASE_SCHEMA = "celeste-beta-release-2"
@@ -236,6 +238,8 @@ def create_beta_router(
                 or not 16 <= len(claims["jti"]) <= 128):
             raise HTTPException(401, "invalid grant")
         require_claim_product(claims, PLUS)
+        if settings.plus_auth_protocol == 2 and claims.get("auth_protocol") != 2:
+            raise failure("reactivation_required", "Update this client and verify its installation again")
         subject = claims.get("sub")
         if not isinstance(subject, str) or not subject.isascii() or not subject.isdecimal() or not 0 < int(subject) < 2**63 or str(int(subject)) != subject:
             raise HTTPException(401, "invalid grant")
@@ -324,6 +328,10 @@ def create_beta_router(
         if min(installer["exp"], manifest["exp"]) <= int(time.time()):
             raise HTTPException(401, "invalid grant")
         plus_installer(request, touch=False)
+        if settings.plus_auth_protocol == 2:
+            client_key, request_nonce = recipient(request)
+            content = encrypt(content, installer_token, request.url.path, client_key, request_nonce)
+            plus_installer(request, touch=False)
         return Response(content, media_type="application/octet-stream", headers={"Cache-Control": "no-store"})
 
     return router

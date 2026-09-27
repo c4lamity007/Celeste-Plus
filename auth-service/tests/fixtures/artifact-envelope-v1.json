@@ -1,0 +1,11 @@
+{
+  "client_private_key": "ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8",
+  "client_public_key": "NYBy1jZYgNGu6jKa35EhODhR7SGijjt16WXQ0s0WYlQ",
+  "envelope": "Q1NUQUUxeaYx7t4b-cmPEgMs3q3Q56B5OY_HhriMyEbsia-FpRoAAQIDBAUGBwgJCgu6strhqv8RRJ1qLw3ZwN1G42O7Csft9EzU9ThJ3x2L0HpOsQGBH4LwB9vitjhqUH2fYLn_War1wsCN4TEHvNgirFLy8mQxl8yHD9IuG6HcgAk",
+  "installer_token": "eyJhbGciOiJFZERTQSIsImtpZCI6ImNlbGVzdGUtcmVsZWFzZS0xIiwidHlwIjoiQ1NUIn0.eyJhdWQiOiJjZWxlc3RlLWluc3RhbGxlciIsImF1dGhfcHJvdG9jb2wiOjIsImNuZiI6eyJqa3QiOiJBQUVDQXdRRkJnY0lDUW9MREEwT0R4QVJFaE1VRlJZWEdCa2FHeHdkSGg4In0sImRldmljZSI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMSIsImV4cCI6MjAwMDAwMDYwMCwiaWF0IjoyMDAwMDAwMDAwLCJqdGkiOiJwdWJsaWMtZml4dHVyZS10b2tlbi0wMDAxIiwibmJmIjoyMDAwMDAwMDAwLCJwcm9kdWN0IjoiY2VsZXN0ZV9wbHVzIiwic3ViIjoiMSJ9.06KwRYWPlhAOCkE2zd0M4dsMgxhMBXNte6rfHhYZ26MG_WctAt1IPzN3sdElwFwIwfSG8yY2E2oRpiVCpb8bDQ",
+  "plaintext": "UHVibGljIGZpeHR1cmUgYXJ0aWZhY3Qgb25seS4gTm8gcmVhbCBjdXN0b21lciBvciByZWxlYXNlIGRhdGEuAP8",
+  "request_nonce": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYX",
+  "request_path": "/v1/beta/artifacts/public-fixture-release/bootstrap-a",
+  "schema": "celeste-artifact-envelope-golden-1",
+  "server_private_key": "QEFCQ0RFRkdISUpLTE1OT1BRUlNUVVZXWFlaW1xdXl8"
+}

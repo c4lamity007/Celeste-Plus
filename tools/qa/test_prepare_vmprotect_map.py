@@ -14,7 +14,21 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "packaging"))
 import prepare_vmprotect_map as mapping
 
 
-def fixture():
+V2_SYMBOLS = (
+    "_RNvNtCsFixture_11CelestePlus16transport_policy6verify",
+    "_RNvXNtCsFixture_11CelestePlus16transport_policyNtB2_14PinnedVerifierNtNtCsOther_6rustls6verify18ServerCertVerifier18verify_server_cert",
+    "_RNvMNtCsFixture_11CelestePlus17artifact_envelopeNtB2_10RequestKey7decrypt",
+    "_RNvNtCsFixture_11CelestePlus11debug_guard13require_clear",
+    "_RNvNtCsFixture_11CelestePlus11hardware_v27current",
+    "_RNvMs3_NtCsFixture_11CelestePlus4authNtB5_7Session19validate_for_launch",
+    "_RNvMs3_NtCsFixture_11CelestePlus4authNtB5_7Session13grant_request",
+)
+
+
+def fixture(profile=mapping.DEFAULT_PROFILE):
+    symbols = ["_RNvNtCsFixture_11CelestePlus" + suffix for suffix, _ in mapping.TARGETS]
+    if profile == mapping.V2_PROFILE:
+        symbols.extend(V2_SYMBOLS)
     data = bytearray(0xe00)
     data[:2] = b"MZ"
     struct.pack_into("<I", data, 60, 128)
@@ -24,7 +38,7 @@ def fixture():
     struct.pack_into("<Q", data, 176, 0x140000000)
     struct.pack_into("<II", data, 208, 0x4000, 512)
     struct.pack_into("<I", data, 260, 16)
-    struct.pack_into("<II", data, 288, 0x2000, len(mapping.TARGETS) * 12)
+    struct.pack_into("<II", data, 288, 0x2000, len(symbols) * 12)
     for index, (name, rva, offset, size, flags) in enumerate((
             (b".text", 0x1000, 0x200, 0x600, 0x60000020),
             (b".pdata", 0x2000, 0x800, 0x200, 0x40000040),
@@ -34,24 +48,24 @@ def fixture():
         struct.pack_into("<IIII", data, at + 8, size, rva, size, offset)
         struct.pack_into("<I", data, at + 36, flags)
     lines = [" fixture", " Preferred load address is 0000000140000000", "", " Address         Publics by Value              Rva+Base       Lib:Object"]
-    for index, (suffix, _) in enumerate(mapping.TARGETS):
+    for index, symbol in enumerate(symbols):
         offset = index * 32
         struct.pack_into("<III", data, 0x800 + index * 12, 0x1000 + offset, 0x1010 + offset, 0x3000 + index * 8)
         data[0xa00 + index * 8] = 1
         data[0x200 + offset:0x210 + offset] = b"\x90" * 15 + b"\xc3"
-        symbol = "_RNvNtCsFixture_11CelestePlus" + suffix
         lines.append(f" 0001:{offset:08x}       {symbol} 000000014000{0x1000 + offset:04x} f   fixture.o")
     lines += [" 0002:00000000       ordinary_data 0000000140002000     fixture.o", "", " Unchanged footer"]
     return bytes(data), ("\r\n".join(lines) + "\r\n").encode("ascii")
 
 
 class MapFixture:
-    def __init__(self, root):
+    def __init__(self, root, profile=mapping.DEFAULT_PROFILE):
         self.root = root
+        self.profile = profile
         self.binary = root / "Celeste+.exe"
         self.original = root / "Celeste+.map"
         self.candidate = root / "candidate.json"
-        binary, original = fixture()
+        binary, original = fixture(profile)
         self.binary.write_bytes(binary)
         self.original.write_bytes(original)
         self.bind()
@@ -72,12 +86,12 @@ class MapFixture:
     def prepare(self):
         self.attempt += 1
         self.output = self.root / f"mapped-{self.attempt}"
-        return mapping.prepare(self.binary, self.original, self.candidate, self.output)
+        return mapping.prepare(self.binary, self.original, self.candidate, self.output, self.profile)
 
     def validate(self):
         return mapping.validate_alias_map(self.output / "Celeste+.exe", self.output / "Celeste+.original.map",
                                           self.output / "Celeste+.map", self.output / "mapping.json",
-                                          self.output / "candidate.json")
+                                          self.output / "candidate.json", self.profile)
 
     def binary_change(self, offset, fmt, *values):
         data = bytearray(self.binary.read_bytes())
@@ -317,6 +331,104 @@ class PrepareVmprotectMapTest(unittest.TestCase):
         self.assertEqual(original, (source / "Celeste+.exe").read_bytes())
         self.assertEqual(record, mapping.validate_alias_map(output / "Celeste+.exe", output / "Celeste+.original.map",
                                                            output / "Celeste+.map", output / "mapping.json", output / "candidate.json"))
+
+
+class V2MapProfileTest(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.fixture = MapFixture(Path(temporary.name), mapping.V2_PROFILE)
+
+    def test_opt_in_v2_selects_fourteen_real_style_symbols_without_binary_changes(self):
+        f = self.fixture
+        binary, original = f.binary.read_bytes(), f.original.read_bytes()
+        record = f.prepare()
+        self.assertEqual("celeste-vmp-map-alias-2", record["schema"])
+        self.assertEqual(mapping.V2_PROFILE, record["profile"])
+        self.assertEqual(14, len(record["functions"]))
+        self.assertEqual(14, len({row["rva"] for row in record["functions"]}))
+        self.assertEqual([alias for _, alias in mapping.TARGETS], [row["alias"] for row in record["functions"][:7]])
+        self.assertEqual(list(V2_SYMBOLS), [row["symbol"] for row in record["functions"][7:]])
+        expected = original
+        for row in record["functions"]:
+            name = row["symbol"].encode("ascii")
+            expected = expected.replace(name, row["alias"].encode("ascii").ljust(len(name)))
+        self.assertEqual(expected, (f.output / "Celeste+.map").read_bytes())
+        self.assertEqual(binary, (f.output / "Celeste+.exe").read_bytes())
+        self.assertEqual(record, f.validate())
+
+    def test_default_stays_historical_and_never_implicitly_accepts_v2_evidence(self):
+        f = self.fixture
+        old = mapping.prepare(f.binary, f.original, f.candidate, f.root / "default")
+        self.assertEqual("celeste-vmp-map-alias-1", old["schema"])
+        self.assertNotIn("profile", old)
+        self.assertEqual(7, len(old["functions"]))
+        f.prepare()
+        with self.assertRaisesRegex(ValueError, "beyond the seven"):
+            mapping.validate_alias_map(f.output / "Celeste+.exe", f.output / "Celeste+.original.map",
+                                       f.output / "Celeste+.map", f.output / "mapping.json", f.output / "candidate.json")
+
+    def test_missing_each_v2_target_fails_before_writing_any_bundle(self):
+        f = self.fixture
+        original = f.original.read_bytes()
+        for symbol in V2_SYMBOLS:
+            f.original.write_bytes(original.replace(symbol.encode(), b"unrelated_function"))
+            f.bind()
+            with self.subTest(symbol=symbol), self.assertRaisesRegex(ValueError, "exactly one"):
+                f.prepare()
+            self.assertFalse(f.output.exists())
+
+    def test_method_prefix_closure_and_foreign_trait_are_not_target_substitutes(self):
+        f = self.fixture
+        original = f.original.read_bytes()
+        for old, new in ((V2_SYMBOLS[2], V2_SYMBOLS[2] + "_closure"),
+                         (V2_SYMBOLS[1], V2_SYMBOLS[1].replace("18ServerCertVerifier", "18ServerFakeVerifier")),
+                         (V2_SYMBOLS[5], V2_SYMBOLS[5].replace("7Session", "7Foreign"))):
+            f.original.write_bytes(original.replace(old.encode(), new.encode()))
+            f.bind()
+            with self.subTest(symbol=old), self.assertRaisesRegex(ValueError, "exactly one"):
+                f.prepare()
+
+    def test_v2_does_not_relax_handler_unwind_or_unique_pe_boundary_checks(self):
+        f = self.fixture
+        binary = f.binary.read_bytes()
+        for index in range(7, 14):
+            f.binary.write_bytes(binary)
+            f.binary_change(0xa00 + index * 8, "<B", 25)
+            with self.subTest(index=index), self.assertRaisesRegex(ValueError, "unreviewed"):
+                f.prepare()
+        f.binary.write_bytes(binary)
+        f.bind()
+        original = f.original.read_bytes()
+        entry = next(row for row in mapping.SYMBOL.finditer(original) if row[3] == V2_SYMBOLS[-1].encode())
+        f.original.write_bytes(original + original[entry.start():entry.end()] + b"\r\n")
+        f.bind()
+        with self.assertRaisesRegex(ValueError, "exactly one"):
+            f.prepare()
+
+    def test_unknown_profile_and_record_profile_mutation_fail_closed(self):
+        f = self.fixture
+        with self.assertRaisesRegex(ValueError, "Unknown"):
+            mapping.prepare(f.binary, f.original, f.candidate, f.root / "unknown", "automatic")
+        record = f.prepare()
+        for field, value in (("profile", mapping.DEFAULT_PROFILE), ("schema", "celeste-vmp-map-alias-1")):
+            changed = copy.deepcopy(record)
+            changed[field] = value
+            (f.output / "mapping.json").write_text(json.dumps(changed), encoding="utf-8")
+            with self.subTest(field=field), self.assertRaisesRegex(ValueError, "Mapping record differs"):
+                f.validate()
+
+    def test_real_v2_candidate_when_available(self):
+        source = Path(__file__).resolve().parents[2] / "build/protection-20260927-v2/native-candidate-02"
+        if not all((source / name).is_file() for name in ("Celeste+.exe", "Celeste+.map", "candidate.json")):
+            self.skipTest("Fresh v2 compiler candidate is unavailable")
+        binary = (source / "Celeste+.exe").read_bytes()
+        output = self.fixture.root / "actual-v2"
+        record = mapping.prepare(source / "Celeste+.exe", source / "Celeste+.map", source / "candidate.json", output, mapping.V2_PROFILE)
+        self.assertEqual(14, len(record["functions"]))
+        self.assertEqual(binary, (output / "Celeste+.exe").read_bytes())
+        self.assertEqual(record, mapping.validate_alias_map(output / "Celeste+.exe", output / "Celeste+.original.map",
+                         output / "Celeste+.map", output / "mapping.json", output / "candidate.json", mapping.V2_PROFILE))
 
 
 if __name__ == "__main__":

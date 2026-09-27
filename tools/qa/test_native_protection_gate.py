@@ -203,7 +203,7 @@ class NativeSourceDigestTest(unittest.TestCase):
             paths = ["beta-lab/native-shared/src/environment_guard.rs", "shared-auth/dpop.rs",
                      "beta-lab/native-launcher/assets/celeste-logo.png",
                      "beta-lab/native-launcher/Cargo.toml", "beta-lab/native-launcher/Cargo.lock",
-                     "beta-lab/native-launcher/src/main.rs"]
+                     "beta-lab/native-launcher/src/main.rs", "rust-toolchain.toml"]
             for name in paths:
                 path = root / name
                 path.parent.mkdir(parents=True, exist_ok=True)

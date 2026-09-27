@@ -358,7 +358,7 @@ public final class AuthBootstrap {
             }
         } catch (AuthServiceClient.AuthRejectedException exception) {
             if (exception.statusCode() == 401 || exception.statusCode() == 403 || exception.statusCode() == 409) {
-                lockSession("License revoked, expired, or no longer authorized");
+                lockSession(exception.getMessage(), exception);
             } else {
                 lockAfterHeartbeatGrace();
             }
@@ -434,6 +434,9 @@ public final class AuthBootstrap {
         }
     }
 
+    // Remote grant/protocol errors do not revoke the installation signing identity.
+    // lockSession clears transient authorization; the existing keys are needed for
+    // fresh dual-proof authentication. Only explicit clearLocalBinding removes them.
     private static void show(MinecraftClient client, String message) {
         status = message;
     }

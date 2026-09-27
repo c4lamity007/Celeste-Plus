@@ -17,11 +17,13 @@ import java.util.concurrent.Flow;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
+import dev.c4lam.celeste.auth.PinnedTls;
 
 /** Default transport bounds each body while it streams and cancels on size/deadline failure. */
 final class HttpsTransport implements BetaDeliveryClient.Transport {
-    private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(8))
-        .followRedirects(HttpClient.Redirect.NEVER).build();
+    private final URI origin;
+    private final byte[] serverKey;
+    HttpsTransport(URI origin, byte[] serverKey) { this.origin = origin; this.serverKey = serverKey.clone(); }
 
     @Override public BetaDeliveryClient.Reply get(URI uri, Map<String, String> headers, int maximumBytes, Duration timeout)
         throws IOException, InterruptedException {
@@ -29,6 +31,7 @@ final class HttpsTransport implements BetaDeliveryClient.Transport {
         HttpRequest.Builder builder = HttpRequest.newBuilder(uri).timeout(timeout).GET();
         headers.forEach(builder::header);
         AtomicReference<BoundedBody> subscriber = new AtomicReference<>();
+        HttpClient http = PinnedTls.client(origin, serverKey, "celeste_plus");
         CompletableFuture<HttpResponse<byte[]>> future = http.sendAsync(builder.build(), info -> {
             BoundedBody body = new BoundedBody(maximumBytes);
             subscriber.set(body);
@@ -56,7 +59,7 @@ final class HttpsTransport implements BetaDeliveryClient.Transport {
         private int used;
         private Flow.Subscription subscription;
         BoundedBody(int maximumBytes) {
-            if (maximumBytes <= 0 || maximumBytes > BetaDeliveryClient.MAX_ARTIFACT_BYTES) throw new IllegalArgumentException("Invalid body limit");
+            if (maximumBytes <= 0 || maximumBytes > BetaDeliveryClient.MAX_ARTIFACT_BYTES + ArtifactEnvelope.OVERHEAD) throw new IllegalArgumentException("Invalid body limit");
             bytes = new byte[maximumBytes];
         }
         @Override public CompletionStage<byte[]> getBody() { return result; }

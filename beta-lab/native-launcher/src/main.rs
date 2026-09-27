@@ -1,22 +1,31 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
+#[path = "../../native-shared/src/artifact_envelope.rs"]
+mod artifact_envelope;
 mod atomic_store;
 mod attach;
 mod auth;
+mod bootstrap_cache;
 #[cfg(windows)]
 mod credential_protection;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 #[path = "../../native-shared/src/portable_credential_protection.rs"]
 mod credential_protection;
+#[path = "../../native-shared/src/debug_guard.rs"]
+mod debug_guard;
 mod delivery;
 #[path = "../../../shared-auth/dpop.rs"]
 mod dpop;
 #[path = "../../native-shared/src/environment_guard.rs"]
 mod environment_guard;
+#[path = "../../native-shared/src/hardware_v2.rs"]
+mod hardware_v2;
 #[path = "../../native-shared/src/native_manifest.rs"]
 mod native_manifest;
 mod platform;
 mod release;
+#[path = "../../native-shared/src/transport_policy.rs"]
+mod transport_policy;
 #[path = "../../native-shared/src/user_profile.rs"]
 mod user_profile;
 #[cfg(windows)]
@@ -252,7 +261,7 @@ impl App {
                         return Ok(());
                     }
                 }
-                let session = match auth::authenticate(&game, &license) {
+                let mut session = match auth::authenticate(&game, &license) {
                     Ok(session) => session,
                     Err(error) if auth::needs_activation(&error) => {
                         let _ = tx.send(Event::ActivationRequired(format!("{error:#}")));
@@ -260,11 +269,28 @@ impl App {
                     }
                     Err(error) => return Err(error),
                 };
+                session.validate_for_launch(&game)?;
                 let _ = tx.send(Event::Progress(
                     "Celeste+ activated. Preparing the signed release.".into(),
                 ));
                 let support = platform::support_directory(target.pid, target.started)?;
-                let verified = delivery::download_bootstrap(&session, &support)?;
+                let verified = match delivery::download_bootstrap(&session, &support) {
+                    Ok(value) => value,
+                    Err(error) if session.recover_authorization(&error)? => {
+                        session.validate_for_launch(&game)?;
+                        match delivery::download_bootstrap(&session, &support) {
+                            Ok(value) => value,
+                            Err(error) => {
+                                session.reject_if_authoritative(&game, &error)?;
+                                return Err(error);
+                            }
+                        }
+                    }
+                    Err(error) => {
+                        session.reject_if_authoritative(&game, &error)?;
+                        return Err(error);
+                    }
+                };
                 let context = if let Some(previous) = retry {
                     attach::verify_retry_artifact(
                         &previous,
@@ -291,6 +317,7 @@ impl App {
                 let inspection = attach::command(&context, json!({"action":"inspect"}))?;
                 attach::verify_inspection(&context, &inspection)?;
                 session.prepare_runtime_credential(&context.game)?;
+                session.validate_for_launch(&context.game)?;
                 let _ = tx.send(Event::Progress("Target identity matches. Starting the signed beta chain; waiting for actual runtime state.".into()));
                 let report = attach::command(
                     &context,
@@ -306,7 +333,11 @@ impl App {
                 } else {
                     detail.replace(&license, "[redacted license]")
                 };
-                let _ = tx.send(Event::Failure(detail));
+                let _ = tx.send(if auth::needs_activation(&error) {
+                    Event::ActivationRequired(detail)
+                } else {
+                    Event::Failure(detail)
+                });
             }
         });
     }
@@ -1354,6 +1385,10 @@ mod ui_state_tests {
 }
 
 fn main() -> Result<()> {
+    if debug_guard::require_clear().is_err() {
+        return Ok(());
+    }
+    let _ = bootstrap_cache::cleanup_stale();
     let mut viewport = egui::ViewportBuilder::default()
         .with_title("Celeste+")
         .with_inner_size([440.0, 380.0])
@@ -1373,10 +1408,12 @@ fn main() -> Result<()> {
         persist_window: false,
         ..Default::default()
     };
-    eframe::run_native(
+    let result = eframe::run_native(
         "Celeste+",
         options,
         Box::new(|cc| Ok(Box::new(App::new(cc)))),
     )
-    .map_err(|error| anyhow!("Native beta window could not start: {error}"))
+    .map_err(|error| anyhow!("Native beta window could not start: {error}"));
+    let _ = bootstrap_cache::cleanup_stale();
+    result
 }

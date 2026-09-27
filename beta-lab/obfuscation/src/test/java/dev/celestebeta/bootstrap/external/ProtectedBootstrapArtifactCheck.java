@@ -7,8 +7,11 @@ import java.lang.reflect.Modifier;
 import java.net.URLClassLoader;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.UserPrincipal;
 import java.security.GeneralSecurityException;
 import java.util.HashSet;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletionStage;
@@ -28,6 +31,7 @@ public final class ProtectedBootstrapArtifactCheck {
         Path a = Path.of(args[0]).toRealPath(), b = Path.of(args[1]).toRealPath();
         try (URLClassLoader host = new URLClassLoader("celeste-protected-host-check", new java.net.URL[] {a.toUri().toURL()}, ClassLoader.getPlatformClassLoader())) {
             verifyAuthenticationBoundary(a, host);
+            verifySupportAccountLookup(a, host);
             Class<?> entry = Class.forName("dev.celestebeta.bootstrap.external.BootstrapHost", true, host);
             check(entry.getClassLoader() == host, "A Host is owned by its isolated archive loader");
             check(Files.isSameFile(a, Path.of(entry.getProtectionDomain().getCodeSource().getLocation().toURI())), "A CodeSource remains its exact merged archive");
@@ -142,6 +146,47 @@ public final class ProtectedBootstrapArtifactCheck {
         var member = archive.getJarEntry(name + ".class");
         check(member != null, "Required A class remains present: " + name);
         try (var input = archive.getInputStream(member)) { return input.readAllBytes(); }
+    }
+
+    private static void verifySupportAccountLookup(Path a, ClassLoader host) throws Exception {
+        // Find the actual protected private method by its JDK boundary, because
+        // implementation class/member names may be renamed. No credentials are read.
+        List<String[]> matches = new ArrayList<>();
+        try (JarFile archive = new JarFile(a.toFile())) {
+            var entries = archive.entries();
+            while (entries.hasMoreElements()) {
+                String name = entries.nextElement().getName();
+                if (!name.endsWith(".class") || name.startsWith("META-INF/")) continue;
+                String owner = name.substring(0, name.length() - 6);
+                new ClassReader(classBytes(archive, owner)).accept(new ClassVisitor(Opcodes.ASM9) {
+                    @Override public MethodVisitor visitMethod(int access, String member, String descriptor,
+                                                               String signature, String[] exceptions) {
+                        if (!descriptor.equals("(Ljava/nio/file/Path;)Ljava/nio/file/attribute/UserPrincipal;")) return null;
+                        return new MethodVisitor(Opcodes.ASM9) {
+                            private boolean usesAccount;
+                            @Override public void visitMethodInsn(int opcode, String target, String method,
+                                                                  String desc, boolean isInterface) {
+                                if (target.equals("com/sun/security/auth/module/NTSystem")) usesAccount = true;
+                            }
+                            @Override public void visitEnd() {
+                                if (usesAccount) matches.add(new String[] {owner, member});
+                            }
+                        };
+                    }
+                }, ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
+            }
+        }
+        check(matches.size() == 1, "Actual A retains exactly one current-account JDK boundary");
+        String[] match = matches.getFirst();
+        var method = Class.forName(match[0].replace('/', '.'), false, host).getDeclaredMethod(match[1], Path.class);
+        check(Modifier.isStatic(method.getModifiers()), "Protected account lookup remains static");
+        method.setAccessible(true);
+        Path temporary = Files.createTempDirectory("celeste-protected-support-account-");
+        try {
+            Object principal = method.invoke(null, temporary);
+            check(principal instanceof UserPrincipal && principal.equals(Files.getOwner(temporary)),
+                "Actual protected account lookup executes and matches the temporary directory owner");
+        } finally { Files.delete(temporary); }
     }
 
     private static Set<String> methodDeclarations(JarFile archive, String owner) throws Exception {

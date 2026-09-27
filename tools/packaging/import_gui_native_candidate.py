@@ -79,7 +79,7 @@ def source_files(root):
         result.update(p.relative_to(root).as_posix() for p in directory.rglob("*.rs"))
     result.update(("beta-lab/native-launcher/Cargo.toml", "beta-lab/native-launcher/Cargo.lock",
                    "beta-lab/native-launcher/assets/celeste-logo.png",
-                   "tools/packaging/build-windows-native-candidate.ps1", "tools/packaging/windows_release_metadata.py"))
+                   "tools/packaging/build-windows-native-candidate.ps1", "tools/packaging/windows_release_metadata.py", "rust-toolchain.toml"))
     return result
 
 
@@ -139,9 +139,12 @@ def selected_functions(project, map_bytes, input_bytes):
 
 
 def import_candidate(candidate_directory, protected_binary, receipt, compile_evidence, output, *, release_id, root=ROOT,
-                     derived_map=None, map_alias_record=None):
+                     derived_map=None, map_alias_record=None, profile=map_alias.DEFAULT_PROFILE):
     require(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,79}", release_id), "Invalid release identity")
     require((derived_map is None) == (map_alias_record is None), "Derived MAP and its alias record must be supplied together")
+    require(profile in (map_alias.DEFAULT_PROFILE, map_alias.V2_PROFILE), "Unknown MAP selection profile")
+    require(profile == map_alias.DEFAULT_PROFILE or derived_map is not None,
+            "The v2 profile requires its validated derived MAP and alias record")
     root = plain(root)
     candidate_directory, protected_binary, receipt, compile_evidence, output = map(
         plain, (candidate_directory, protected_binary, receipt, compile_evidence, output))
@@ -177,7 +180,7 @@ def import_candidate(candidate_directory, protected_binary, receipt, compile_evi
         selected_map_bytes = read(derived_map, MAX_MAP)
         alias_record_bytes = read(map_alias_record)
         alias_record = map_alias.validate_alias_map(input_path, candidate_directory / "Celeste+.map", derived_map,
-                                                    map_alias_record, candidate_directory / "candidate.json")
+                                                    map_alias_record, candidate_directory / "candidate.json", profile=profile)
         require(alias_record["input_sha256"] == sha(input_bytes)
                 and alias_record["candidate_sha256"] == sha(candidate_bytes)
                 and alias_record["original_map_sha256"] == sha(map_bytes)
@@ -287,11 +290,13 @@ def main(argv=None):
     parser.add_argument("--release-id", required=True)
     parser.add_argument("--derived-map", type=Path)
     parser.add_argument("--map-alias-record", type=Path)
+    parser.add_argument("--profile", choices=(map_alias.DEFAULT_PROFILE, map_alias.V2_PROFILE),
+                        default=map_alias.DEFAULT_PROFILE)
     args = parser.parse_args(argv)
     try:
         result = import_candidate(args.candidate_directory, args.protected_binary, args.receipt,
                                   args.compile_evidence, args.output, release_id=args.release_id,
-                                  derived_map=args.derived_map, map_alias_record=args.map_alias_record)
+                                  derived_map=args.derived_map, map_alias_record=args.map_alias_record, profile=args.profile)
         print(json.dumps({key: result[key] for key in ("status", "product", "release_id", "input_sha256", "protected_sha256", "signed", "published")}, sort_keys=True))
     except (OSError, ValueError, KeyError, TypeError, ET.ParseError, struct.error) as error:
         parser.exit(1, "GUI native import refused: " + str(error) + "\n")

@@ -28,6 +28,12 @@ from .beta_delivery import beta_enabled, beta_runtime_catalog, create_beta_route
 from .api_responses import ApiResponseMiddleware
 from .native_manifest import create_native_manifest_router
 from .token_revocation import require_unrevoked
+from .auth_errors import failure
+from .auth_lifecycle import (record_grant, require_current_grant, require_hwid, complete_hardware_auth,
+                             check_runtime_binding, eligible_rebinding, revoke_device_grants)
+from .artifact_envelope import recipient
+from .transport_policy import create_transport_policy_router
+from .grant_routes import create_grant_router
 from .config import Settings
 from .database import Database
 from .dpop import DPoPVerifier, access_token, confirmation
@@ -113,6 +119,8 @@ class EnrollStartRequest(ReleaseRequest):
     install_signing_key: str = Field(min_length=40, max_length=64)
     install_encryption_key: str = Field(min_length=40, max_length=64)
     hardware: HardwareProfile
+    hwid_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    replace_device_id: str | None = Field(default=None, min_length=32, max_length=48)
 
 
 class AuthStartRequest(ReleaseRequest):
@@ -121,6 +129,7 @@ class AuthStartRequest(ReleaseRequest):
     device_id: str = Field(min_length=32, max_length=48)
     hardware: HardwareProfile
     beta_catalog_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    hwid_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
 
 class CompleteRequest(BaseModel):
@@ -139,6 +148,10 @@ class SessionCheckRequest(ReleaseRequest):
     install_signature: str = Field(min_length=80, max_length=100)
     token_signature: str = Field(min_length=80, max_length=100)
     beta_catalog_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    hardware_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    hwid_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    process_id: int | None = Field(default=None, strict=True, gt=0, lt=2**63)
+    session_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{32}$")
 
     @field_validator("observed_sha256")
     @classmethod
@@ -185,8 +198,7 @@ def _hardware(profile: HardwareProfile) -> tuple[bytes, bytes]:
 
 
 def _message(row) -> bytes:
-    return canonical_json(
-        {
+    claims = {
             "challenge": str(row["challenge_id"]),
             "client_sha256": str(row["client_sha256"]),
             "device": str(row["device_id"] or ""),
@@ -200,7 +212,9 @@ def _message(row) -> bytes:
             "protocol": "cst-auth-1",
             "release": str(row["release_id"]),
         }
-    )
+    if "hwid_sha256" in row.keys() and row["hwid_sha256"]:
+        claims.update(protocol="cst-auth-2", hwid_sha256=row["hwid_sha256"])
+    return canonical_json(claims)
 
 
 def _session_message(body: SessionCheckRequest) -> bytes:
@@ -212,6 +226,9 @@ def _session_message(body: SessionCheckRequest) -> bytes:
     )
     if body.beta_catalog_sha256 is not None:
         message += f"\n{body.release_id}\n{body.client_version}\n{body.beta_catalog_sha256}"
+    if body.hardware_sha256 is not None:
+        message += (f"\nceleste-session-v2\n{body.hardware_sha256}\n{body.hwid_sha256 or ''}"
+                    f"\n{body.process_id}\n{body.session_id}")
     return message.encode("utf-8")
 
 
@@ -344,6 +361,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def require_runtime_enabled() -> None:
         if settings.runtime_kill_switch:
             raise HTTPException(403, "runtime temporarily disabled")
+
+    def issue_access(claims):
+        if claims["product"] == PLUS and settings.plus_auth_protocol == 2:
+            claims["auth_protocol"] = 2
+        token = signer.sign(claims)
+        with database.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            device = connection.execute("""SELECT d.status,l.status AS license_status,l.expires_at
+                FROM devices d JOIN licenses l ON l.uid=d.license_uid
+                WHERE d.device_id=? AND d.license_uid=?""", (claims["device"], int(claims["sub"]))).fetchone()
+            now = int(time.time())
+            if (device is None or device["status"] != "active" or device["license_status"] != "active"
+                    or device["expires_at"] is not None and device["expires_at"] <= now or claims["exp"] <= now):
+                raise failure("subscription_inactive", "This license is not active")
+            require_entitlement(connection, int(claims["sub"]), claims["product"])
+            conflict = connection.execute("SELECT conflicted_at FROM runtime_bindings WHERE device_id=?",
+                                          (claims["device"],)).fetchone()
+            if claims["product"] == PLUS and conflict is not None and conflict["conflicted_at"] is not None:
+                raise failure("concurrent_session_rejected", "Verify this installation again after the session conflict", 409)
+            record_grant(connection, token, claims)
+        return token
 
     def runtime_release(body: AuthStartRequest | SessionCheckRequest) -> dict | None:
         """Each runtime identity requires a live device and its matching product entitlement."""
@@ -532,6 +570,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "signing_key": signer.public_key_b64(),
         }
 
+    @app.post("/v1/activate")
     @app.post("/v1/enroll/start")
     def enroll_start(body: EnrollStartRequest, request: Request):
         apply_limit(request, "enroll", 5, 300)
@@ -568,8 +607,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "SELECT COUNT(*) AS count FROM devices WHERE license_uid=? AND status='active'",
                 (license_row["uid"],),
             ).fetchone()["count"]
+            rebind = None
             if int(device_count) >= int(license_row["max_devices"]):
-                raise HTTPException(409, "device limit reached")
+                if body.product != PLUS or settings.plus_auth_protocol != 2:
+                    raise HTTPException(409, "device limit reached")
+                rebind, _ = eligible_rebinding(connection, int(license_row["uid"]), body.replace_device_id, now)
             challenge_id = secrets.token_urlsafe(20)
             connection.execute(
                 """
@@ -599,15 +641,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 ),
             )
             row = connection.execute("SELECT * FROM challenges WHERE challenge_id=?", (challenge_id,)).fetchone()
+            if rebind is not None:
+                connection.execute("UPDATE challenges SET rebind_device_id=? WHERE challenge_id=?", (rebind["device_id"], challenge_id))
+            if body.product == PLUS and body.hwid_sha256:
+                connection.execute("UPDATE challenges SET hwid_sha256=? WHERE challenge_id=?", (body.hwid_sha256, challenge_id))
+                row = connection.execute("SELECT * FROM challenges WHERE challenge_id=?", (challenge_id,)).fetchone()
             audit(connection, "enroll_challenge", int(license_row["uid"]), challenge_id)
         return {"challenge_id": challenge_id, "message": b64e(_message(row)), "expires_at": row["expires_at"]}
 
+    @app.post("/v1/activate/complete")
     @app.post("/v1/enroll/complete")
     def enroll_complete(body: CompleteRequest, request: Request):
         apply_limit(request, "enroll-complete", 8, 300)
         now = int(time.time())
         with database.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
+            now = int(time.time())
             row = connection.execute(
                 """
                 SELECT c.*,l.status AS license_status,l.expires_at AS license_expires,
@@ -636,13 +685,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                                            (row["license_uid"], row["install_signing_key"])).fetchone()
             if duplicate is not None:
                 raise HTTPException(409, "installation already enrolled")
-            if count >= int(row["max_devices"]):
+            rebinding = None
+            if row["rebind_device_id"]:
+                rebinding = eligible_rebinding(connection, int(row["license_uid"]), row["rebind_device_id"], int(time.time()))
+            if count >= int(row["max_devices"]) and rebinding is None:
                 raise HTTPException(409, "device limit reached")
             message = _message(row)
             if not verify_ed25519(bytes(row["install_signing_key"]), message, body.install_signature):
                 audit(connection, "enroll_bad_signature", int(row["license_uid"]), body.challenge_id)
                 raise HTTPException(401, "challenge rejected")
             dpop.require(connection, request, bytes(row["install_signing_key"]))
+            if rebinding is not None:
+                previous, _ = rebinding
+                connection.execute("UPDATE devices SET status='revoked' WHERE device_id=?", (previous["device_id"],))
+                revoke_device_grants(connection, previous["device_id"], "device rebound", int(time.time()))
             token_seed, envelope = issue_token_seed(
                 bytes(row["install_encryption_key"]),
                 bytes(row["nonce"]),
@@ -653,6 +709,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 serialization.PublicFormat.Raw,
             )
             device_id = str(uuid.uuid4())
+            if rebinding is not None:
+                previous, reason = rebinding
+                connection.execute("INSERT INTO device_rebindings(license_uid,previous_device_id,next_device_id,occurred_at,reason) VALUES(?,?,?,?,?)",
+                                   (row["license_uid"], previous["device_id"], device_id, now, reason))
             if row["activated_at"] is None:
                 duration_seconds = int(row["duration_seconds"]) if row["duration_seconds"] is not None else None
                 connection.execute(
@@ -724,17 +784,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 """,
                 (body.device_id,),
             ).fetchone()
-            if (
-                row is None
-                or row["status"] != "active"
-                or row["license_status"] != "active"
-                or (row["license_expires"] is not None and int(row["license_expires"]) <= now)
-                or not hmac.compare_digest(bytes(row["hardware_core_hash"]), hardware_core)
-                or not hmac.compare_digest(bytes(row["monitor_hash"]), monitor_hash)
-            ):
+            if row is not None:
+                if row["license_status"] != "active" or row["license_expires"] is not None and int(row["license_expires"]) <= now:
+                    raise failure("subscription_inactive", "This license is not active")
+                if (row["status"] != "active"
+                        or not hmac.compare_digest(bytes(row["hardware_core_hash"]), hardware_core)
+                        or not hmac.compare_digest(bytes(row["monitor_hash"]), monitor_hash)):
+                    raise failure("device_mismatch", "This installation belongs to a different device")
+            if row is None:
                 raise HTTPException(401, "authentication denied")
             product = CELESTE if runtime is None else PLUS
             require_entitlement(connection, int(row["license_uid"]), product)
+            if product == PLUS:
+                require_hwid(row, body.hwid_sha256)
             challenge_id = secrets.token_urlsafe(20)
             connection.execute(
                 """
@@ -763,6 +825,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 ),
             )
             challenge = connection.execute("SELECT * FROM challenges WHERE challenge_id=?", (challenge_id,)).fetchone()
+            if product == PLUS and body.hwid_sha256:
+                connection.execute("UPDATE challenges SET hwid_sha256=? WHERE challenge_id=?", (body.hwid_sha256, challenge_id))
+                challenge = connection.execute("SELECT * FROM challenges WHERE challenge_id=?", (challenge_id,)).fetchone()
             audit(connection, "auth_challenge", int(row["license_uid"]), challenge_id)
         return {
             "challenge_id": challenge_id,
@@ -780,6 +845,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         now = int(time.time())
         with database.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
+            now = int(time.time())
             row = connection.execute(
                 """
                 SELECT c.*, d.token_signing_key, d.status AS device_status,
@@ -833,6 +899,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 audit(connection, "auth_bad_proof", int(row["license_uid"]), body.challenge_id)
                 raise HTTPException(401, "authentication denied")
             dpop.require(connection, request, bytes(row["install_signing_key"]))
+            if row["product"] == PLUS:
+                complete_hardware_auth(connection, row, int(time.time()))
             connection.execute("UPDATE challenges SET consumed_at=? WHERE challenge_id=?", (now, body.challenge_id))
             connection.execute(
                 """
@@ -860,7 +928,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 json.dumps({"uuid": row["game_uuid"], "username": row["game_name"]}, separators=(",", ":")),
             )
         if runtime is not None:
-            grant = signer.sign({
+            grant = issue_access({
                 "aud": "celeste-client", "product": PLUS, "client_sha256": runtime["runtime_sha256"],
                 "cnf": confirmation(bytes(row["install_signing_key"])),
                 "device": row["device_id"], "exp": now + settings.grant_ttl_seconds, "iat": now,
@@ -871,7 +939,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return {"grant": grant, "uid": int(row["license_uid"]), "expires_at": now + settings.grant_ttl_seconds,
                     "runtime": {"release": runtime["release_id"], "sha256": runtime["runtime_sha256"],
                                 "client_version": runtime["client_version"], "catalog_sha256": runtime["catalog_sha256"]}}
-        grant = signer.sign(
+        grant = issue_access(
             {
                 "aud": "celeste-client",
                 "cnf": confirmation(bytes(row["install_signing_key"])),
@@ -934,14 +1002,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 """,
                 (body.device_id,),
             ).fetchone()
-            if (
-                row is None
-                or row["status"] != "active"
-                or row["license_status"] != "active"
-                or (row["license_expires"] is not None and int(row["license_expires"]) <= now)
-                or not hmac.compare_digest(bytes(row["hardware_core_hash"]), hardware_core)
-                or not hmac.compare_digest(bytes(row["monitor_hash"]), monitor_hash)
-            ):
+            if row is not None:
+                if row["license_status"] != "active" or row["license_expires"] is not None and int(row["license_expires"]) <= now:
+                    raise failure("subscription_inactive", "This license is not active")
+                if (row["status"] != "active"
+                        or not hmac.compare_digest(bytes(row["hardware_core_hash"]), hardware_core)
+                        or not hmac.compare_digest(bytes(row["monitor_hash"]), monitor_hash)):
+                    raise failure("device_mismatch", "This installation belongs to a different device")
+            if row is None:
                 raise HTTPException(401, f"{label} authentication denied")
             if scope == "installer" and body.license_key is not None:
                 try:
@@ -951,6 +1019,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 if not hmac.compare_digest(bytes(row["license_key_hash"]), supplied_hash):
                     raise HTTPException(401, "installer authentication denied")
             require_entitlement(connection, int(row["license_uid"]), product)
+            if product == PLUS:
+                require_hwid(row, body.hwid_sha256)
             challenge_id = secrets.token_urlsafe(20)
             connection.execute(
                 """
@@ -979,6 +1049,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 ),
             )
             challenge = connection.execute("SELECT * FROM challenges WHERE challenge_id=?", (challenge_id,)).fetchone()
+            if product == PLUS and body.hwid_sha256:
+                connection.execute("UPDATE challenges SET hwid_sha256=? WHERE challenge_id=?", (body.hwid_sha256, challenge_id))
+                challenge = connection.execute("SELECT * FROM challenges WHERE challenge_id=?", (challenge_id,)).fetchone()
             audit(connection, f"{label}_challenge", int(row["license_uid"]), challenge_id)
         return {
             "challenge_id": challenge_id,
@@ -993,6 +1066,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         now = int(time.time())
         with database.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
+            now = int(time.time())
             row = connection.execute(
                 """
                 SELECT c.*,d.token_signing_key,d.status AS device_status,d.license_uid AS device_license_uid,
@@ -1026,6 +1100,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 audit(connection, f"{label}_bad_proof", int(row["license_uid"]), body.challenge_id)
                 raise HTTPException(401, f"{label} authentication denied")
             dpop.require(connection, request, bytes(row["install_signing_key"]))
+            if row["product"] == PLUS:
+                complete_hardware_auth(connection, row, int(time.time()))
             connection.execute("UPDATE challenges SET consumed_at=? WHERE challenge_id=?", (now, body.challenge_id))
             connection.execute(
                 """
@@ -1046,7 +1122,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return row, now
 
     def scoped_grant(row, now: int, audience: str, client_sha256: str | None = None, **claims):
-        return signer.sign(
+        return issue_access(
             {
                 "aud": audience,
                 "cnf": confirmation(bytes(row["install_signing_key"])),
@@ -1228,18 +1304,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             },
         }
 
+    @app.post("/v1/heartbeat")
     @app.post("/v1/session/check")
     def session_check(body: SessionCheckRequest, request: Request):
         apply_limit(request, "session-check", 120, 60)
         runtime = runtime_release(body)
+        v2 = runtime is not None and settings.plus_auth_protocol == 2
+        if v2 and (body.hardware_sha256 is None or body.process_id is None or body.session_id is None):
+            raise failure("reactivation_required", "Update this client to verify its runtime identity")
         expected_digest = settings.release_sha256 if runtime is None else runtime["runtime_sha256"]
         now = int(time.time())
         if abs(now - body.timestamp) > 60:
             raise HTTPException(401, "session verification denied")
         message = _session_message(body)
         response_token = None
+        binding_denial = None
         with database.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
+            now = int(time.time())
+            if abs(now - body.timestamp) > 60:
+                raise HTTPException(401, "session verification denied")
             row = connection.execute(
                 """
                 SELECT d.*,l.status AS license_status,l.expires_at AS license_expires
@@ -1301,7 +1385,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         and row["license_status"] == "active"
                         and (row["license_expires"] is None or int(row["license_expires"]) > now)
                     )
-                    if tampered:
+                    if not replayed and license_active and v2:
+                        binding_denial = check_runtime_binding(connection, row, body, int(time.time()))
+                    if binding_denial is not None:
+                        pass
+                    elif tampered:
                         revoke_for_tamper(
                             connection,
                             int(row["license_uid"]),
@@ -1332,6 +1420,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                                 "sub": str(row["license_uid"]),
                                 **({"release": runtime["release_id"], "client_version": runtime["client_version"],
                                     "beta_catalog_sha256": runtime["catalog_sha256"]} if runtime is not None else {}),
+                                **({"hardware_sha256": body.hardware_sha256, "process_id": body.process_id,
+                                    "session_id": body.session_id, **({"hwid_sha256": body.hwid_sha256} if body.hwid_sha256 else {})}
+                                   if v2 else {}),
                             }
                         )
                     elif not replayed:
@@ -1344,6 +1435,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                             "A revoked or expired installation attempted to continue a session",
                             request,
                         )
+        if binding_denial is not None:
+            raise binding_denial
         if response_token is None:
             raise HTTPException(401, "session verification denied")
         return {"status": "active", "heartbeat_after": 30, "session_token": response_token}
@@ -1539,7 +1632,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ):
                 raise HTTPException(401, "invalid grant")
             require_unrevoked(connection, claims)
-            dpop.require(connection, request, bytes(row["install_signing_key"]), token=access_token(request), claims=claims)
+            delivery = recipient(request) if (product == PLUS and settings.plus_auth_protocol == 2
+                and endpoint.startswith("/v1/beta/artifacts/")) else None
+            dpop.require(connection, request, bytes(row["install_signing_key"]), token=access_token(request), claims=claims,
+                         delivery=delivery)
             if endpoint.startswith(("/v1/bootstrap/", "/v1/loader/", "/v1/blob/", "/v1/beta/artifacts/")):
                 token_bucket = keyed_digest(settings.key_pepper, "artifact-token", claims["jti"])
                 ip_bucket = keyed_digest(settings.key_pepper, "artifact-ip", client_ip(request))
@@ -2093,4 +2189,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(create_beta_router(settings, database, signer, require_active_artifact_device, apply_limit))
     app.include_router(create_native_manifest_router(settings, database, signer, apply_limit))
+    app.include_router(create_transport_policy_router(settings, signer, apply_limit, dpop.origin))
+    app.include_router(create_grant_router(settings, database, signer, dpop, apply_limit))
     return app

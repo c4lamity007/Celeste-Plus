@@ -7,6 +7,7 @@ import os
 import uuid
 
 from starlette.responses import JSONResponse
+from .auth_errors import CODES
 
 LOGGER = logging.getLogger("celeste.requests")
 ERROR_CODES = {400: "invalid_request", 401: "unauthorized", 403: "forbidden", 404: "not_found",
@@ -34,6 +35,11 @@ class ApiResponseMiddleware:
             message = detail if isinstance(detail, str) else "Request validation failed"
             code = "token_revoked" if detail == "token revoked" else ERROR_CODES.get(status, "request_failed")
             retry = 300 if status in (401, 403) else 0
+            if (isinstance(detail, dict) and set(detail) == {"error_code", "message", "retry_after_seconds"}
+                    and detail["error_code"] in CODES and isinstance(detail["message"], str)
+                    and type(detail["retry_after_seconds"]) is int and detail["retry_after_seconds"] >= 0):
+                code, message, retry = detail["error_code"], detail["message"], detail["retry_after_seconds"]
+                detail = message
             for key, value in headers:
                 if key.lower() == b"retry-after":
                     try:

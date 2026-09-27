@@ -3,7 +3,8 @@ param(
     [Parameter(Mandatory=$true)][string]$Bundle,
     [Parameter(Mandatory=$true)][string]$BundleSha256,
     [Parameter(Mandatory=$true)][string]$ReleaseId,
-    [Parameter(Mandatory=$true)][string]$OutputDirectory
+    [Parameter(Mandatory=$true)][string]$OutputDirectory,
+    [ValidateSet('Pfx','Store')][string]$SigningProvider = 'Pfx'
 )
 $ErrorActionPreference = 'Stop'
 if (-not $IsWindows) { throw 'Native production signing requires Windows PowerShell 7.' }
@@ -26,7 +27,7 @@ if ($Mode -eq 'Prepare') {
         $taskDirectory = Join-Path $taskOutput $taskProduct
         $taskCandidate = Join-Path $taskDirectory 'candidate'
         New-Item -ItemType Directory -Path $taskDirectory | Out-Null
-        & (Join-Path $PSScriptRoot 'build-windows-native-candidate.ps1') -Product $taskProduct -OutputDirectory $taskCandidate *> (Join-Path $taskDirectory 'candidate.log')
+        & (Join-Path $PSScriptRoot 'build-windows-native-candidate.ps1') -Product $taskProduct -OutputDirectory $taskCandidate -MapForProtection *> (Join-Path $taskDirectory 'candidate.log')
         $taskInput = Join-Path $taskCandidate $taskName
         $taskFinal = Join-Path $taskDirectory $taskName
         $taskReceipt = Join-Path $taskDirectory 'protection-receipt.json'
@@ -43,7 +44,9 @@ if ($Mode -eq 'Prepare') {
 }
 $taskPrepared = @(Get-Content -LiteralPath (Join-Path $taskOutput 'protected-candidates.json') -Raw | ConvertFrom-Json)
 if ($taskPrepared.Count -ne 1) { throw 'The Celeste+ native candidate must be prepared before signing.' }
-foreach ($taskSecret in @('CERT_PFX_BASE64','CERT_PASSWORD','CELESTE_SIGNING_CERT_THUMBPRINT')) {
+$taskRequired = @('CELESTE_SIGNING_CERT_THUMBPRINT')
+if ($SigningProvider -eq 'Pfx') { $taskRequired += @('CERT_PFX_BASE64','CERT_PASSWORD') }
+foreach ($taskSecret in $taskRequired) {
     if (-not [Environment]::GetEnvironmentVariable($taskSecret)) { throw "Missing required signing material: $taskSecret. Production signing has no unsigned fallback." }
 }
 $taskThumbprint = $env:CELESTE_SIGNING_CERT_THUMBPRINT.ToUpperInvariant()
@@ -51,23 +54,28 @@ if ($taskThumbprint -notmatch '^[A-F0-9]{40}$') { throw 'Pin the reviewed signin
 $taskSignTool = @(Get-ChildItem -Path "${env:ProgramFiles(x86)}/Windows Kits/10/bin/*/x64/signtool.exe" -File | Sort-Object FullName -Descending)[0].FullName
 if (-not $taskSignTool) { throw 'Install the Windows SDK signing tools on the runner.' }
 $taskCertificatePath = "Cert:\CurrentUser\My\$taskThumbprint"
-if (Test-Path -LiteralPath $taskCertificatePath) { throw 'Signing expects a clean ephemeral certificate store.' }
+if ($SigningProvider -eq 'Pfx' -and (Test-Path -LiteralPath $taskCertificatePath)) { throw 'PFX signing expects a clean ephemeral certificate store.' }
 $taskPfx = Join-Path $taskOutput 'private-signing.pfx'
 $taskExistingCertificates = @(Get-ChildItem -LiteralPath 'Cert:\CurrentUser\My' | ForEach-Object { $_.Thumbprint })
 $taskCertificates = @()
 Push-Location $taskRoot
 try {
-    [IO.File]::WriteAllBytes($taskPfx, [Convert]::FromBase64String($env:CERT_PFX_BASE64))
-    $taskPassword = ConvertTo-SecureString -String $env:CERT_PASSWORD -AsPlainText -Force
-    # Non-exportable import; neither the PFX password nor private key is passed
-    # in a command line. This runner must be ephemeral and environment protected.
-    $taskCertificates = @(Import-PfxCertificate -FilePath $taskPfx -CertStoreLocation 'Cert:\CurrentUser\My' -Password $taskPassword)
-    $taskCertificate = @($taskCertificates | Where-Object { $_.Thumbprint -eq $taskThumbprint -and $_.HasPrivateKey })
-    if ($taskCertificate.Count -ne 1 -or $taskCertificate[0].NotAfter -lt (Get-Date) -or $taskCertificate[0].NotBefore -gt (Get-Date)) { throw 'The PFX does not contain the pinned current signing identity.' }
-    Remove-Item -LiteralPath $taskPfx -Force
+    if ($SigningProvider -eq 'Pfx') {
+        [IO.File]::WriteAllBytes($taskPfx, [Convert]::FromBase64String($env:CERT_PFX_BASE64))
+        $taskPassword = ConvertTo-SecureString -String $env:CERT_PASSWORD -AsPlainText -Force
+        # Non-exportable import; no password/private key in command arguments.
+        $taskCertificates = @(Import-PfxCertificate -FilePath $taskPfx -CertStoreLocation 'Cert:\CurrentUser\My' -Password $taskPassword)
+        $taskCertificate = @($taskCertificates | Where-Object { $_.Thumbprint -eq $taskThumbprint -and $_.HasPrivateKey })
+        Remove-Item -LiteralPath $taskPfx -Force
+        $taskPassword.Dispose()
+    } else {
+        # An explicitly provisioned CSP/KSP identity may keep its key on hardware.
+        # This branch neither exports nor deletes that pre-existing identity.
+        $taskCertificate = @(Get-Item -LiteralPath $taskCertificatePath -ErrorAction Stop | Where-Object { $_.HasPrivateKey })
+    }
+    if ($taskCertificate.Count -ne 1 -or $taskCertificate[0].NotAfter -lt (Get-Date) -or $taskCertificate[0].NotBefore -gt (Get-Date)) { throw 'No pinned current Windows signing identity with a private key.' }
     $env:CERT_PFX_BASE64 = $null
     $env:CERT_PASSWORD = $null
-    $taskPassword.Dispose()
     $taskArtifacts = @()
     foreach ($taskProduct in @('celeste_plus')) {
         $taskName = 'Celeste+.exe'

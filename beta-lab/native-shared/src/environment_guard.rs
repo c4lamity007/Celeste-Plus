@@ -92,6 +92,30 @@ fn meaningful(value: &str) -> bool {
         )
 }
 
+#[cfg(any(windows, test))]
+fn guest_evidence(
+    hypervisor: bool,
+    vendor: &str,
+    exclusive_guest_driver: bool,
+    shared_guest_hint: bool,
+) -> bool {
+    let vendor = vendor.trim().to_ascii_lowercase();
+    // Microsoft's hypervisor is also present on physical Windows VBS hosts.
+    // Host VM network adapters and shared vmci drivers do not establish a guest.
+    exclusive_guest_driver
+        || (hypervisor
+            && ([
+                "vmwarevmware",
+                "vboxvboxvbox",
+                "kvmkvmkvm",
+                "xenvmmxenvmm",
+                "bhyve bhyve",
+                "prl hyperv",
+            ]
+            .contains(&vendor.as_str())
+                || (vendor != "microsoft hv" && shared_guest_hint)))
+}
+
 /// No network, persistence, credential access, or revocation occurs here.
 pub(crate) fn require_allowed() -> Result<(), Denial> {
     decide(&probe()?)
@@ -149,11 +173,100 @@ fn probe() -> Result<Facts, Denial> {
     };
     let vendor = system.manufacturer.as_deref().unwrap_or("");
     let model = system.model.as_deref().unwrap_or("");
+    let (hypervisor, hypervisor_vendor) = windows_hypervisor();
+    let services = RegKey::predef(HKEY_LOCAL_MACHINE)
+        .open_subkey_with_flags(
+            obfstr::obfstr!("SYSTEM\\CurrentControlSet\\Services"),
+            KEY_READ | KEY_WOW64_64KEY,
+        )
+        .map_err(|_| Denial::Unavailable)?;
+    let present = |name: &str| -> Result<bool, Denial> {
+        match services.open_subkey_with_flags(name, KEY_READ | KEY_WOW64_64KEY) {
+            Ok(_) => Ok(true),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+            Err(_) => Err(Denial::Unavailable),
+        }
+    };
+    let exclusive = present(obfstr::obfstr!("VBoxGuest"))?
+        || present(obfstr::obfstr!("VBoxMouse"))?
+        || present(obfstr::obfstr!("prl_tg"))?;
+    let mut shared = present(obfstr::obfstr!("vmci"))? || present(obfstr::obfstr!("vmxnet"))?;
+    let mut system_directory = [0u16; 32768];
+    let system_length = unsafe {
+        winapi::um::sysinfoapi::GetSystemDirectoryW(
+            system_directory.as_mut_ptr(),
+            system_directory.len() as u32,
+        )
+    } as usize;
+    if system_length == 0 || system_length >= system_directory.len() {
+        return Err(Denial::Unavailable);
+    }
+    let system_directory = std::path::PathBuf::from(
+        String::from_utf16(&system_directory[..system_length]).map_err(|_| Denial::Unavailable)?,
+    );
+    let exclusive = exclusive
+        || system_directory
+            .join(obfstr::obfstr!("drivers\\VBoxMouse.sys"))
+            .is_file();
+    shared |= system_directory
+        .join(obfstr::obfstr!("vmtray.dll"))
+        .is_file();
+    #[derive(Deserialize)]
+    #[serde(rename_all = "PascalCase")]
+    struct Adapter {
+        #[serde(rename = "MACAddress")]
+        mac_address: Option<String>,
+    }
+    let adapters: Vec<Adapter> = wmi
+        .raw_query(obfstr::obfstr!(
+            "SELECT MACAddress FROM Win32_NetworkAdapter WHERE MACAddress IS NOT NULL"
+        ))
+        .map_err(|_| Denial::Unavailable)?;
+    shared |= adapters
+        .iter()
+        .filter_map(|adapter| adapter.mac_address.as_deref())
+        .any(|address| {
+            let prefix = address.to_ascii_lowercase().replace('-', ":");
+            [
+                "08:00:27:",
+                "00:05:69:",
+                "00:0c:29:",
+                "00:50:56:",
+                "00:1c:42:",
+            ]
+            .iter()
+            .any(|value| prefix.starts_with(value))
+        });
     Ok(Facts {
         platform: vec![vendor.to_owned(), model.to_owned()],
+        guest: guest_evidence(hypervisor, &hypervisor_vendor, exclusive, shared),
         complete: meaningful(vendor) && meaningful(model),
         ..Facts::default()
     })
+}
+
+#[cfg(all(windows, target_arch = "x86_64"))]
+fn windows_hypervisor() -> (bool, String) {
+    let flags = std::arch::x86_64::__cpuid(1);
+    if flags.ecx & (1 << 31) == 0 {
+        return (false, String::new());
+    }
+    let leaf = std::arch::x86_64::__cpuid(0x40000000);
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(&leaf.ebx.to_le_bytes());
+    bytes.extend_from_slice(&leaf.ecx.to_le_bytes());
+    bytes.extend_from_slice(&leaf.edx.to_le_bytes());
+    (
+        true,
+        String::from_utf8_lossy(&bytes)
+            .trim_end_matches('\0')
+            .to_owned(),
+    )
+}
+
+#[cfg(all(windows, not(target_arch = "x86_64")))]
+fn windows_hypervisor() -> (bool, String) {
+    (false, String::new())
 }
 
 #[cfg(windows)]
@@ -393,6 +506,16 @@ fn probe() -> Result<Facts, Denial> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn guest_signals_preserve_physical_vbs_and_host_vm_software() {
+        assert!(!guest_evidence(true, "Microsoft Hv", false, true));
+        assert!(!guest_evidence(false, "", false, true));
+        assert!(!guest_evidence(true, "Microsoft Hv", false, false));
+        assert!(guest_evidence(false, "", true, false));
+        assert!(guest_evidence(true, "VMwareVMware", false, false));
+        assert!(guest_evidence(true, "unknown", false, true));
+    }
 
     #[test]
     fn recognized_guest_platforms_are_denied() {

@@ -173,6 +173,8 @@ class PayloadPreparationCheck(unittest.TestCase):
             "dev/c4lam/celeste/mixin/module/NestedFixtureMixin.class": b"unchanged nested startup mixin",
             "dev/c4lam/celeste/auth/InstallCredential.class": b"unchanged reflected credential",
             "dev/c4lam/celeste/auth/HardwareFingerprint$ComputerSystemProperty.class": b"unchanged WMI enum",
+            "dev/c4lam/celeste/auth/HardwareIdentityV2$Processor.class": b"unchanged HWID WMI enum",
+            "dev/c4lam/celeste/auth/HardwareIdentityV2$SystemApi.class": b"unchanged HWID JNA interface",
             "dev/c4lam/celeste/render/font/FontData.class": b"unchanged reflected font root",
             "dev/c4lam/celeste/render/font/FontData$GlyphData.class": b"unchanged reflected font model",
         }
@@ -182,6 +184,7 @@ class PayloadPreparationCheck(unittest.TestCase):
             "dev/c4lam/celeste/module/Body.class": b"original application body",
             "dev/c4lam/celeste/auth/HardwareFingerprint.class": b"ordinary fingerprint implementation",
             "dev/c4lam/celeste/auth/HardwareFingerprint$State.class": b"ordinary non-property nested class",
+            "dev/c4lam/celeste/auth/HardwareIdentityV2.class": b"ordinary HWID implementation",
             "dev/c4lam/celeste/render/font/FontDataExtra.class": b"ordinary class sharing model name prefix",
         }
         self.entries = self.stable | self.thin

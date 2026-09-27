@@ -76,7 +76,8 @@ class DPoPVerifier:
             hostname = "[" + hostname + "]"
         self.origin = "https://" + hostname + (f":{port}" if port not in (None, 443) else "")
 
-    def require(self, connection, request: Request, public_key: bytes, *, token: str | None = None, claims=None) -> None:
+    def require(self, connection, request: Request, public_key: bytes, *, token: str | None = None, claims=None,
+                delivery: tuple[str, str] | None = None, hardware: str | None = None) -> None:
         """Verify and atomically consume jti in the caller's SQLite transaction.
 
         A successful authorization must commit this insertion before serving bytes.
@@ -111,6 +112,10 @@ class DPoPVerifier:
                     or payload.get("htu") != self.origin + raw_path):
                 raise ValueError("invalid target or freshness")
             thumbprint = key_thumbprint(public_key)
+            if delivery is not None and (payload.get("cek") != delivery[0] or payload.get("cnonce") != delivery[1]):
+                raise ValueError("Unbound delivery recipient")
+            if hardware is not None and payload.get("hwid") != hardware:
+                raise ValueError("Unbound hardware identity")
             if token is None:
                 if "ath" in payload:
                     raise ValueError("unexpected access token hash")

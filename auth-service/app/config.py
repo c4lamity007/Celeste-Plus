@@ -62,6 +62,8 @@ class Settings:
     public_origin: str = ""
     native_release_public_key: bytes | None = None
     runtime_kill_switch: bool = False
+    plus_auth_protocol: int = 2
+    tls_leaf_sha256: tuple[str, ...] = ()
 
     def accepts_installer_identity(self, release_id: object, digest: object) -> bool:
         if not isinstance(release_id, str) or not isinstance(digest, str):
@@ -123,6 +125,13 @@ class Settings:
         ):
             if len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
                 raise RuntimeError(f"{name} must be a lowercase SHA-256 hex digest")
+        protocol = os.getenv("CELESTE_PLUS_AUTH_PROTOCOL", "2").strip()
+        if protocol not in {"1", "2"}:
+            raise RuntimeError("CELESTE_PLUS_AUTH_PROTOCOL must be 1 or 2")
+        pins = tuple(value.strip() for value in os.getenv("CELESTE_TLS_LEAF_SHA256", "").split(",") if value.strip())
+        if (len(pins) > 4 or len(set(pins)) != len(pins)
+                or any(len(pin) != 64 or any(c not in "0123456789abcdef" for c in pin) for pin in pins)):
+            raise RuntimeError("CELESTE_TLS_LEAF_SHA256 must contain one to four unique lowercase SHA-256 hashes")
         return cls(
             database_path=os.getenv("CELESTE_DATABASE_PATH", "/data/auth.sqlite3"),
             signing_private_key=_decode_32("CELESTE_SIGNING_PRIVATE_KEY"),
@@ -157,6 +166,8 @@ class Settings:
             loader_four_filename=os.getenv("CELESTE_LOADER_FOUR_FILENAME", "stage-four.bin"),
             plus_enabled=plus_enabled in {"true", "1"},
             runtime_kill_switch=runtime_kill_switch in {"true", "1"},
+            plus_auth_protocol=int(protocol),
+            tls_leaf_sha256=pins,
             beta_release_dir=os.getenv("CELESTE_BETA_RELEASE_DIR", "").strip(),
             public_origin=os.getenv("CELESTE_PUBLIC_ORIGIN", "").strip(),
             native_release_public_key=(

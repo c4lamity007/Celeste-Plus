@@ -3,12 +3,11 @@
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use ed25519_dalek::{Signature, VerifyingKey};
 use rand::{RngCore, rngs::OsRng};
-use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::{
     fmt,
     io::Read,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 const MAX_RESPONSE: usize = 16_384;
@@ -30,20 +29,6 @@ impl fmt::Display for IntegrityError {
 impl std::error::Error for IntegrityError {}
 type Result<T> = std::result::Result<T, IntegrityError>;
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Envelope {
-    manifest: String,
-}
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Header {
-    alg: String,
-    kid: String,
-    typ: String,
-}
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct Claims {
     aud: String,
     product: String,
@@ -129,24 +114,86 @@ fn verify(
     if body.len() > MAX_RESPONSE || decode(nonce)?.len() != 24 || !hex_digest(digest) {
         return Err(IntegrityError::Rejected);
     }
-    let envelope: Envelope = serde_json::from_slice(body).map_err(|_| IntegrityError::Rejected)?;
-    let parts: Vec<_> = envelope.manifest.split('.').collect();
+    let envelope = crate::delivery::object(body).map_err(|_| IntegrityError::Rejected)?;
+    crate::delivery::exact(&envelope, &[obfstr::obfstr!("manifest")])
+        .map_err(|_| IntegrityError::Rejected)?;
+    let manifest = crate::delivery::text(&envelope, obfstr::obfstr!("manifest"))
+        .map_err(|_| IntegrityError::Rejected)?;
+    let parts: Vec<_> = manifest.split('.').collect();
     if parts.len() != 3 || parts[0].len() > 512 || parts[1].len() > 8192 {
         return Err(IntegrityError::Rejected);
     }
     let signature =
         Signature::from_slice(&decode(parts[2])?).map_err(|_| IntegrityError::Rejected)?;
     let signed_len = parts[0].len() + 1 + parts[1].len();
-    key.verify_strict(&envelope.manifest.as_bytes()[..signed_len], &signature)
+    key.verify_strict(&manifest.as_bytes()[..signed_len], &signature)
         .map_err(|_| IntegrityError::Rejected)?;
-    let header: Header =
-        serde_json::from_slice(&decode(parts[0])?).map_err(|_| IntegrityError::Rejected)?;
-    if header.alg != "EdDSA" || header.typ != "CST" || header.kid != "celeste-release-1" {
+    let header =
+        crate::delivery::object(&decode(parts[0])?).map_err(|_| IntegrityError::Rejected)?;
+    crate::delivery::exact(
+        &header,
+        &[
+            obfstr::obfstr!("alg"),
+            obfstr::obfstr!("kid"),
+            obfstr::obfstr!("typ"),
+        ],
+    )
+    .map_err(|_| IntegrityError::Rejected)?;
+    let field =
+        |name: &str| crate::delivery::text(&header, name).map_err(|_| IntegrityError::Rejected);
+    if field(obfstr::obfstr!("alg"))? != obfstr::obfstr!("EdDSA")
+        || field(obfstr::obfstr!("typ"))? != obfstr::obfstr!("CST")
+        || field(obfstr::obfstr!("kid"))? != obfstr::obfstr!("celeste-release-1")
+    {
         return Err(IntegrityError::Rejected);
     }
-    let claims: Claims =
-        serde_json::from_slice(&decode(parts[1])?).map_err(|_| IntegrityError::Rejected)?;
-    if claims.aud != "celeste-native-manifest"
+    let object =
+        crate::delivery::object(&decode(parts[1])?).map_err(|_| IntegrityError::Rejected)?;
+    crate::delivery::exact(
+        &object,
+        &[
+            obfstr::obfstr!("aud"),
+            obfstr::obfstr!("product"),
+            obfstr::obfstr!("platform"),
+            obfstr::obfstr!("request_nonce"),
+            obfstr::obfstr!("iat"),
+            obfstr::obfstr!("nbf"),
+            obfstr::obfstr!("exp"),
+            obfstr::obfstr!("sequence"),
+            obfstr::obfstr!("sha256"),
+        ],
+    )
+    .map_err(|_| IntegrityError::Rejected)?;
+    let text = |name: &str| {
+        crate::delivery::text(&object, name)
+            .map(str::to_owned)
+            .map_err(|_| IntegrityError::Rejected)
+    };
+    let number =
+        |name: &str| crate::delivery::integer(&object, name).map_err(|_| IntegrityError::Rejected);
+    let claims = Claims {
+        aud: text(obfstr::obfstr!("aud"))?,
+        product: text(obfstr::obfstr!("product"))?,
+        platform: text(obfstr::obfstr!("platform"))?,
+        request_nonce: text(obfstr::obfstr!("request_nonce"))?,
+        iat: number(obfstr::obfstr!("iat"))?,
+        nbf: number(obfstr::obfstr!("nbf"))?,
+        exp: number(obfstr::obfstr!("exp"))?,
+        sequence: number(obfstr::obfstr!("sequence"))?,
+        sha256: object
+            .get(obfstr::obfstr!("sha256"))
+            .and_then(serde_json::Value::as_array)
+            .ok_or(IntegrityError::Rejected)?
+            .iter()
+            .map(|value| {
+                value
+                    .as_str()
+                    .map(str::to_owned)
+                    .ok_or(IntegrityError::Rejected)
+            })
+            .collect::<Result<Vec<_>>>()?,
+    };
+    if claims.aud != obfstr::obfstr!("celeste-native-manifest")
         || claims.product != product
         || claims.platform != target
         || claims.request_nonce != nonce
@@ -193,35 +240,39 @@ pub(crate) fn require_current(product: &str) -> Result<()> {
         .map_err(|_| IntegrityError::Rejected)?;
     let key = VerifyingKey::from_bytes(&key).map_err(|_| IntegrityError::Rejected)?;
     let url = format!(
-        "{}/v1/client-manifest?product={product}&platform={target}",
-        crate::release::BASE_URL
+        "{}{}{product}{}{target}",
+        crate::release::BASE_URL,
+        obfstr::obfstr!("/v1/client-manifest?product="),
+        obfstr::obfstr!("&platform=")
     );
-    let agent = ureq::AgentBuilder::new()
-        .https_only(true)
-        .redirects(0)
-        .timeout_connect(Duration::from_secs(8))
-        .timeout(Duration::from_secs(25))
-        .max_idle_connections(0)
-        .build();
+    let agent = crate::transport_policy::agent(crate::release::BASE_URL)
+        .map_err(|_| IntegrityError::Unavailable)?;
     let response = agent
         .get(&url)
-        .set("X-Celeste-Request-Nonce", &nonce)
-        .set("Accept", "application/json")
-        .set("Accept-Encoding", "identity")
-        .set("Cache-Control", "no-store")
+        .set(obfstr::obfstr!("X-Celeste-Request-Nonce"), &nonce)
+        .set(
+            obfstr::obfstr!("Accept"),
+            obfstr::obfstr!("application/json"),
+        )
+        .set(
+            obfstr::obfstr!("Accept-Encoding"),
+            obfstr::obfstr!("identity"),
+        )
+        .set(
+            obfstr::obfstr!("Cache-Control"),
+            obfstr::obfstr!("no-store"),
+        )
         .call()
         .map_err(|_| IntegrityError::Unavailable)?;
     if response.status() != 200
         || response.get_url() != url
-        || !matches!(
-            response
-                .header("Content-Type")
-                .and_then(|v| v.split(';').next()),
-            Some("application/json")
-        )
+        || response
+            .header(obfstr::obfstr!("Content-Type"))
+            .and_then(|v| v.split(';').next())
+            != Some(obfstr::obfstr!("application/json"))
         || response
             .header("Content-Encoding")
-            .is_some_and(|v| v != "identity")
+            .is_some_and(|v| v != obfstr::obfstr!("identity"))
     {
         return Err(IntegrityError::Rejected);
     }
@@ -245,7 +296,7 @@ mod tests {
     use serde_json::{Value, json};
     const NONCE: &str = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
     fn claims() -> Value {
-        json!({"aud":"celeste-native-manifest","product":"celeste_plus","platform":"windows-x64","request_nonce":NONCE,"iat":1000,"nbf":1000,"exp":1120,"sequence":1,"sha256":["a".repeat(64)]})
+        json!({(obfstr::obfstr!("aud")):obfstr::obfstr!("celeste-native-manifest"),(obfstr::obfstr!("product")):"celeste_plus",(obfstr::obfstr!("platform")):"windows-x64",(obfstr::obfstr!("request_nonce")):NONCE,(obfstr::obfstr!("iat")):1000,(obfstr::obfstr!("nbf")):1000,(obfstr::obfstr!("exp")):1120,(obfstr::obfstr!("sequence")):1,(obfstr::obfstr!("sha256")):["a".repeat(64)]})
     }
     fn envelope_raw(header: &str, claims: &str) -> Vec<u8> {
         let key = SigningKey::from_bytes(&[0x55; 32]);
@@ -258,7 +309,7 @@ mod tests {
             "{input}.{}",
             URL_SAFE_NO_PAD.encode(key.sign(input.as_bytes()).to_bytes())
         );
-        serde_json::to_vec(&json!({"manifest":token})).unwrap()
+        serde_json::to_vec(&json!({(obfstr::obfstr!("manifest")):token})).unwrap()
     }
     fn envelope(claims: &Value) -> Vec<u8> {
         envelope_raw(
@@ -284,16 +335,22 @@ mod tests {
     #[test]
     fn signed_stale_or_other_context_is_denied() {
         for (field, value) in [
-            ("aud", json!("celeste-installer")),
-            ("product", json!("celeste")),
-            ("platform", json!("linux-x64")),
-            ("request_nonce", json!("BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")),
-            ("sequence", json!(0)),
-            ("exp", json!(1000)),
-            ("exp", json!(1121)),
-            ("iat", json!(1006)),
-            ("nbf", json!(999)),
-            ("sha256", json!(["b".repeat(64)])),
+            (
+                obfstr::obfstr!("aud"),
+                json!(obfstr::obfstr!("celeste-installer")),
+            ),
+            (obfstr::obfstr!("product"), json!("celeste")),
+            (obfstr::obfstr!("platform"), json!("linux-x64")),
+            (
+                obfstr::obfstr!("request_nonce"),
+                json!("BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"),
+            ),
+            (obfstr::obfstr!("sequence"), json!(0)),
+            (obfstr::obfstr!("exp"), json!(1000)),
+            (obfstr::obfstr!("exp"), json!(1121)),
+            (obfstr::obfstr!("iat"), json!(1006)),
+            (obfstr::obfstr!("nbf"), json!(999)),
+            (obfstr::obfstr!("sha256"), json!(["b".repeat(64)])),
         ] {
             let mut value_claims = claims();
             value_claims[field] = value;
@@ -307,7 +364,10 @@ mod tests {
     #[test]
     fn malformed_or_missing_nonce_and_duplicate_fields_are_denied() {
         let mut value = claims();
-        value.as_object_mut().unwrap().remove("request_nonce");
+        value
+            .as_object_mut()
+            .unwrap()
+            .remove(obfstr::obfstr!("request_nonce"));
         assert!(check(&value).is_err());
         for hashes in [
             json!([]),
@@ -322,7 +382,7 @@ mod tests {
             ]),
         ] {
             let mut value = claims();
-            value["sha256"] = hashes;
+            value[obfstr::obfstr!("sha256")] = hashes;
             assert!(check(&value).is_err());
         }
         let raw = claims().to_string().replacen('{', "{\"sequence\":1,", 1);
@@ -382,7 +442,7 @@ mod tests {
         assert_ne!(original, modified);
         assert!(hash_executable(&b""[..]).is_err());
         let mut value = claims();
-        value["sha256"] = json!([original]);
+        value[obfstr::obfstr!("sha256")] = json!([original]);
         assert!(
             verify(
                 &envelope(&value),
@@ -429,13 +489,13 @@ mod tests {
         let body = serde_json::to_vec(&fixture["response"]).unwrap();
         let digest =
             hash_executable(fixture["executable_utf8"].as_str().unwrap().as_bytes()).unwrap();
-        assert_eq!(digest, fixture["sha256"].as_str().unwrap());
+        assert_eq!(digest, fixture[obfstr::obfstr!("sha256")].as_str().unwrap());
         let check = |nonce| {
             verify(
                 &body,
                 &key,
-                fixture["product"].as_str().unwrap(),
-                fixture["platform"].as_str().unwrap(),
+                fixture[obfstr::obfstr!("product")].as_str().unwrap(),
+                fixture[obfstr::obfstr!("platform")].as_str().unwrap(),
                 nonce,
                 &digest,
                 fixture["now"].as_u64().unwrap(),

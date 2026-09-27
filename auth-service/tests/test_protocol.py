@@ -35,6 +35,7 @@ def settings(tmp_path) -> Settings:
     bootstrap = b"mods folder bootstrap"
     (release_dir / "celeste-bootstrap.jar").write_bytes(bootstrap)
     return Settings(
+        plus_auth_protocol=1,  # Explicit previous-protocol compatibility fixtures; v2 has dedicated adversarial tests.
         database_path=str(tmp_path / "auth.sqlite3"),
         signing_private_key=bytes(range(32)),
         key_pepper=bytes(range(1, 33)),

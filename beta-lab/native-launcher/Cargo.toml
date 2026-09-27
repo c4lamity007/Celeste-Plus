@@ -15,18 +15,21 @@ base64 = "0.22"
 ed25519-dalek = { version = "2.2", features = ["rand_core", "pkcs8"] }
 eframe = { version = "0.32", default-features = false, features = ["default_fonts", "glow"] }
 hkdf = "0.12"
+obfstr = "0.4"
 image = { version = "0.25", default-features = false, features = ["png"] }
 rand = "0.8"
+rustls = { version = "0.23.43", default-features = false, features = ["ring", "std", "tls12"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.10"
 ureq = { version = "2.12", default-features = false, features = ["tls", "json"] }
+webpki-roots = "1.0.9"
 x25519-dalek = { version = "2.0", features = ["static_secrets"] }
 zeroize = { version = "1.9", features = ["serde"] }
 
 [target.'cfg(windows)'.dependencies]
-winapi = { version = "0.3", features = ["securitybaseapi", "libloaderapi", "combaseapi", "dpapi", "errhandlingapi", "fileapi", "handleapi", "knownfolders", "processthreadsapi", "shlobj", "winbase", "wincrypt", "winnt", "winuser"] }
+winapi = { version = "0.3", features = ["debugapi", "ioapiset", "sysinfoapi", "winioctl", "securitybaseapi", "libloaderapi", "combaseapi", "dpapi", "errhandlingapi", "fileapi", "handleapi", "knownfolders", "processthreadsapi", "shlobj", "winbase", "wincrypt", "winnt", "winuser"] }
 winreg = "0.55"
 wmi = "0.17"
 
@@ -45,3 +48,6 @@ strip = "symbols"
 debug = false
 debug-assertions = false
 overflow-checks = false
+
+[dev-dependencies]
+rcgen = "0.13.2"

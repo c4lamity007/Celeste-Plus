@@ -121,6 +121,13 @@ class ActualPrivateReviewTest(unittest.TestCase):
         return target
 
     def test_actual_seven_function_review_passes_with_explicit_limits(self):
+        review, _ = verifier.load_review(self.directory)
+        if verifier.gate.source_digest("celeste_plus") != review["source_sha256"]:
+            # This exact historical review must reject subsequent source changes.
+            # New release work does not turn the old receipt into a reusable pass.
+            with self.assertRaisesRegex(ValueError, "Current native sources differ from review"):
+                verifier.verify(self.binary, self.original, self.directory)
+            return
         report = verifier.verify(self.binary, self.original, self.directory)
         self.assertEqual(7, report["virtualized_functions"])
         self.assertEqual(7, len(report["function_coverage"]))

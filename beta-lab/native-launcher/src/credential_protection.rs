@@ -255,7 +255,10 @@ pub(crate) fn preflight(directory: &Path) -> Result<()> {
     }
     // Resolve redirected current-account AppData and let Windows prepare its
     // known folders before DPAPI needs the profile's Roaming AppData path.
-    let _folders = crate::windows_profile::prepare_current_user_folders()?;
+    let folders = crate::windows_profile::prepare_current_user_folders()?;
+    if !folders.local_app_data.is_absolute() || !folders.roaming_app_data.is_absolute() {
+        bail!("Windows AppData folders must be absolute");
+    }
     let mut sample = [0u8; 64];
     OsRng
         .try_fill_bytes(&mut sample)

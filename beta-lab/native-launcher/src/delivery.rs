@@ -1,7 +1,8 @@
 //! Owner-only beta delivery. This module verifies metadata; it never attaches or executes code.
 //!
 //! Production trust is compiled in from the reviewed release snapshot. Only Bootstrap A is
-//! downloaded and persisted here; the other three signed links are validated, not fetched.
+//! downloaded into an account-encrypted durable cache and owned temporary file here;
+//! the other three signed links are validated, not fetched.
 //! Keep ureq's `gzip` and `brotli` features DISABLED: automatic decompression hides the original
 //! Content-Encoding/Content-Length headers and would defeat the transport checks below.
 
@@ -13,10 +14,8 @@ use serde::de::{self, DeserializeSeed, MapAccess, SeqAccess, Visitor};
 use serde_json::{Map, Number, Value};
 use sha2::{Digest, Sha256};
 use std::fmt;
-use std::fs::{self, File};
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const PRODUCT: &str = "celeste_plus";
@@ -25,49 +24,56 @@ const MAX_MANIFEST_RESPONSE_BYTES: usize = 20_480;
 const MAX_ARTIFACT_BYTES: usize = 64 * 1024 * 1024;
 const MAX_RELEASE_BYTES: u64 = 128 * 1024 * 1024;
 const IDS: [&str; 4] = ["bootstrap-a", "bootstrap-b", "payload-a", "payload-b"];
-const INSTALLER_KEYS: &[&str] = &[
-    "cnf",
-    "product",
-    "aud",
-    "sub",
-    "device",
-    "iat",
-    "nbf",
-    "exp",
-    "jti",
-    "release",
-    "client_sha256",
-    "payload_release",
-    "payload_sha256",
-    "bootstrap",
-    "bootstrap_sha256",
-];
-const MANIFEST_KEYS: &[&str] = &[
-    "cnf",
-    "product",
-    "aud",
-    "sub",
-    "device",
-    "iat",
-    "nbf",
-    "exp",
-    "installer_jti",
-    "installer_sha256",
-    "request_nonce",
-    "catalog_sha256",
-    "schema",
-    "release_id",
-    "client_version",
-    "runtime_sha256",
-    "artifacts",
-];
-const CATALOG_KEYS: &[&str] = &[
-    "schema",
-    "release_id",
-    "client_version",
-    "runtime_sha256",
-    "artifacts",
-];
+fn installer_keys() -> Vec<String> {
+    vec![
+        obfstr::obfstr!("auth_protocol").to_owned(),
+        obfstr::obfstr!("cnf").to_owned(),
+        obfstr::obfstr!("product").to_owned(),
+        obfstr::obfstr!("aud").to_owned(),
+        obfstr::obfstr!("sub").to_owned(),
+        obfstr::obfstr!("device").to_owned(),
+        obfstr::obfstr!("iat").to_owned(),
+        obfstr::obfstr!("nbf").to_owned(),
+        obfstr::obfstr!("exp").to_owned(),
+        obfstr::obfstr!("jti").to_owned(),
+        obfstr::obfstr!("release").to_owned(),
+        obfstr::obfstr!("client_sha256").to_owned(),
+        obfstr::obfstr!("payload_release").to_owned(),
+        obfstr::obfstr!("payload_sha256").to_owned(),
+        obfstr::obfstr!("bootstrap").to_owned(),
+        obfstr::obfstr!("bootstrap_sha256").to_owned(),
+    ]
+}
+fn manifest_keys() -> Vec<String> {
+    vec![
+        obfstr::obfstr!("cnf").to_owned(),
+        obfstr::obfstr!("product").to_owned(),
+        obfstr::obfstr!("aud").to_owned(),
+        obfstr::obfstr!("sub").to_owned(),
+        obfstr::obfstr!("device").to_owned(),
+        obfstr::obfstr!("iat").to_owned(),
+        obfstr::obfstr!("nbf").to_owned(),
+        obfstr::obfstr!("exp").to_owned(),
+        obfstr::obfstr!("installer_jti").to_owned(),
+        obfstr::obfstr!("installer_sha256").to_owned(),
+        obfstr::obfstr!("request_nonce").to_owned(),
+        obfstr::obfstr!("catalog_sha256").to_owned(),
+        obfstr::obfstr!("schema").to_owned(),
+        obfstr::obfstr!("release_id").to_owned(),
+        obfstr::obfstr!("client_version").to_owned(),
+        obfstr::obfstr!("runtime_sha256").to_owned(),
+        obfstr::obfstr!("artifacts").to_owned(),
+    ]
+}
+fn catalog_keys() -> Vec<String> {
+    vec![
+        obfstr::obfstr!("schema").to_owned(),
+        obfstr::obfstr!("release_id").to_owned(),
+        obfstr::obfstr!("client_version").to_owned(),
+        obfstr::obfstr!("runtime_sha256").to_owned(),
+        obfstr::obfstr!("artifacts").to_owned(),
+    ]
+}
 
 /// Printable metadata deliberately excludes installer and manifest grants.
 pub struct VerifiedBootstrap {
@@ -105,24 +111,24 @@ pub fn download_bootstrap(
     let raw_key = decode(crate::release::SERVER_KEY)?;
     let raw_key: [u8; 32] = raw_key
         .try_into()
-        .map_err(|_| anyhow!("Invalid compiled beta server key"))?;
+        .map_err(|_| anyhow!("{}", obfstr::obfstr!("Invalid compiled beta server key")))?;
     let key = VerifyingKey::from_bytes(&raw_key)
-        .map_err(|_| anyhow!("Invalid compiled beta server key"))?;
+        .map_err(|_| anyhow!("{}", obfstr::obfstr!("Invalid compiled beta server key")))?;
     let claims = verify_installer(installer, device, &key, now()?)?;
     ensure!(
-        uid > 0 && text(&claims, "sub")? == uid.to_string(),
+        uid > 0 && text(&claims, obfstr::obfstr!("sub"))? == uid.to_string(),
         "Installer grant belongs to another activation"
     );
     let transport = HttpsTransport::new(crate::release::BASE_URL)?;
 
     let request_nonce = new_request_nonce()?;
     let mut wrapper = transport.fetch(
-        "/v1/beta/manifest",
+        obfstr::obfstr!("/v1/beta/manifest"),
         session,
         None,
         Some(&request_nonce),
         MAX_MANIFEST_RESPONSE_BYTES,
-        "application/json",
+        obfstr::obfstr!("application/json"),
     )?;
     let manifest_result = manifest_from_response(&wrapper);
     wrapper.fill(0);
@@ -131,9 +137,10 @@ pub fn download_bootstrap(
     current(installer, device, &key, &catalog, now()?)?;
     let bootstrap = &catalog.artifacts[0];
     let expected_digest = digest_bytes(&bootstrap.sha256)?;
-    let agent = directory.join(&bootstrap.sha256).join("bootstrap-a.jar");
-    if existing_bootstrap(&agent, bootstrap)? {
+    let cache = directory.join(&bootstrap.sha256).join("bootstrap-a.cst");
+    if let Some(bytes) = crate::bootstrap_cache::load(&cache, &bootstrap.sha256, bootstrap.size)? {
         current(installer, device, &key, &catalog, now()?)?;
+        let agent = crate::bootstrap_cache::materialize(directory, &bootstrap.sha256, &bytes)?;
         return Ok(VerifiedBootstrap {
             agent,
             release: catalog.release,
@@ -147,12 +154,13 @@ pub fn download_bootstrap(
         Some(&manifest),
         None,
         bootstrap.size,
-        "application/octet-stream",
+        obfstr::obfstr!("application/octet-stream"),
     )?;
     let result = (|| {
         verify_artifact(&bytes, bootstrap)?;
         current(installer, device, &key, &catalog, now()?)?;
-        store_bootstrap(&agent, bootstrap, &bytes)?;
+        crate::bootstrap_cache::store(&cache, &bootstrap.sha256, &bytes)?;
+        let agent = crate::bootstrap_cache::materialize(directory, &bootstrap.sha256, &bytes)?;
         Ok(VerifiedBootstrap {
             agent,
             release: catalog.release.clone(),
@@ -164,114 +172,26 @@ pub fn download_bootstrap(
     result
 }
 
-/// Existing content-addressed files are reusable only after full size/hash verification.
-/// A mismatch is an error, never a reason to replace a possibly loaded agent.
-fn existing_bootstrap(path: &Path, artifact: &Artifact) -> Result<bool> {
-    let metadata = match fs::symlink_metadata(path) {
-        Ok(metadata) => metadata,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
-        Err(_) => bail!("Could not inspect the beta Bootstrap A cache"),
-    };
-    ensure!(
-        metadata.is_file()
-            && !metadata.file_type().is_symlink()
-            && metadata.len() == artifact.size as u64,
-        "Existing beta Bootstrap A cache failed integrity checks; no file was replaced"
-    );
-    let file =
-        File::open(path).map_err(|_| anyhow!("Could not read the beta Bootstrap A cache"))?;
-    let mut bytes = read_bounded(file, Some(artifact.size), artifact.size).map_err(|_| {
-        anyhow!("Existing beta Bootstrap A cache failed integrity checks; no file was replaced")
-    })?;
-    let valid = verify_artifact(&bytes, artifact).is_ok();
-    bytes.fill(0);
-    ensure!(
-        valid,
-        "Existing beta Bootstrap A cache failed integrity checks; no file was replaced"
-    );
-    Ok(true)
-}
-
-static NEXT_STAGE: AtomicU64 = AtomicU64::new(0);
-
-struct BootstrapStage(PathBuf);
-
-impl Drop for BootstrapStage {
-    fn drop(&mut self) {
-        // Only our successfully create_dir-reserved staging directory is owned here.
-        // No recursive cleanup: retain any unexpected contents instead of deleting them.
-        let _ = fs::remove_file(self.0.join("bootstrap-a.jar"));
-        let _ = fs::remove_dir(&self.0);
-    }
-}
-
-fn store_bootstrap(path: &Path, artifact: &Artifact, bytes: &[u8]) -> Result<()> {
-    verify_artifact(bytes, artifact)?;
-    if existing_bootstrap(path, artifact)? {
-        return Ok(());
-    }
-    let parent = path
-        .parent()
-        .ok_or_else(|| anyhow!("Invalid beta Bootstrap A cache directory"))?;
-    fs::create_dir_all(parent)
-        .map_err(|_| anyhow!("Could not create the beta Bootstrap A cache directory"))?;
-    let metadata = fs::symlink_metadata(parent)
-        .map_err(|_| anyhow!("Could not inspect the beta Bootstrap A cache directory"))?;
-    ensure!(
-        metadata.is_dir() && !metadata.file_type().is_symlink(),
-        "Beta Bootstrap A cache directory must not be a link"
-    );
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|_| anyhow!("System clock cannot reserve beta staging"))?
-        .as_nanos();
-    let mut stage = None;
-    for _ in 0..128 {
-        let sequence = NEXT_STAGE.fetch_add(1, Ordering::Relaxed);
-        let candidate = parent.join(format!(
-            ".bootstrap-a-{}-{stamp}-{sequence}.pending",
-            std::process::id()
-        ));
-        match fs::create_dir(&candidate) {
-            Ok(()) => {
-                stage = Some(BootstrapStage(candidate));
-                break;
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
-            Err(_) => bail!("Could not reserve beta Bootstrap A staging"),
-        }
-    }
-    let stage = stage.ok_or_else(|| anyhow!("Could not reserve beta Bootstrap A staging"))?;
-    let staged = stage.0.join("bootstrap-a.jar");
-    crate::atomic_store::atomic_write(&staged, bytes)
-        .map_err(|_| anyhow!("Could not atomically stage verified beta Bootstrap A"))?;
-    // atomic_write replaces existing targets, so it must never receive the immutable cache path.
-    // A hard link publishes the fully flushed staging inode without any overwrite race. Unsupported
-    // filesystems fail closed; there is deliberately no overwrite/rename/copy fallback.
-    match fs::hard_link(&staged, path) {
-        Ok(()) => Ok(()),
-        Err(_) if existing_bootstrap(path, artifact)? => Ok(()),
-        Err(_) => {
-            bail!("Could not publish immutable beta Bootstrap A; no existing file was replaced")
-        }
-    }
-}
-
 fn manifest_from_response(bytes: &[u8]) -> Result<String> {
     ensure!(
         bytes.len() <= MAX_MANIFEST_RESPONSE_BYTES,
         "Beta manifest response too large"
     );
     let wrapper = object(bytes)?;
-    exact(&wrapper, &["manifest"])?;
-    Ok(text(&wrapper, "manifest")?.to_owned())
+    exact(&wrapper, &[obfstr::obfstr!("manifest")])?;
+    Ok(text(&wrapper, obfstr::obfstr!("manifest"))?.to_owned())
 }
 
 fn now() -> Result<u64> {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_secs())
-        .map_err(|_| anyhow!("System clock cannot validate beta grants"))
+        .map_err(|_| {
+            anyhow!(
+                "{}",
+                obfstr::obfstr!("System clock cannot validate beta grants")
+            )
+        })
 }
 
 fn current(
@@ -296,25 +216,37 @@ fn verify_installer(
     time: u64,
 ) -> Result<Map<String, Value>> {
     ensure!(identifier(device, 32, 48), "Invalid beta device binding");
-    let claims = signed(installer, "celeste-installer", key)?;
-    exact(&claims, INSTALLER_KEYS)?;
+    let claims = signed(installer, obfstr::obfstr!("celeste-installer"), key)?;
+    exact(&claims, &installer_keys())?;
+    ensure!(
+        integer(&claims, obfstr::obfstr!("auth_protocol"))? == 2,
+        "A current protected-delivery authorization is required"
+    );
     crate::dpop::confirmation(&Value::Object(claims.clone()))?;
     identity(&claims, device)?;
     ensure!(
-        integer(&claims, "iat")? <= time.saturating_add(5)
-            && integer(&claims, "nbf")? <= time.saturating_add(5)
-            && integer(&claims, "exp")? > time
-            && identifier(text(&claims, "jti")?, 16, 128),
+        integer(&claims, obfstr::obfstr!("iat"))? <= time.saturating_add(5)
+            && integer(&claims, obfstr::obfstr!("nbf"))? <= time.saturating_add(5)
+            && integer(&claims, obfstr::obfstr!("exp"))? > time
+            && identifier(text(&claims, obfstr::obfstr!("jti"))?, 16, 128),
         "Installer grant is not current"
     );
-    for field in ["release", "payload_release", "bootstrap"] {
+    for field in [
+        obfstr::obfstr!("release"),
+        obfstr::obfstr!("payload_release"),
+        obfstr::obfstr!("bootstrap"),
+    ] {
         let value = text(&claims, field)?;
         ensure!(
             !value.is_empty() && value.encode_utf16().count() <= 80,
             "Invalid installer identity"
         );
     }
-    for field in ["client_sha256", "payload_sha256", "bootstrap_sha256"] {
+    for field in [
+        obfstr::obfstr!("client_sha256"),
+        obfstr::obfstr!("payload_sha256"),
+        obfstr::obfstr!("bootstrap_sha256"),
+    ] {
         hex(&claims, field)?;
     }
     Ok(claims)
@@ -329,10 +261,11 @@ fn verify_manifest(
     time: u64,
 ) -> Result<Catalog> {
     let installer_claims = verify_installer(installer, device, key, time)?;
-    let claims = signed(manifest, "celeste-beta-manifest", key)?;
-    exact(&claims, MANIFEST_KEYS)?;
+    let claims = signed(manifest, obfstr::obfstr!("celeste-beta-manifest"), key)?;
+    exact(&claims, &manifest_keys())?;
     ensure!(
-        valid_request_nonce(request_nonce) && text(&claims, "request_nonce")? == request_nonce,
+        valid_request_nonce(request_nonce)
+            && text(&claims, obfstr::obfstr!("request_nonce"))? == request_nonce,
         "Beta manifest does not match this fresh request"
     );
     let manifest_value = Value::Object(claims.clone());
@@ -343,40 +276,41 @@ fn verify_manifest(
     );
     identity(&claims, device)?;
     ensure!(
-        text(&claims, "sub")? == text(&installer_claims, "sub")?,
+        text(&claims, obfstr::obfstr!("sub"))? == text(&installer_claims, obfstr::obfstr!("sub"))?,
         "Manifest belongs to another license"
     );
-    let issued = integer(&claims, "iat")?;
-    let expires = integer(&claims, "exp")?;
+    let issued = integer(&claims, obfstr::obfstr!("iat"))?;
+    let expires = integer(&claims, obfstr::obfstr!("exp"))?;
     ensure!(
         issued <= time
-            && integer(&claims, "nbf")? == issued
+            && integer(&claims, obfstr::obfstr!("nbf"))? == issued
             && expires > time
             && expires > issued
             && expires - issued <= 120
-            && expires <= integer(&installer_claims, "exp")?
-            && text(&claims, "installer_jti")? == text(&installer_claims, "jti")?
-            && hex(&claims, "installer_sha256")? == sha256(installer.as_bytes()),
+            && expires <= integer(&installer_claims, obfstr::obfstr!("exp"))?
+            && text(&claims, obfstr::obfstr!("installer_jti"))?
+                == text(&installer_claims, obfstr::obfstr!("jti"))?
+            && hex(&claims, obfstr::obfstr!("installer_sha256"))? == sha256(installer.as_bytes()),
         "Beta manifest is not bound to the current installer grant"
     );
-    let release = text(&claims, "release_id")?;
-    let version = text(&claims, "client_version")?;
-    let runtime_digest = hex(&claims, "runtime_sha256")?;
+    let release = text(&claims, obfstr::obfstr!("release_id"))?;
+    let version = text(&claims, obfstr::obfstr!("client_version"))?;
+    let runtime_digest = hex(&claims, obfstr::obfstr!("runtime_sha256"))?;
     ensure!(
-        text(&claims, "schema")? == "celeste-beta-release-2"
+        text(&claims, obfstr::obfstr!("schema"))? == "celeste-beta-release-2"
             && identifier(release, 1, 80)
             && release.as_bytes()[0].is_ascii_alphanumeric()
             && !version.is_empty()
             && version.len() <= 40
             && version.bytes().all(|byte| (b'!'..=b'~').contains(&byte))
-            && release != text(&installer_claims, "payload_release")?
-            && runtime_digest != hex(&installer_claims, "payload_sha256")?,
+            && release != text(&installer_claims, obfstr::obfstr!("payload_release"))?
+            && runtime_digest != hex(&installer_claims, obfstr::obfstr!("payload_sha256"))?,
         "Invalid beta release identity"
     );
     let raw_artifacts = claims
-        .get("artifacts")
+        .get(obfstr::obfstr!("artifacts"))
         .and_then(Value::as_array)
-        .ok_or_else(|| anyhow!("Expected four beta artifacts"))?;
+        .ok_or_else(|| anyhow!("{}", obfstr::obfstr!("Expected four beta artifacts")))?;
     ensure!(
         raw_artifacts.len() == IDS.len(),
         "Expected four beta artifacts"
@@ -386,16 +320,29 @@ fn verify_manifest(
     for (index, expected_id) in IDS.iter().enumerate() {
         let item = raw_artifacts[index]
             .as_object()
-            .ok_or_else(|| anyhow!("Invalid beta artifact metadata"))?;
-        exact(item, &["id", "role", "url", "sha256", "size"])?;
-        let id = text(item, "id")?;
-        let role = text(item, "role")?;
-        let url = text(item, "url")?;
-        let size = integer(item, "size")?;
+            .ok_or_else(|| anyhow!("{}", obfstr::obfstr!("Invalid beta artifact metadata")))?;
+        exact(
+            item,
+            &[
+                obfstr::obfstr!("id"),
+                obfstr::obfstr!("role"),
+                obfstr::obfstr!("url"),
+                obfstr::obfstr!("sha256"),
+                obfstr::obfstr!("size"),
+            ],
+        )?;
+        let id = text(item, obfstr::obfstr!("id"))?;
+        let role = text(item, obfstr::obfstr!("role"))?;
+        let url = text(item, obfstr::obfstr!("url"))?;
+        let size = integer(item, obfstr::obfstr!("size"))?;
         ensure!(
             id == *expected_id
-                && role == if index < 2 { "bootstrap" } else { "payload" }
-                && url == format!("/v1/beta/artifacts/{release}/{id}")
+                && (if index < 2 {
+                    role == obfstr::obfstr!("bootstrap")
+                } else {
+                    role == "payload"
+                })
+                && url == format!("{}{release}/{id}", obfstr::obfstr!("/v1/beta/artifacts/"))
                 && size > 0
                 && size <= MAX_ARTIFACT_BYTES as u64,
             "Invalid beta artifact identity, path or size"
@@ -407,18 +354,19 @@ fn verify_manifest(
         );
         artifacts.push(Artifact {
             url: url.to_owned(),
-            sha256: hex(item, "sha256")?.to_owned(),
+            sha256: hex(item, obfstr::obfstr!("sha256"))?.to_owned(),
             size: size as usize,
         });
     }
     let projected = catalog_projection(&claims);
     ensure!(
-        hex(&claims, "catalog_sha256")? == sha256(canonical(&projected)?.as_bytes()),
+        hex(&claims, obfstr::obfstr!("catalog_sha256"))?
+            == sha256(canonical(&projected)?.as_bytes()),
         "Beta catalog digest mismatch"
     );
     Ok(Catalog {
         release: release.to_owned(),
-        catalog_sha256: hex(&claims, "catalog_sha256")?.to_owned(),
+        catalog_sha256: hex(&claims, obfstr::obfstr!("catalog_sha256"))?.to_owned(),
         expires,
         artifacts,
     })
@@ -426,13 +374,9 @@ fn verify_manifest(
 
 fn catalog_projection(claims: &Map<String, Value>) -> Value {
     Value::Object(
-        CATALOG_KEYS
+        catalog_keys()
             .iter()
-            .filter_map(|key| {
-                claims
-                    .get(*key)
-                    .map(|value| ((*key).to_owned(), value.clone()))
-            })
+            .filter_map(|key| claims.get(key).map(|value| (key.to_owned(), value.clone())))
             .collect(),
     )
 }
@@ -446,22 +390,26 @@ fn verify_artifact(bytes: &[u8], artifact: &Artifact) -> Result<()> {
 }
 
 fn identity(claims: &Map<String, Value>, device: &str) -> Result<()> {
-    let subject = text(claims, "sub")?;
+    let subject = text(claims, obfstr::obfstr!("sub"))?;
     let uid = subject
         .parse::<u64>()
-        .map_err(|_| anyhow!("Invalid license identity"))?;
+        .map_err(|_| anyhow!("{}", obfstr::obfstr!("Invalid license identity")))?;
     ensure!(
         uid > 0
             && uid <= i64::MAX as u64
             && subject == uid.to_string()
-            && text(claims, "product")? == PRODUCT
-            && text(claims, "device")? == device,
+            && text(claims, obfstr::obfstr!("product"))? == PRODUCT
+            && text(claims, obfstr::obfstr!("device"))? == device,
         "Grant does not match Celeste+ and this device"
     );
     Ok(())
 }
 
-fn signed(token: &str, audience: &str, key: &VerifyingKey) -> Result<Map<String, Value>> {
+pub(crate) fn signed(
+    token: &str,
+    audience: &str,
+    key: &VerifyingKey,
+) -> Result<Map<String, Value>> {
     ensure!(
         !token.is_empty() && token.len() <= MAX_TOKEN_BYTES,
         "Invalid signed beta token"
@@ -471,20 +419,32 @@ fn signed(token: &str, audience: &str, key: &VerifyingKey) -> Result<Map<String,
     let header = decode(parts[0])?;
     let payload = decode(parts[1])?;
     let signature = decode(parts[2])?;
-    let signature =
-        Signature::from_slice(&signature).map_err(|_| anyhow!("Invalid beta signature length"))?;
+    let signature = Signature::from_slice(&signature)
+        .map_err(|_| anyhow!("{}", obfstr::obfstr!("Invalid beta signature length")))?;
     // Verification precedes JSON parsing, and no algorithm or key is selected from untrusted claims.
     let signed_length = parts[0].len() + 1 + parts[1].len();
     key.verify_strict(&token.as_bytes()[..signed_length], &signature)
-        .map_err(|_| anyhow!("Beta signature did not match the pinned server"))?;
+        .map_err(|_| {
+            anyhow!(
+                "{}",
+                obfstr::obfstr!("Beta signature did not match the pinned server")
+            )
+        })?;
     let metadata = object(&header)?;
     let claims = object(&payload)?;
-    exact(&metadata, &["alg", "kid", "typ"])?;
+    exact(
+        &metadata,
+        &[
+            obfstr::obfstr!("alg"),
+            obfstr::obfstr!("kid"),
+            obfstr::obfstr!("typ"),
+        ],
+    )?;
     ensure!(
-        text(&metadata, "alg")? == "EdDSA"
-            && text(&metadata, "typ")? == "CST"
-            && text(&metadata, "kid")? == "celeste-release-1"
-            && text(&claims, "aud")? == audience,
+        text(&metadata, obfstr::obfstr!("alg"))? == obfstr::obfstr!("EdDSA")
+            && text(&metadata, obfstr::obfstr!("typ"))? == obfstr::obfstr!("CST")
+            && text(&metadata, obfstr::obfstr!("kid"))? == obfstr::obfstr!("celeste-release-1")
+            && text(&claims, obfstr::obfstr!("aud"))? == audience,
         "Unexpected beta token type"
     );
     Ok(claims)
@@ -500,7 +460,7 @@ fn decode(encoded: &str) -> Result<Vec<u8>> {
     );
     let bytes = URL_SAFE_NO_PAD
         .decode(encoded)
-        .map_err(|_| anyhow!("Invalid canonical beta base64url"))?;
+        .map_err(|_| anyhow!("{}", obfstr::obfstr!("Invalid canonical beta base64url")))?;
     ensure!(
         URL_SAFE_NO_PAD.encode(&bytes) == encoded,
         "Invalid canonical beta base64url"
@@ -515,19 +475,19 @@ fn identifier(value: &str, minimum: usize, maximum: usize) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
 }
 
-fn exact(object: &Map<String, Value>, keys: &[&str]) -> Result<()> {
+pub(crate) fn exact<K: AsRef<str>>(object: &Map<String, Value>, keys: &[K]) -> Result<()> {
     ensure!(
-        object.len() == keys.len() && keys.iter().all(|key| object.contains_key(*key)),
+        object.len() == keys.len() && keys.iter().all(|key| object.contains_key(key.as_ref())),
         "Unexpected beta metadata fields"
     );
     Ok(())
 }
 
-fn text<'a>(object: &'a Map<String, Value>, key: &str) -> Result<&'a str> {
+pub(crate) fn text<'a>(object: &'a Map<String, Value>, key: &str) -> Result<&'a str> {
     object
         .get(key)
         .and_then(Value::as_str)
-        .ok_or_else(|| anyhow!("Expected text beta metadata"))
+        .ok_or_else(|| anyhow!("{}", obfstr::obfstr!("Expected text beta metadata")))
 }
 
 fn hex<'a>(object: &'a Map<String, Value>, key: &str) -> Result<&'a str> {
@@ -542,12 +502,17 @@ fn hex<'a>(object: &'a Map<String, Value>, key: &str) -> Result<&'a str> {
     Ok(value)
 }
 
-fn integer(object: &Map<String, Value>, key: &str) -> Result<u64> {
+pub(crate) fn integer(object: &Map<String, Value>, key: &str) -> Result<u64> {
     object
         .get(key)
         .and_then(Value::as_u64)
         .filter(|value| *value <= i64::MAX as u64)
-        .ok_or_else(|| anyhow!("Expected exact nonnegative integer beta metadata"))
+        .ok_or_else(|| {
+            anyhow!(
+                "{}",
+                obfstr::obfstr!("Expected exact nonnegative integer beta metadata")
+            )
+        })
 }
 
 fn sha256(bytes: &[u8]) -> String {
@@ -565,7 +530,7 @@ fn digest_bytes(digest: &str) -> Result<Vec<u8>> {
     (0..32)
         .map(|index| {
             u8::from_str_radix(&digest[index * 2..index * 2 + 2], 16)
-                .map_err(|_| anyhow!("Invalid signed beta artifact digest"))
+                .map_err(|_| anyhow!("{}", obfstr::obfstr!("Invalid signed beta artifact digest")))
         })
         .collect()
 }
@@ -648,17 +613,17 @@ impl<'de> Visitor<'de> for StrictValue {
     }
 }
 
-fn object(bytes: &[u8]) -> Result<Map<String, Value>> {
+pub(crate) fn object(bytes: &[u8]) -> Result<Map<String, Value>> {
     let mut deserializer = serde_json::Deserializer::from_slice(bytes);
     let value = StrictValue { depth: 0 }
         .deserialize(&mut deserializer)
-        .map_err(|_| anyhow!("Malformed signed beta metadata"))?;
+        .map_err(|_| anyhow!("{}", obfstr::obfstr!("Malformed signed beta metadata")))?;
     deserializer
         .end()
-        .map_err(|_| anyhow!("Malformed signed beta metadata"))?;
+        .map_err(|_| anyhow!("{}", obfstr::obfstr!("Malformed signed beta metadata")))?;
     match value {
         Value::Object(object) => Ok(object),
-        _ => bail!("Expected one beta metadata object"),
+        _ => bail!("{}", obfstr::obfstr!("Expected one beta metadata object")),
     }
 }
 
@@ -684,8 +649,11 @@ fn canonical(value: &Value) -> Result<String> {
             .as_u64()
             .filter(|value| *value <= i64::MAX as u64)
             .map(|value| value.to_string())
-            .ok_or_else(|| anyhow!("Unsupported canonical beta number")),
-        _ => bail!("Unsupported canonical beta metadata type"),
+            .ok_or_else(|| anyhow!("{}", obfstr::obfstr!("Unsupported canonical beta number"))),
+        _ => bail!(
+            "{}",
+            obfstr::obfstr!("Unsupported canonical beta metadata type")
+        ),
     }
 }
 
@@ -712,7 +680,6 @@ fn quote(value: &str) -> String {
 }
 
 struct HttpsTransport {
-    agent: ureq::Agent,
     origin: String,
 }
 
@@ -728,7 +695,7 @@ impl HttpsTransport {
         let parsed = agent
             .get(origin)
             .request_url()
-            .map_err(|_| anyhow!("Invalid compiled beta HTTPS origin"))?;
+            .map_err(|_| anyhow!("{}", obfstr::obfstr!("Invalid compiled beta HTTPS origin")))?;
         let url = parsed.as_url();
         ensure!(
             origin.starts_with("https://")
@@ -743,7 +710,6 @@ impl HttpsTransport {
             "Invalid compiled beta HTTPS origin"
         );
         Ok(Self {
-            agent,
             origin: url.origin().ascii_serialization(),
         })
     }
@@ -763,48 +729,89 @@ impl HttpsTransport {
         );
         // Paths are generated by the schema verifier, not resolved from arbitrary server URLs.
         ensure!(
-            path.starts_with("/v1/beta/")
+            path.starts_with(obfstr::obfstr!("/v1/beta/"))
                 && !path.contains(['?', '#', '%', '\\'])
                 && !path.contains(".."),
             "Invalid beta route"
         );
         let url = format!("{}{path}", self.origin);
-        let mut request = self
-            .agent
+        let encrypted = if manifest.is_some() {
+            Some(crate::artifact_envelope::RequestKey::new()?)
+        } else {
+            None
+        };
+        let proof = if let Some(key) = &encrypted {
+            session.artifact_proof(&url, &key.public, &key.nonce)?
+        } else {
+            session.delivery_proof("GET", &url)?
+        };
+        let agent = crate::transport_policy::agent(&self.origin)?;
+        let mut request = agent
             .get(&url)
-            .set("Authorization", &format!("DPoP {}", session.grant))
-            .set("DPoP", &session.delivery_proof("GET", &url)?)
-            .set("Accept", media_type)
-            .set("Accept-Encoding", "identity")
-            .set("Cache-Control", "no-store");
+            .set(
+                obfstr::obfstr!("Authorization"),
+                &format!("DPoP {}", session.grant),
+            )
+            .set(obfstr::obfstr!("DPoP"), &proof)
+            .set(obfstr::obfstr!("Accept"), media_type)
+            .set(obfstr::obfstr!("Accept-Encoding"), "identity")
+            .set(obfstr::obfstr!("Cache-Control"), "no-store");
         if let Some(manifest) = manifest {
-            request = request.set("X-Celeste-Beta-Manifest", manifest);
+            request = request.set(obfstr::obfstr!("X-Celeste-Beta-Manifest"), manifest);
         }
-        request = bind_request_nonce(request, path, request_nonce)?;
+        if let Some(key) = &encrypted {
+            ensure!(
+                request_nonce.is_none(),
+                "Conflicting artifact request nonce"
+            );
+            request = request
+                .set(obfstr::obfstr!("X-Celeste-Delivery-Key"), &key.public)
+                .set(obfstr::obfstr!("X-Celeste-Request-Nonce"), &key.nonce);
+        } else {
+            request = bind_request_nonce(request, path, request_nonce)?;
+        }
         // Never retain a ureq error as a source: it can carry response/URL context.
-        let response = request
-            .call()
-            .map_err(|_| anyhow!("Beta HTTPS request failed"))?;
+        let response = match request.call() {
+            Ok(response) => response,
+            Err(ureq::Error::Status(status, response)) => {
+                return Err(crate::auth::resource_failure(path, status, response));
+            }
+            Err(_) => return Err(anyhow!("{}", obfstr::obfstr!("Beta HTTPS request failed"))),
+        };
         ensure!(
             response.get_url() == url && response.status() == 200,
             "Beta response origin or status rejected"
         );
+        let transport_limit = limit
+            + if encrypted.is_some() {
+                crate::artifact_envelope::OVERHEAD
+            } else {
+                0
+            };
         let advertised = response_metadata(
-            &response.all("Content-Type"),
-            &response.all("Content-Length"),
-            &response.all("Content-Encoding"),
+            &response.all(obfstr::obfstr!("Content-Type")),
+            &response.all(obfstr::obfstr!("Content-Length")),
+            &response.all(obfstr::obfstr!("Content-Encoding")),
             media_type,
-            limit,
+            transport_limit,
         )?;
-        read_bounded(response.into_reader(), advertised, limit)
+        let bytes = read_bounded(response.into_reader(), advertised, transport_limit)?;
+        if let Some(key) = encrypted {
+            Ok(key.decrypt(&bytes, path, &session.grant, limit)?.to_vec())
+        } else {
+            Ok(bytes)
+        }
     }
 }
 
 fn new_request_nonce() -> Result<String> {
     let mut bytes = [0u8; 24];
-    OsRng
-        .try_fill_bytes(&mut bytes)
-        .map_err(|_| anyhow!("Fresh beta request randomness is unavailable"))?;
+    OsRng.try_fill_bytes(&mut bytes).map_err(|_| {
+        anyhow!(
+            "{}",
+            obfstr::obfstr!("Fresh beta request randomness is unavailable")
+        )
+    })?;
     Ok(URL_SAFE_NO_PAD.encode(bytes))
 }
 
@@ -817,11 +824,16 @@ fn bind_request_nonce(
     path: &str,
     nonce: Option<&str>,
 ) -> Result<ureq::Request> {
-    if path == "/v1/beta/manifest" {
+    if path == obfstr::obfstr!("/v1/beta/manifest") {
         let value = nonce
             .filter(|value| valid_request_nonce(value))
-            .ok_or_else(|| anyhow!("A fresh beta manifest request nonce is required"))?;
-        Ok(request.set("X-Celeste-Request-Nonce", value))
+            .ok_or_else(|| {
+                anyhow!(
+                    "{}",
+                    obfstr::obfstr!("A fresh beta manifest request nonce is required")
+                )
+            })?;
+        Ok(request.set(obfstr::obfstr!("X-Celeste-Request-Nonce"), value))
     } else {
         ensure!(nonce.is_none(), "Unexpected beta request nonce route");
         Ok(request)
@@ -830,7 +842,7 @@ fn bind_request_nonce(
 
 fn read_bounded(reader: impl Read, advertised: Option<usize>, limit: usize) -> Result<Vec<u8>> {
     ensure!(
-        limit > 0 && limit <= MAX_ARTIFACT_BYTES,
+        limit > 0 && limit <= MAX_ARTIFACT_BYTES + crate::artifact_envelope::OVERHEAD,
         "Invalid beta response bound"
     );
     // Explicitly cap both bytes retained and Vec capacity. Reading at most one byte beyond
@@ -862,7 +874,10 @@ fn read_bounded(reader: impl Read, advertised: Option<usize>, limit: usize) -> R
         && advertised.is_none_or(|expected| expected == body.len());
     if !accepted {
         body.fill(0);
-        bail!("Beta response size or transfer deadline rejected");
+        bail!(
+            "{}",
+            obfstr::obfstr!("Beta response size or transfer deadline rejected")
+        );
     }
     Ok(body)
 }
@@ -902,7 +917,7 @@ fn response_metadata(
         );
         let length = value
             .parse::<usize>()
-            .map_err(|_| anyhow!("Beta response length rejected"))?;
+            .map_err(|_| anyhow!("{}", obfstr::obfstr!("Beta response length rejected")))?;
         ensure!(length <= limit, "Beta response length exceeds signed bound");
         return Ok(Some(length));
     }
@@ -917,7 +932,7 @@ mod tests {
 
     fn golden() -> Value {
         serde_json::from_str(include_str!(
-            "../../delivery-client/fixtures/server-schema2-golden.json"
+            "../../delivery-client/fixtures/server-schema2-v2-golden.json"
         ))
         .unwrap()
     }
@@ -928,6 +943,16 @@ mod tests {
             .try_into()
             .unwrap();
         VerifyingKey::from_bytes(&key).unwrap()
+    }
+
+    #[test]
+    fn old_signed_installer_cannot_enable_plaintext_delivery() {
+        let old: Value = serde_json::from_str(include_str!(
+            "../../delivery-client/fixtures/server-schema2-golden.json"
+        ))
+        .unwrap();
+        assert!(verify_fixture(&old).is_err());
+        assert!(verify_fixture(&golden()).is_ok());
     }
 
     fn verify_fixture(fixture: &Value) -> Result<Catalog> {
@@ -987,7 +1012,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            request.header("X-Celeste-Request-Nonce"),
+            request.header(obfstr::obfstr!("X-Celeste-Request-Nonce")),
             Some(first.as_str())
         );
         assert!(
@@ -1340,10 +1365,10 @@ mod tests {
     fn transport_metadata_origin_and_artifact_integrity_are_bounded() {
         assert!(
             response_metadata(
-                &["application/octet-stream"],
+                &[obfstr::obfstr!("application/octet-stream")],
                 &["42"],
-                &["identity"],
-                "application/octet-stream",
+                &[obfstr::obfstr!("identity")],
+                obfstr::obfstr!("application/octet-stream"),
                 42
             )
             .is_ok()
@@ -1352,29 +1377,58 @@ mod tests {
             (vec![], vec![], vec![]),
             (vec!["text/html"], vec![], vec![]),
             (
-                vec!["application/octet-stream", "application/octet-stream"],
+                vec![
+                    obfstr::obfstr!("application/octet-stream"),
+                    obfstr::obfstr!("application/octet-stream"),
+                ],
                 vec![],
                 vec![],
             ),
-            (vec!["application/octet-stream"], vec!["42", "42"], vec![]),
-            (vec!["application/octet-stream"], vec!["43"], vec![]),
-            (vec!["application/octet-stream"], vec!["042"], vec![]),
-            (vec!["application/octet-stream"], vec!["+42"], vec![]),
             (
-                vec!["application/octet-stream"],
+                vec![obfstr::obfstr!("application/octet-stream")],
+                vec!["42", "42"],
+                vec![],
+            ),
+            (
+                vec![obfstr::obfstr!("application/octet-stream")],
+                vec!["43"],
+                vec![],
+            ),
+            (
+                vec![obfstr::obfstr!("application/octet-stream")],
+                vec!["042"],
+                vec![],
+            ),
+            (
+                vec![obfstr::obfstr!("application/octet-stream")],
+                vec!["+42"],
+                vec![],
+            ),
+            (
+                vec![obfstr::obfstr!("application/octet-stream")],
                 vec!["18446744073709551616"],
                 vec![],
             ),
-            (vec!["application/octet-stream"], vec![], vec!["gzip"]),
             (
-                vec!["application/octet-stream"],
+                vec![obfstr::obfstr!("application/octet-stream")],
                 vec![],
-                vec!["identity", "identity"],
+                vec!["gzip"],
+            ),
+            (
+                vec![obfstr::obfstr!("application/octet-stream")],
+                vec![],
+                vec![obfstr::obfstr!("identity"), obfstr::obfstr!("identity")],
             ),
         ] {
             assert!(
-                response_metadata(&types, &lengths, &encodings, "application/octet-stream", 42)
-                    .is_err()
+                response_metadata(
+                    &types,
+                    &lengths,
+                    &encodings,
+                    obfstr::obfstr!("application/octet-stream"),
+                    42
+                )
+                .is_err()
             );
         }
         for origin in [
@@ -1412,7 +1466,14 @@ mod tests {
         assert!(read_bounded(Cursor::new(b"123"), Some(4), 4).is_err());
         assert!(read_bounded(Cursor::new(b"1234"), Some(3), 4).is_err());
         assert!(read_bounded(Cursor::new(b""), None, 0).is_err());
-        assert!(read_bounded(Cursor::new(b""), None, MAX_ARTIFACT_BYTES + 1).is_err());
+        assert!(
+            read_bounded(
+                Cursor::new(b""),
+                None,
+                MAX_ARTIFACT_BYTES + crate::artifact_envelope::OVERHEAD + 1
+            )
+            .is_err()
+        );
         struct InterruptedBody;
         impl Read for InterruptedBody {
             fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
@@ -1425,78 +1486,5 @@ mod tests {
         let error = read_bounded(InterruptedBody, None, 4).unwrap_err();
         assert!(!format!("{error:#}").contains("sensitive"));
         assert!(error.source().is_none());
-    }
-
-    #[test]
-    fn content_addressed_cache_is_no_clobber_even_for_concurrent_publishers() {
-        let bytes = b"offline bootstrap A fixture only";
-        let artifact = Artifact {
-            url: "/unused-offline".to_owned(),
-            sha256: sha256(bytes),
-            size: bytes.len(),
-        };
-        let sequence = NEXT_STAGE.fetch_add(1, Ordering::Relaxed);
-        let root = std::env::temp_dir().join(format!(
-            "celeste-beta-delivery-test-{}-{}-{sequence}",
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        fs::create_dir(&root).unwrap();
-        let parent = root.join(&artifact.sha256);
-        let path = parent.join("bootstrap-a.jar");
-        struct Cleanup {
-            root: PathBuf,
-            parent: PathBuf,
-            path: PathBuf,
-        }
-        impl Drop for Cleanup {
-            fn drop(&mut self) {
-                let _ = fs::remove_file(&self.path);
-                let _ = fs::remove_dir(&self.parent);
-                let _ = fs::remove_dir(&self.root);
-            }
-        }
-        let _cleanup = Cleanup {
-            root,
-            parent: parent.clone(),
-            path: path.clone(),
-        };
-        std::thread::scope(|scope| {
-            let first = scope.spawn(|| store_bootstrap(&path, &artifact, bytes));
-            let second = scope.spawn(|| store_bootstrap(&path, &artifact, bytes));
-            first.join().unwrap().unwrap();
-            second.join().unwrap().unwrap();
-        });
-        assert_eq!(fs::read(&path).unwrap(), bytes);
-        assert_eq!(
-            fs::read_dir(&parent).unwrap().count(),
-            1,
-            "only immutable Bootstrap A remains"
-        );
-        let modified = fs::metadata(&path).unwrap().modified().unwrap();
-        // Hold the existing artifact nonreplaceably on Windows to represent a loaded agent.
-        #[cfg(windows)]
-        let held = {
-            use std::os::windows::fs::OpenOptionsExt;
-            fs::OpenOptions::new()
-                .read(true)
-                .share_mode(1)
-                .open(&path)
-                .unwrap()
-        };
-        store_bootstrap(&path, &artifact, bytes).unwrap();
-        assert_eq!(fs::metadata(&path).unwrap().modified().unwrap(), modified);
-        #[cfg(windows)]
-        drop(held);
-        fs::write(&path, b"preexisting mismatch").unwrap();
-        assert!(store_bootstrap(&path, &artifact, bytes).is_err());
-        assert_eq!(
-            fs::read(&path).unwrap(),
-            b"preexisting mismatch",
-            "mismatched cached files must never be overwritten"
-        );
     }
 }

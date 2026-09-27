@@ -52,6 +52,12 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Install pinned native toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt,llvm-tools-preview
+
       - name: Verify native host toolchain
         shell: bash
         env:
@@ -87,12 +93,17 @@ jobs:
           $taskUserRoot = [Environment]::GetFolderPath('UserProfile')
           $taskCargoRoot = if ($env:CARGO_HOME) { [IO.Path]::GetFullPath($env:CARGO_HOME) } else { Join-Path $taskUserRoot '.cargo' }
           $taskRoot = [IO.Path]::GetFullPath($env:GITHUB_WORKSPACE)
-          $taskFlags = @('--remap-path-prefix', "$taskUserRoot=/user", '--remap-path-prefix', "$taskCargoRoot=/cargo", '--remap-path-prefix', "$taskRoot=/src", '-C', 'link-arg=/DEBUG:NONE')
+          $taskFlags = @('-Dwarnings', '--remap-path-prefix', "$taskUserRoot=/user", '--remap-path-prefix', "$taskCargoRoot=/cargo", '--remap-path-prefix', "$taskRoot=/src", '-C', 'link-arg=/DEBUG:NONE')
           @(
             "CARGO_ENCODED_RUSTFLAGS=$($taskFlags -join [char]31)"
             'CARGO_PROFILE_RELEASE_DEBUG=false'
             'CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS=false'
           ) | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Deny Rust warnings on Unix
+        if: runner.os != 'Windows'
+        shell: bash
+        run: echo 'RUSTFLAGS=-Dwarnings' >> "$GITHUB_ENV"
 
       - name: Check candidate packager
         shell: bash

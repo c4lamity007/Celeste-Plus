@@ -3,6 +3,11 @@
 This guide applies to **Celeste+**, in `c4lamity007/Celeste-Plus`.
 The separate Celeste repository supplies the pinned game core only.
 
+For the next client/server protocol, manual-sales policy, verification results,
+certificate rotation, release prerequisites and rollback steps, read the
+[protocol 2 record](../../docs/auth-protocol-v2-20260927.md). The historical
+seven-target native approval below applies only to its exact old bytes.
+
 The goal is strong protection at authorization boundaries while keeping rendering,
 input, cryptography and bulk processing fast. There is no universal “maximum”
 setting that achieves both. Use the strongest configuration that passes the
@@ -68,13 +73,13 @@ These are tested compatibility choices, not a claim that strings alone make a
 client unpatchable. Any stronger profile must rerun the same artifact, lifecycle,
 reflection and performance gates.
 
-### Native VMProtect
+### Native VMProtect: historical seven-function approval
 
 Use the installed, registered **VMProtect Lite 3.10.4** GUI. Lite has no console
 compiler; do not pass console arguments to `VMProtect.exe` and describe that as
 CI automation. [Official edition comparison](https://vmpsoft.com/vmprotect/purchase)
 
-The September 27 successful compile used the following saved GUI settings.
+The historical September 27 successful compile used the following saved GUI settings.
 The exact-artifact verifier has since verified all seven reviewed transformation
 paths. Performance and authenticated attachment remain unverified.
 [Run evidence](../../docs/protection-run-20260927.md)
@@ -194,25 +199,32 @@ python tools/packaging/prepare_vmprotect_map.py prepare `
   --binary '<native-input>/Celeste+.exe' `
   --original-map '<native-input>/Celeste+.map' `
   --candidate '<native-input>/candidate.json' `
-  --output-directory '<fresh-alias-directory>'
+  --output-directory '<fresh-alias-directory>' --profile auth-v2-14
 
 python tools/packaging/prepare_vmprotect_map.py validate `
   --binary '<alias-directory>/Celeste+.exe' `
   --original-map '<alias-directory>/Celeste+.original.map' `
   --candidate '<alias-directory>/candidate.json' `
   --alias-map '<alias-directory>/Celeste+.map' `
-  --mapping-record '<alias-directory>/mapping.json'
+  --mapping-record '<alias-directory>/mapping.json' --profile auth-v2-14
 ```
 
 Preparation copies the executable byte-for-byte, retains the original MAP and
-changes only seven reviewed MAP labels. It verifies candidate hashes, unique
+changes only the selected profile's reviewed MAP labels. It verifies candidate hashes, unique
 symbols, executable ranges and PE exception/unwind boundaries. `mapping.json`
 is private selection evidence, with status `mapping-only-not-protection-evidence`.
 Keep the entire bundle private. Rebuilds require a new matching bundle.
 
+`historical-7` remains the default and preserves the old mapping format. The
+explicit `auth-v2-14` profile adds signed TLS policy verification, the TLS leaf
+verifier, artifact decryption, debugger rejection, HWID v2 retrieval, prelaunch
+validation and grant requests. It requires all 14 exact linked function starts;
+neither the MAP validator nor the importer infers a profile from an input record.
+This is target selection, not approval of a new protected binary.
+
 1. Open the alias bundle's unchanged `Celeste+.exe` with its derived `.map`
    beside it.
-2. Add exactly the seven validated aliases. Confirm that every selection resolves
+2. Add exactly the selected profile's validated aliases. Confirm that every selection resolves
    and inspect any code absorbed through inlining. Use Virtualization to reproduce
    the successful compile; evaluate Ultra in a separate comparison.
 3. Choose each function's mode, review the options above, and save the `.vmp`
@@ -227,11 +239,46 @@ Keep the entire bundle private. Rebuilds require a new matching bundle.
 
 If using the installed `vmprotect-control` MCP bridge, its supported order is
 `vmp_status`, `vmp_inspect_project`, `vmp_prepare_project`, `vmp_open_project`,
-`vmp_gui_state`, `vmp_compile`, then `vmp_job_result`. The standalone Plus input
+`vmp_gui_state`, then one `vmp_compile`. Poll `vmp_compile_status` with bounded,
+read-only calls until completion or failure, then read `vmp_job_result`. Do not
+submit another compile to obtain status or accept the automatic Execute prompt.
+The standalone Plus input
 directory must be within its explicitly configured allowed roots. A project with
 no selected procedures is not a protection preset. The bridge needs an unlocked
 desktop and does not supply signing or an independent protection verifier.
 The exact input root for the recorded September 27 run was approved and configured.
+
+The repository wrapper prepares a fresh alias bundle, narrows allowed roots for
+that invocation, and preserves compiler evidence. It has a bounded timeout and
+does not issue a protection receipt:
+
+```powershell
+pwsh -NoProfile -File tools/packaging/run_vmprotect_mcp.ps1 `
+  -InputDirectory 'build/protection-20260927-v2/native-candidate-02' `
+  -Profile auth-v2-14 `
+  -ProjectTemplate '<reviewed-v2-template.vmp>' `
+  -McpPluginDirectory '<installed-vmprotect-control-plugin>' `
+  -McpPython '<MCP-python.exe>' `
+  -ReviewedConfig '<reviewed-vmp-config.json>' `
+  -OutputDirectory '<fresh-private-MCP-output>'
+```
+
+The current local v2 selection uses these exact inputs; none is a protected
+publication artifact:
+
+| Local evidence | SHA-256 |
+| --- | --- |
+| `build/protection-20260927-v2/native-candidate-02/Celeste+.exe` (7,601,664 bytes) | `9298b5c89f8966acd346af07c3bad70b6adb81f1240de1e9d7842afca7dd2097` |
+| Matching original private MAP | `76af2433913d9373645e38c97b6b5e98b008b0d40f659a7013c04ac200a29b66` |
+| `build/protection-20260927-v2/aliased-input-02/mapping.json` | `77330905c5a9c4214c22a81cb549cf4e5f36401ae481aea4195ca5c7e16c0bbe` |
+| `build/protection-20260927-v2/auth-v2-14.template.vmp` | `bc840eea370c09f27ce8203f48cd43233bb8d2f19cabc4115b7518efba336d82` |
+
+The template retains the historical GUI-exported `Options="332032"` and 20%
+complexity; only input/output paths and the 14 alias selections were replaced.
+All selections request Virtualization. It is a derived template, not a fresh
+GUI export or independent coverage evidence. The release build passed locked
+Rust 1.97.1 compilation with warnings denied and metadata stripping. Private
+MAPs, addresses and projects stay out of Git and public downloads.
 
 ### 5. Verify function, performance and final bytes
 
@@ -252,6 +299,13 @@ original MAP, derived MAP, alias record and actual compiler evidence, including
 the transformation and mode of every selected function. A completed GUI job or
 changed output bytes cannot substitute for that report.
 
+An entry thunk or high section entropy alone does not prove virtualization.
+Review the actual loaded/depacked paths from each selected function into VM
+operand decoding and dispatch, tied to the exact input/output/project and
+compiler evidence. The historical exact-artifact verifier remains pinned to its
+old seven-function artifact; it cannot approve a new 14-function build. Runtime
+authentication, game attachment and performance remain separate checks.
+
 The GUI importer can then produce the normal Sign layout:
 
 ```powershell
@@ -262,6 +316,7 @@ python tools/packaging/import_gui_native_candidate.py `
   --compile-evidence '<actual-compiler-evidence-file>' `
   --derived-map '<alias-directory>/Celeste+.map' `
   --map-alias-record '<alias-directory>/mapping.json' `
+  --profile auth-v2-14 `
   --release-id '<release-id>' `
   --output '<fresh-sign-layout-directory>'
 ```
@@ -270,6 +325,8 @@ The importer does not execute a verifier, approve a tool, sign, or publish. It
 revalidates all inputs, checks metadata and current source hashes, and writes
 `protected-candidates.json` only after successful validation. The protection
 policy refuses any unapproved protector/configuration/verifier tuple.
+The explicit v2 profile additionally requires its validated alias evidence and
+coverage of all 14 functions. It does not expand the approved protection policy.
 
 For the normal Authenticode-signed path, after a genuine import succeeds, sign
 with the reviewed Windows publisher identity:
@@ -362,10 +419,10 @@ The September 27 identity is already created and its public key installed. Use
 Its fingerprint and deployment evidence are recorded in the
 [native infrastructure rollout](../../docs/native-infrastructure-rollout-20260927.md).
 
-## Current release status
+## Historical September 27 native release
 
 The full backend and repaired Java catalog `celeste-plus-20260927-auth-hardening-02`
-are deployed and verified at Fly version 130. Native release `...-01` is registered
+were deployed and verified at Fly version 130. Native release `...-01` was registered
 at sequence 1 with the approved exact protection receipt and seven reviewed
 virtualized functions. The former endpoint 404, missing publication key and
 empty policy findings are historical. Standard artifact bytes and identities

@@ -46,7 +46,7 @@ public final class BetaDeliveryClient {
     private static final Set<String> MANIFEST_KEYS = Set.of("product", "aud", "sub", "device", "iat", "nbf", "exp",
         "installer_jti", "installer_sha256", "catalog_sha256", "schema", "release_id", "client_version", "runtime_sha256", "artifacts", "cnf", "request_nonce");
     private static final Set<String> INSTALLER_KEYS = Set.of("product", "aud", "sub", "device", "iat", "nbf", "exp", "jti",
-        "release", "client_sha256", "payload_release", "payload_sha256", "bootstrap", "bootstrap_sha256", "cnf");
+        "release", "client_sha256", "payload_release", "payload_sha256", "bootstrap", "bootstrap_sha256", "cnf", "auth_protocol");
     private final URI origin;
     private final PublicKey pinnedKey;
     private final String installerToken;
@@ -58,7 +58,7 @@ public final class BetaDeliveryClient {
 
     public BetaDeliveryClient(URI origin, byte[] pinnedEd25519Key, String installerToken,
                               String expectedDevice, long expectedUid, DpopProofSigner proofSigner) throws GeneralSecurityException {
-        this(origin, pinnedEd25519Key, installerToken, expectedDevice, expectedUid, proofSigner, Clock.systemUTC(), new HttpsTransport());
+        this(origin, pinnedEd25519Key, installerToken, expectedDevice, expectedUid, proofSigner, Clock.systemUTC(), new HttpsTransport(origin, pinnedEd25519Key));
     }
 
     /** Package-local offline seam. Production construction always uses bounded, nonredirecting HTTPS. */
@@ -227,18 +227,25 @@ public final class BetaDeliveryClient {
     private byte[] fetch(String path, String manifest, String nonce, int limit, String mediaType)
         throws IOException, InterruptedException, GeneralSecurityException {
         URI uri = origin.resolve(path);
+        try (ArtifactEnvelope envelope = manifest == null ? null : new ArtifactEnvelope()) {
+        int transportLimit = envelope == null ? limit : Math.addExact(limit, ArtifactEnvelope.OVERHEAD);
         Map<String, String> headers = new LinkedHashMap<>();
         headers.put("Authorization", "DPoP " + installerToken);
-        headers.put("DPoP", proofSigner.proof("GET", uri, installerToken));
+        headers.put("DPoP", envelope == null ? proofSigner.proof("GET", uri, installerToken)
+            : proofSigner.proof("GET", uri, installerToken, envelope.publicKey(), envelope.nonce()));
         headers.put("Accept", mediaType);
         headers.put("Cache-Control", "no-store");
         if (manifest != null) headers.put("X-Celeste-Beta-Manifest", manifest);
         if (nonce != null) headers.put("X-Celeste-Request-Nonce", nonce);
-        Reply reply = transport.get(uri, Map.copyOf(headers), limit, REQUEST_TIMEOUT);
+        if (envelope != null) {
+            headers.put("X-Celeste-Delivery-Key", envelope.publicKey());
+            headers.put("X-Celeste-Request-Nonce", envelope.nonce());
+        }
+        Reply reply = transport.get(uri, Map.copyOf(headers), transportLimit, REQUEST_TIMEOUT);
         byte[] body = reply.body();
         boolean accepted = false;
         try {
-            if (!uri.equals(reply.uri()) || reply.status() != 200 || body == null || body.length > limit)
+            if (!uri.equals(reply.uri()) || reply.status() != 200 || body == null || body.length > transportLimit)
                 throw new IOException("Beta response origin, status or size rejected");
             List<String> types = values(reply.headers(), "Content-Type");
             if (types.size() != 1 || !types.getFirst().split(";", 2)[0].trim().equalsIgnoreCase(mediaType))
@@ -249,11 +256,13 @@ public final class BetaDeliveryClient {
             List<String> encodings = values(reply.headers(), "Content-Encoding");
             if (encodings.size() > 1 || (!encodings.isEmpty() && !encodings.getFirst().equalsIgnoreCase("identity")))
                 throw new IOException("Encoded beta responses are not accepted");
+            if (envelope != null) return envelope.open(body, uri.getRawPath(), installerToken, limit);
             accepted = true;
             return body;
         } catch (NumberFormatException exception) {
             throw new IOException("Beta response length rejected", exception);
         } finally { if (!accepted && body != null) Arrays.fill(body, (byte) 0); }
+        }
     }
 
     static List<String> values(Map<String, List<String>> headers, String name) {
@@ -265,6 +274,7 @@ public final class BetaDeliveryClient {
     private JsonObject installer() throws GeneralSecurityException {
         JsonObject claims = signed(installerToken, "celeste-installer");
         exact(claims, INSTALLER_KEYS);
+        if (integer(claims, "auth_protocol") != 2) throw invalid("Installer authorization requires the current protocol");
         identity(claims);
         proofSigner.requireBinding(claims);
         long now = clock.instant().getEpochSecond();

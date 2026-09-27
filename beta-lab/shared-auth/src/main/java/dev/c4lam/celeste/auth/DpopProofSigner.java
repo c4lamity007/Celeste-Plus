@@ -68,6 +68,20 @@ public final class DpopProofSigner {
     }
 
     public String proof(String method, URI uri, String accessToken) throws GeneralSecurityException {
+        return proof(method, uri, accessToken, null, null, null);
+    }
+
+    /** Artifact key/nonce are covered by the same installation proof, never unsigned headers alone. */
+    public String proof(String method, URI uri, String accessToken, String deliveryKey, String deliveryNonce) throws GeneralSecurityException {
+        return proof(method, uri, accessToken, deliveryKey, deliveryNonce, null);
+    }
+
+    public String proofForDevice(String method, URI uri, String accessToken, String hardwareDigest) throws GeneralSecurityException {
+        if (hardwareDigest == null || !hardwareDigest.matches("[0-9a-f]{64}")) throw new GeneralSecurityException("Invalid device proof binding");
+        return proof(method, uri, accessToken, null, null, hardwareDigest);
+    }
+
+    private String proof(String method, URI uri, String accessToken, String deliveryKey, String deliveryNonce, String hardwareDigest) throws GeneralSecurityException {
         if (method == null || !method.matches("[A-Z]{3,16}")) throw new GeneralSecurityException("Invalid DPoP method");
         byte[] unique = new byte[24];
         RANDOM.nextBytes(unique);
@@ -76,6 +90,16 @@ public final class DpopProofSigner {
         claims.addProperty("htm", method);
         claims.addProperty("htu", target(uri));
         claims.addProperty("iat", clock.instant().getEpochSecond());
+        if (deliveryKey != null || deliveryNonce != null) {
+            if (deliveryKey == null || deliveryNonce == null || !deliveryKey.matches("[A-Za-z0-9_-]{43}")
+                || !deliveryNonce.matches("[A-Za-z0-9_-]{32}")
+                || Base64.getUrlDecoder().decode(deliveryKey).length != 32
+                || !BASE64.encodeToString(Base64.getUrlDecoder().decode(deliveryKey)).equals(deliveryKey))
+                throw new GeneralSecurityException("Invalid artifact proof binding");
+            claims.addProperty("cek", deliveryKey);
+            claims.addProperty("cnonce", deliveryNonce);
+        }
+        if (hardwareDigest != null) claims.addProperty("hwid", hardwareDigest);
         if (accessToken != null) {
             if (accessToken.isEmpty() || accessToken.length() > 32768
                 || !accessToken.chars().allMatch(c -> c > 32 && c < 127)) {

@@ -1,4 +1,4 @@
-"""Derive seven readable MAP labels without changing executable bytes.
+"""Derive explicitly selected readable MAP labels without changing executable bytes.
 
 This records target selection only. It neither configures VMProtect nor proves
 that a protector transformed any function. Private maps must stay unpublished.
@@ -25,6 +25,32 @@ TARGETS = (
     ("8delivery15verify_manifest", "celeste_verify_catalog"),
     ("8delivery16verify_installer", "celeste_verify_grant"),
 )
+DEFAULT_PROFILE = "historical-7"
+# Each v2 pattern is reviewed against the actual compiler MAP. The historical
+# suffix list above remains unchanged so its evidence is still reproducible.
+V2_PROFILE = "auth-v2-14"
+V2_EXTRA_TARGETS = (
+    (rb"_RNvNtC[A-Za-z0-9_]+_11CelestePlus16transport_policy6verify", "celeste_verify_tls_policy"),
+    (rb"_RNvXNtC[A-Za-z0-9_]+_11CelestePlus16transport_policyNtB[0-9a-z]+_14PinnedVerifier"
+     rb"NtNtC[A-Za-z0-9_]+_6rustls6verify18ServerCertVerifier18verify_server_cert", "celeste_verify_tls_leaf"),
+    (rb"_RNvMNtC[A-Za-z0-9_]+_11CelestePlus17artifact_envelopeNtB[0-9a-z]+_10RequestKey7decrypt", "celeste_decrypt_artifact"),
+    (rb"_RNvNtC[A-Za-z0-9_]+_11CelestePlus11debug_guard13require_clear", "celeste_check_debugger"),
+    (rb"_RNvNtC[A-Za-z0-9_]+_11CelestePlus11hardware_v27current", "celeste_hardware_v2"),
+    (rb"_RNvMs[0-9a-z]+_NtC[A-Za-z0-9_]+_11CelestePlus4authNtB[0-9a-z]+_7Session19validate_for_launch", "celeste_validate_launch"),
+    (rb"_RNvMs[0-9a-z]+_NtC[A-Za-z0-9_]+_11CelestePlus4authNtB[0-9a-z]+_7Session13grant_request", "celeste_request_grant"),
+)
+
+
+def _targets(profile: str):
+    original = tuple((rb"_RNvNtC[A-Za-z0-9_]+_11CelestePlus" + suffix.encode("ascii"), alias)
+                     for suffix, alias in TARGETS)
+    if profile == DEFAULT_PROFILE:
+        return original
+    if profile == V2_PROFILE and len(V2_EXTRA_TARGETS) == 7:
+        return original + V2_EXTRA_TARGETS
+    raise ValueError("Unknown or incomplete MAP selection profile")
+
+
 SYMBOL = re.compile(rb"(?m)^[ \t]+([0-9a-fA-F]{4}):([0-9a-fA-F]{8})[ \t]+([^ \t\r\n]+)[ \t]+([0-9a-fA-F]{16})(?=[ \t\r\n]|$)([^\r\n]*)")
 
 
@@ -143,7 +169,9 @@ def _overlap(first, second):
     return first[0] < second[1] and second[0] < first[1]
 
 
-def _derive(binary: bytes, original_map: bytes, candidate_bytes: bytes) -> tuple[bytes, dict]:
+def _derive(binary: bytes, original_map: bytes, candidate_bytes: bytes,
+            profile: str = DEFAULT_PROFILE) -> tuple[bytes, dict]:
+    targets = _targets(profile)
     candidate = _json(candidate_bytes)
     if (candidate.get("schema") != "celeste-windows-metadata-candidate-1"
             or candidate.get("product") != "celeste_plus"
@@ -166,11 +194,11 @@ def _derive(binary: bytes, original_map: bytes, candidate_bytes: bytes) -> tuple
     replacements = []
     functions = []
     selected = set()
-    for suffix, alias in TARGETS:
-        wanted = re.compile(rb"_RNvNtC[A-Za-z0-9_]+_11CelestePlus" + suffix.encode("ascii"))
+    for pattern, alias in targets:
+        wanted = re.compile(pattern)
         found = [entry for entry in entries if wanted.fullmatch(entry[3])]
         if len(found) != 1:
-            raise ValueError("Each approved Rust target must have exactly one original MAP symbol")
+            raise ValueError(f"Target {alias} must have exactly one original MAP symbol")
         entry = found[0]
         if not re.match(rb"[ \t]+f(?:[ \t]|$)", entry[5]):
             raise ValueError("Target MAP symbol is not a function")
@@ -209,16 +237,21 @@ def _derive(binary: bytes, original_map: bytes, candidate_bytes: bytes) -> tuple
               "input_sha256": _sha(binary), "binary_size": len(binary), "candidate_sha256": _sha(candidate_bytes),
               "original_map_sha256": _sha(original_map), "aliased_map_sha256": _sha(aliased),
               "functions": functions, "status": "mapping-only-not-protection-evidence"}
+    if profile != DEFAULT_PROFILE:
+        record["schema"] = "celeste-vmp-map-alias-2"
+        record["profile"] = profile
     return aliased, record
 
 
 def validate_alias_map(binary: Path, original_map: Path, alias_map: Path,
-                       mapping_record: Path, candidate: Path) -> dict:
+                       mapping_record: Path, candidate: Path,
+                       profile: str = DEFAULT_PROFILE) -> dict:
     """Re-derive all evidence; never infer transformed-code coverage from aliases."""
     derived, expected = _derive(_read(binary, MAX_BINARY), _read(original_map, MAX_MAP),
-                                _read(candidate, MAX_RECORD))
+                                _read(candidate, MAX_RECORD), profile)
     if _read(alias_map, MAX_MAP) != derived:
-        raise ValueError("Derived MAP changed beyond the seven approved label replacements")
+        label = "seven" if profile == DEFAULT_PROFILE else "selected"
+        raise ValueError(f"Derived MAP changed beyond the {label} approved label replacements")
     record = _json(_read(mapping_record, MAX_RECORD))
     # Canonical JSON comparison also distinguishes integer fields from booleans.
     if json.dumps(record, sort_keys=True) != json.dumps(expected, sort_keys=True):
@@ -226,12 +259,13 @@ def validate_alias_map(binary: Path, original_map: Path, alias_map: Path,
     return expected
 
 
-def prepare(binary: Path, original_map: Path, candidate: Path, output: Path) -> dict:
+def prepare(binary: Path, original_map: Path, candidate: Path, output: Path,
+            profile: str = DEFAULT_PROFILE) -> dict:
     """Write a fresh, self-contained mapping bundle after validating every input."""
     binary_bytes = _read(binary, MAX_BINARY)
     map_bytes = _read(original_map, MAX_MAP)
     candidate_bytes = _read(candidate, MAX_RECORD)
-    aliased, record = _derive(binary_bytes, map_bytes, candidate_bytes)
+    aliased, record = _derive(binary_bytes, map_bytes, candidate_bytes, profile)
     output = Path(output)
     output.mkdir(parents=True, exist_ok=False)
     for name, value in (("Celeste+.exe", binary_bytes), ("Celeste+.map", aliased),
@@ -240,7 +274,7 @@ def prepare(binary: Path, original_map: Path, candidate: Path, output: Path) -> 
         with (output / name).open("xb") as stream:
             stream.write(value)
     return validate_alias_map(output / "Celeste+.exe", output / "Celeste+.original.map",
-                              output / "Celeste+.map", output / "mapping.json", output / "candidate.json")
+                              output / "Celeste+.map", output / "mapping.json", output / "candidate.json", profile)
 
 
 def main() -> int:
@@ -251,6 +285,7 @@ def main() -> int:
         command.add_argument("--binary", type=Path, required=True)
         command.add_argument("--original-map", type=Path, required=True)
         command.add_argument("--candidate", type=Path, required=True)
+        command.add_argument("--profile", choices=(DEFAULT_PROFILE, V2_PROFILE), default=DEFAULT_PROFILE)
         if name == "prepare":
             command.add_argument("--output-directory", type=Path, required=True)
         else:
@@ -259,9 +294,9 @@ def main() -> int:
     args = parser.parse_args()
     try:
         if args.command == "prepare":
-            record = prepare(args.binary, args.original_map, args.candidate, args.output_directory)
+            record = prepare(args.binary, args.original_map, args.candidate, args.output_directory, args.profile)
         else:
-            record = validate_alias_map(args.binary, args.original_map, args.alias_map, args.mapping_record, args.candidate)
+            record = validate_alias_map(args.binary, args.original_map, args.alias_map, args.mapping_record, args.candidate, args.profile)
     except (OSError, ValueError, struct.error) as error:
         parser.exit(2, f"Alias mapping rejected: {error}\n")
     print(json.dumps({"status": record["status"], "input_sha256": record["input_sha256"],

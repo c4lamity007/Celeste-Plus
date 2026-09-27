@@ -224,7 +224,10 @@ public final class BootstrapBCheck {
                 && denied.parents == 0 && MinecraftClient.queue.isEmpty(), "game preflight denial precedes parent lookup and any payload action");
             Prepared parentless = new Prepared(); parentless.parent = null;
             expect(NullPointerException.class, () -> MemoryPayloadBootstrap.load(delivery.release, MAPPING, parentless), "null runtime parent rejected");
-            byte[] tampered = delivery.delivered.get("payload-a"); tampered[0] ^= 1;
+            // AEAD transport no longer exposes a writable plaintext array. Deliberately corrupt
+            // the fixture's retained backing to continue testing B's independent rehash gate.
+            Field bytesField=BetaDeliveryClient.MemoryRelease.class.getDeclaredField("bytes");bytesField.setAccessible(true);
+            byte[] tampered=(byte[])((Map<?,?>)bytesField.get(delivery.release)).get("payload-a");tampered[0]^=1;
             expect(IOException.class, () -> MemoryPayloadBootstrap.load(delivery.release, MAPPING, new Prepared()), "retained download tampering caught by bootstrap rehash");
             tampered[0] ^= 1; delivery.release.close();
             expect(IllegalStateException.class, () -> MemoryPayloadBootstrap.load(delivery.release, MAPPING, new Prepared()), "closed release rejected");
@@ -281,7 +284,6 @@ public final class BootstrapBCheck {
 
     /** Produces a genuine verified release using fresh local fixture signing keys and an in-process transport only. */
     private static final class Delivery implements AutoCloseable {
-        final Map<String, byte[]> delivered = new LinkedHashMap<>();
         final BetaDeliveryClient.MemoryRelease release;
         final String digest;
         Delivery(Map<String, byte[]> entries) throws Exception { this(entries, Instant.now().getEpochSecond()); }
@@ -300,7 +302,7 @@ public final class BootstrapBCheck {
             JsonObject confirmation = new JsonObject(); confirmation.addProperty("jkt", proofSigner.thumbprint());
             String device = "bootstrap_fixture_device_0000000001";
             JsonObject installer = identity("celeste-installer", device, now, now + 600);
-            installer.add("cnf", confirmation);
+            installer.add("cnf", confirmation); installer.addProperty("auth_protocol",2);
             installer.addProperty("jti", "bootstrap-fixture-grant-0001");
             installer.addProperty("release", "production-launcher"); installer.addProperty("client_sha256", "b".repeat(64));
             installer.addProperty("payload_release", "production-payload"); installer.addProperty("payload_sha256", "c".repeat(64));
@@ -331,7 +333,9 @@ public final class BootstrapBCheck {
                     String id = uri.getPath().substring(uri.getPath().lastIndexOf('/') + 1);
                     if (!headers.get("Authorization").equals("DPoP " + installerToken) || !headers.containsKey("DPoP")
                         || !headers.get("X-Celeste-Beta-Manifest").equals(manifestToken)) throw new IOException("fixture grant binding failed");
-                    byte[] bytes = artifacts.get(id).clone(); delivered.put(id, bytes);
+                    byte[] bytes;
+                    try { bytes=BetaDeliveryClientCheck.seal(artifacts.get(id),uri.getRawPath(),installerToken,headers.get("X-Celeste-Request-Nonce"),headers.get("X-Celeste-Delivery-Key")); }
+                    catch(java.security.GeneralSecurityException error){throw new IOException(error);}
                     return new BetaDeliveryClient.Reply(uri, 200, Map.of("Content-Type", List.of("application/octet-stream")), bytes);
                 });
             release = verifier.download(verifier.verifyManifest(manifestToken, requestNonce));

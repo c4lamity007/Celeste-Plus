@@ -69,7 +69,7 @@ public final class BootstrapACheck {
         cachedArchiveResources();
         Path root = Path.of(args[0]).toAbsolutePath().normalize(); Files.createDirectories(root);
         Path temporary = Files.createTempDirectory(root, "bootstrap-a-check-").toRealPath();
-        try { support(temporary); supportPreparationCleanup(temporary); dev.celestebeta.attach.BootstrapIpcCheck.run(temporary); }
+        try { support(temporary); supportPreparationCleanup(temporary); SupportFileCustodianCheck.run(temporary); dev.celestebeta.attach.BootstrapIpcCheck.run(temporary); }
         finally { eraseFixture(temporary); }
         hooks();
         hostLifetimes();
@@ -411,22 +411,30 @@ public final class BootstrapACheck {
             reflected(rollback, null, null, null, prepared, original);
             check(original.getSuppressed().length == 1 && original.getMessage().equals("original preparation failure"),
                 "rollback preserves original failure and records incomplete support cleanup");
-            check(Files.readString(foreign).equals("keep") && childCount(prepared.directory()) == 7,
+            check(Files.readString(foreign).equals("keep") && childCount(prepared.directory()) == 8,
                 "unowned child refuses preparation cleanup before any deletion");
             Files.delete(foreign);
             try (java.util.jar.JarFile bridge = new java.util.jar.JarFile(prepared.directory().resolve("celeste-beta-bridges.jar").toFile())) {
                 field(ResidentSupport.class, "retainedBridge").set(prepared, bridge);
                 prepared.discardIfUninstalled();
-                check(childCount(prepared.directory()) == 6, "partial irreversible bridge installation preserves support files");
+                check(childCount(prepared.directory()) == 7, "partial irreversible bridge installation preserves support files");
                 field(ResidentSupport.class, "retainedBridge").set(prepared, null);
             }
             field(ResidentSupport.class, "installed").setBoolean(prepared, true);
             prepared.discardIfUninstalled();
-            check(childCount(prepared.directory()) == 6, "installed resident support is never discarded by preparation rollback");
+            check(childCount(prepared.directory()) == 7, "installed resident support is never discarded by preparation rollback");
             field(ResidentSupport.class, "installed").setBoolean(prepared, false);
             reflected(rollback, null, null, null, prepared, new IOException("reversible hook preparation failure"));
             check(!Files.exists(prepared.directory()) && childCount(root) == baseline,
                 "host reversible rollback discards only its uninstalled prepared support");
+        }
+        try (TwoPartMemoryClassLoader retained = fixture.retained()) {
+            ResidentSupport prepared=ResidentSupport.prepare(retained,root,fixture.agent());
+            var bridge=new java.util.jar.JarFile(prepared.directory().resolve("celeste-beta-bridges.jar").toFile());
+            field(ResidentSupport.class,"retainedBridge").set(prepared,bridge);
+            field(ResidentSupport.class,"installed").setBoolean(prepared,true);
+            var close=ResidentSupport.class.getDeclaredMethod("retireAtExit");close.setAccessible(true);reflected(close,prepared);
+            check(!Files.exists(prepared.directory()),"JVM-exit cleanup closes owned open jar before removing exactly its files");
         }
         // Exercise partial materialization directly without adding a production fault seam.
         Class<?> type = Arrays.stream(ResidentSupport.class.getDeclaredClasses())

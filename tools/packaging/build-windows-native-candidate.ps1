@@ -14,14 +14,14 @@ if ($env:RUSTFLAGS -or $env:CARGO_ENCODED_RUSTFLAGS) { throw 'Run with RUSTFLAGS
 $taskManifest = 'beta-lab/native-launcher/Cargo.toml'
 $taskExecutable = 'CelestePlus.exe'
 $taskPublicName = 'Celeste+.exe'
-$taskSysroot = (& rustc --print sysroot).Trim()
+$taskSysroot = (& rustc +1.97.1 --print sysroot).Trim()
 if ($LASTEXITCODE -ne 0) { throw 'Cannot locate the Rust sysroot.' }
 $taskStrip = Join-Path $taskSysroot 'lib/rustlib/x86_64-pc-windows-msvc/bin/llvm-strip.exe'
 if (-not (Test-Path -LiteralPath $taskStrip -PathType Leaf)) { throw 'Install the Rust llvm-tools-preview component before building.' }
 $taskPython = (Get-Command $Python -ErrorAction Stop).Source
 $taskUserRoot = [Environment]::GetFolderPath('UserProfile')
 $taskCargoRoot = if ($env:CARGO_HOME) { [IO.Path]::GetFullPath($env:CARGO_HOME) } else { Join-Path $taskUserRoot '.cargo' }
-$taskFlags = @('--remap-path-prefix', "$taskUserRoot=/user", '--remap-path-prefix', "$taskCargoRoot=/cargo", '--remap-path-prefix', "$taskRoot=/src", '-C', 'link-arg=/DEBUG:NONE')
+$taskFlags = @('-Dwarnings', '--remap-path-prefix', "$taskUserRoot=/user", '--remap-path-prefix', "$taskCargoRoot=/cargo", '--remap-path-prefix', "$taskRoot=/src", '-C', 'link-arg=/DEBUG:NONE')
 $taskEnvironmentNames = @('CARGO_ENCODED_RUSTFLAGS','CARGO_PROFILE_RELEASE_DEBUG','CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS')
 $taskOldEnvironment = @{}
 foreach ($taskName in $taskEnvironmentNames) { $taskOldEnvironment[$taskName] = [Environment]::GetEnvironmentVariable($taskName, 'Process') }
@@ -35,6 +35,7 @@ function Get-CandidateSourceHashes {
     $taskManifestPath = Join-Path $taskRoot $taskManifest
     $taskSourceFiles += Get-Item -LiteralPath $taskManifestPath,(Join-Path ([IO.Path]::GetDirectoryName($taskManifestPath)) 'Cargo.lock'),$PSCommandPath,(Join-Path $PSScriptRoot 'windows_release_metadata.py')
     $taskSourceFiles += Get-Item -LiteralPath (Join-Path $taskRoot 'beta-lab/native-launcher/assets/celeste-logo.png')
+    $taskSourceFiles += Get-Item -LiteralPath (Join-Path $taskRoot 'rust-toolchain.toml')
     @($taskSourceFiles | Sort-Object FullName -Unique | ForEach-Object { [ordered]@{path=[IO.Path]::GetRelativePath($taskRoot,$_.FullName).Replace('\','/'); sha256=(Get-FileHash -LiteralPath $_.FullName).Hash.ToLowerInvariant()} })
 }
 $taskInputs = @(Get-CandidateSourceHashes)

@@ -17,6 +17,7 @@ import subprocess
 import sys
 import time
 import zipfile
+import prepare_runtime
 
 ROOT = Path(__file__).resolve().parents[1]
 PROFILES = ROOT / 'beta-lab/obfuscation/profiles'
@@ -87,12 +88,18 @@ def checked_parents(path):
 
 
 def source_inputs():
+    # Reuse the reconstruction contract, including path safety, lock and per-file
+    # hashes. A manifest alone does not prove the source beside it is unchanged.
+    _, _, overlay = prepare_runtime.read_contract(ROOT)
     paths = list((ROOT / 'beta-lab').rglob('*.java')) + list(PROFILES.glob('*.json'))
-    paths += [ROOT / path for path in ('build.gradle', 'core.lock.json', 'runtime-overlay/manifest.json',
-        'tools/protect_java_release.py', 'tools/validate_package.py',
+    paths += [ROOT / path for path in ('build.gradle', 'gradle.properties', 'settings.gradle',
+        'core.lock.json', 'runtime-overlay/manifest.json',
+        'tools/protect_java_release.py', 'tools/prepare_runtime.py', 'tools/validate_package.py',
         'beta-lab/obfuscation/check.init.gradle', 'beta-lab/obfuscation/prepare_obfuscation.py',
         'beta-lab/release-package/package_beta.py')]
-    return {str(p.relative_to(ROOT)): digest(bounded(p)) for p in sorted(set(paths))}
+    result = {p.relative_to(ROOT).as_posix(): digest(bounded(p)) for p in sorted(set(paths))}
+    result.update({'runtime-overlay/' + name: digest(data) for name, data in overlay.items()})
+    return dict(sorted(result.items()))
 
 
 def run(args):

@@ -43,7 +43,7 @@ def source_digest(product: str, root: Path = ROOT) -> str:
                root / "beta-lab/native-launcher/src"]
     manifests = [root / "beta-lab/native-launcher/Cargo.toml",
                  root / "beta-lab/native-launcher/Cargo.lock",
-                 root / "beta-lab/native-launcher/assets/celeste-logo.png"]
+                 root / "beta-lab/native-launcher/assets/celeste-logo.png", root / "rust-toolchain.toml"]
     files = list(manifests)
     for folder in folders:
         sources = [p for p in folder.rglob("*") if p.is_file() and "__pycache__" not in p.parts]

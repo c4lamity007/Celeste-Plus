@@ -114,6 +114,15 @@ class PrepareChecks(unittest.TestCase):
             tool.prepare(self.repo,self.core)
         self.assertFalse((self.repo/'build').exists())
 
+    def test_correctly_hashed_crlf_source_is_rejected_before_git_can_normalize_it(self):
+        encoded = OVERLAY.replace(b'\n', b'\r\n')
+        (self.repo/'runtime-overlay'/A).write_bytes(encoded)
+        self.entries[0]['sha256'] = tool.sha(encoded)
+        self.write_contract()
+        with self.assertRaisesRegex(ValueError, 'must use LF line endings'):
+            tool.prepare(self.repo, self.core)
+        self.assertFalse((self.repo/'build').exists())
+
     def test_manifest_hash_mismatch_fails_before_output(self):
         with (self.repo/'runtime-overlay/manifest.json').open('ab') as stream:stream.write(b' ')
         with self.assertRaisesRegex(ValueError,'manifest hash differs'):
@@ -232,8 +241,8 @@ class PrepareChecks(unittest.TestCase):
 
     def test_gradle_command_handles_posix_mode_and_windows_paths_with_spaces(self):
         destination=Path('source with spaces')
-        self.assertEqual(tool.gradle_command(destination,windows=False),['sh',str(destination/'gradlew'),'--no-daemon','build'])
-        self.assertEqual(tool.gradle_command(destination,windows=True),[str(destination/'gradlew.bat'),'--no-daemon','build'])
+        self.assertEqual(tool.gradle_command(destination,windows=False),['sh',str(destination/'gradlew'),'--no-daemon',':build'])
+        self.assertEqual(tool.gradle_command(destination,windows=True),[str(destination/'gradlew.bat'),'--no-daemon',':build'])
 
     def test_media_bridge_rejects_wrong_platform_format_or_architecture(self):
         bridge = self.repo/'selected.dll'

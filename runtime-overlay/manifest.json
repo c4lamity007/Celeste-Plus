@@ -19,18 +19,23 @@
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/auth/AuthBootstrap.java",
-      "sha256": "b2db857ede244e2df4b0684e3e9be153db17a858a2cc3129283e9f1a3d3a3a61",
+      "sha256": "0d0af3fd90f8c5baaa4ed53b624a90565e247cb976cc7d20dbf0cc120dae1571",
       "baseSha256": "4fd99b1932863ebb17cb99d970ab466b3e3032d267d7fe21d5ec0e8fab369717"
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/auth/AuthServiceClient.java",
-      "sha256": "442411d06dfc65071a812f87a70cc9cd60e07931f14d2ae8b00c753bb421de7e",
+      "sha256": "a563b9f1e2fb7d263a280b8662fa33732570ab2ba3b1dd995a65caa57df35a8c",
       "baseSha256": "00c18092c9d59746a78b238158b93442cbb87972803888a9ac027b26717b7e57"
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/auth/CredentialStore.java",
       "sha256": "9cdb22bb137387ebebf39b373fb21e18315f8e6efb11eddc8c5d6db55f69420c",
       "baseSha256": "0d74f6865565120accb9ef85cc40b3b33a772001b4f3574f5fbea8037ad32763"
+    },
+    {
+      "path": "src/main/java/dev/c4lam/celeste/auth/DpopProofSigner.java",
+      "sha256": "500684da9754c7fc726933e4d0bb226a97356a6ed8864d6c236907e4931b0524",
+      "baseSha256": "557bbb42633f8ebb29610613919c4ccac1221f4a94a54b17b47c7ac6ad04d722"
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/auth/EnvironmentGate.java",
@@ -41,6 +46,16 @@
       "path": "src/main/java/dev/c4lam/celeste/auth/HardwareFingerprint.java",
       "sha256": "c2572990e8e203a92e04fa72bd6619483fe8471de8e0e072426119cbd743a7a9",
       "baseSha256": "0bba27f31cc830a2c253b66a57f1b2c6e7fa744e2cb22d05e72396a396450bb1"
+    },
+    {
+      "path": "src/main/java/dev/c4lam/celeste/auth/HardwareIdentityV2.java",
+      "sha256": "9dec32ce405a8cb910d5aa62344e842ad7a0f06e0a2fa5998ded393e7dced809",
+      "baseSha256": null
+    },
+    {
+      "path": "src/main/java/dev/c4lam/celeste/auth/PinnedTls.java",
+      "sha256": "af8c3d4d3f43918a6e661bd046526804bf1c5f7107b7f9aa71b0f25b2f9ee149",
+      "baseSha256": null
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/auth/PortableCredentialProtection.java",
@@ -766,6 +781,11 @@
       "path": "src/main/java/dev/celestebeta/host/GameplayCallbackBridge.java",
       "sha256": "79a90247c41b75b6544bfabcf5f58d659f2cf578d81d0ac01af0981a00f34496",
       "baseSha256": "fef85a86856e0aa0e484e578fccb12fb52b52a8d10e460b48bdaaa0a4e1d9edf"
+    },
+    {
+      "path": "src/main/java/dev/celestebeta/host/ResourceReloadBridge.java",
+      "sha256": "8723b369e8af7b988cd65c95f2d2b189aa334be41714f1f82805d302fe1df7b4",
+      "baseSha256": "e0d44d994741802c75612d56c610f8a82e863ac59194926ec9949a06be43a242"
     },
     {
       "path": "src/main/java/dev/celestebeta/host/RotationHookBridge.java",

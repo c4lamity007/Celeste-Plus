@@ -167,6 +167,7 @@ def read_contract(repo: Path) -> tuple[dict, dict, dict[str, bytes]]:
         require(len(encoded) <= 4 * 1024 * 1024 and total <= 64 * 1024 * 1024, "Overlay content exceeds bounds")
         if kind == "text":
             require(b"\x00" not in encoded, "Overlay is not source text")
+            require(b"\r\n" not in encoded, "Overlay text must use LF line endings to preserve Git hashes: " + name)
             encoded.decode("utf-8")
         else:
             validate_png(encoded)
@@ -306,7 +307,9 @@ def media_override(destination: Path) -> Path:
 def gradle_command(destination: Path, *, windows: bool, init_script: Path | None = None) -> list[str]:
     wrapper = destination / ("gradlew.bat" if windows else "gradlew")
     return (([str(wrapper)] if windows else ["sh", str(wrapper)]) + ["--no-daemon"]
-            + (["--init-script", str(init_script)] if init_script is not None else []) + ["build"])
+            # Only the root runtime is a Plus packaging input. An unqualified
+            # task also builds the pinned core's separate Standard loader.
+            + (["--init-script", str(init_script)] if init_script is not None else []) + [":build"])
 
 
 def main(argv=None) -> None:

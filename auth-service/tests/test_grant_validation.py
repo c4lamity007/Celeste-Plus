@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import time
+from types import SimpleNamespace
 from contextlib import contextmanager
 from dataclasses import replace
 
@@ -185,12 +186,12 @@ def test_invalid_signed_grants_return_401_not_server_errors(env, updates):
 def test_create_app_preserves_nondefault_grant_lifetime(env):
     config = replace(env.config, grant_ttl_seconds=1200)
     app = create_app(config)
-    token = grant(env)
-    claims = env.app.state.signer.verify(token)
-    claims["exp"] = claims["iat"] + 1200
-    token = app.state.signer.sign(claims)
     path = f"/v1/bootstrap/{config.bootstrap_id}"
     with TestClient(app, base_url="https://testserver") as client:
+        configured = SimpleNamespace(**{**vars(env), "client": client, "app": app, "config": config})
+        token = grant(configured)
+        claims = app.state.signer.verify(token)
+        assert claims["exp"] - claims["iat"] == 1200
         assert client.get(path, headers=headers(env, "GET", path, token)).status_code == 200
     assert env.client.get(path, headers=headers(env, "GET", path, token)).status_code == 401
 

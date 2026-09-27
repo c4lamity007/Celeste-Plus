@@ -1,0 +1,15 @@
+{
+  "leaf_sha256": [
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  ],
+  "now": 2000000000,
+  "origin": "https://qb0f90cf11f4d1d52.fly.dev",
+  "product": "celeste_plus",
+  "public_key": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+  "request_nonce": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYX",
+  "response": {
+    "policy": "eyJhbGciOiJFZERTQSIsImtpZCI6ImNlbGVzdGUtcmVsZWFzZS0xIiwidHlwIjoiQ1NUIn0.eyJhdWQiOiJjZWxlc3RlLXRyYW5zcG9ydC1wb2xpY3kiLCJleHAiOjIwMDAwMDAxMjAsImlhdCI6MjAwMDAwMDAwMCwibGVhZl9zaGEyNTYiOlsiYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYSIsImJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmIiXSwibmJmIjoyMDAwMDAwMDAwLCJvcmlnaW4iOiJodHRwczovL3FiMGY5MGNmMTFmNGQxZDUyLmZseS5kZXYiLCJwcm9kdWN0IjoiY2VsZXN0ZV9wbHVzIiwicmVxdWVzdF9ub25jZSI6IkFBRUNBd1FGQmdjSUNRb0xEQTBPRHhBUkVoTVVGUllYIn0.5lWlOC1LsmC3orCVSpKFVFNZfWejwUBb2MVTY1FswT8WCDUZ4Jn1M3tL3yOZBZuhjjUV1iOtQ4c8NK4CkKU1Bg"
+  },
+  "schema": "celeste-transport-policy-golden-1"
+}

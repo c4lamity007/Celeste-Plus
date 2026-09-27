@@ -33,8 +33,8 @@ sourceSets {
     }
     bootstrapBTest {
         java.srcDirs = ['beta-lab/bootstrap-b/test']
-        compileClasspath += sourceSets.main.output + sourceSets.bootstrapB.output + sourceSets.payloadFixture.output + configurations.compileClasspath
-        runtimeClasspath += sourceSets.main.output + sourceSets.bootstrapB.output + sourceSets.payloadFixture.output + configurations.runtimeClasspath
+        compileClasspath += sourceSets.main.output + sourceSets.test.output + sourceSets.bootstrapB.output + sourceSets.payloadFixture.output + configurations.compileClasspath
+        runtimeClasspath += sourceSets.main.output + sourceSets.test.output + sourceSets.bootstrapB.output + sourceSets.payloadFixture.output + configurations.runtimeClasspath
     }
 }
 tasks.withType(JavaCompile).configureEach {
@@ -71,7 +71,7 @@ def deliveryCheck = tasks.register('betaDeliveryClientCheck', JavaExec) {
     dependsOn tasks.named('testClasses')
     classpath = sourceSets.test.runtimeClasspath
     mainClass = 'dev.c4lam.celeste.beta.delivery.BetaDeliveryClientCheck'
-    args file('beta-lab/delivery-client/fixtures/server-schema2-golden.json').absolutePath
+    args file('beta-lab/delivery-client/fixtures/server-schema2-v2-golden.json').absolutePath
     enableAssertions = true
     jvmArgs '-Xverify:all'
 }
@@ -154,3 +154,51 @@ tasks.named('assemble') { dependsOn bootstrapA, bootstrapB }
 
 // Regression suites are explicit Java main programs, not JUnit-discovered tests.
 tasks.named('test') { enabled = false }
+
+// Signed transport rotation is tested with public backend vectors and loopback TLS only.
+def tlsPolicyCheck = tasks.register('betaTlsPolicyCheck', JavaExec) {
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'dev.c4lam.celeste.auth.PinnedTlsCheck'
+    args file('auth-service/tests/fixtures/transport-policy-v1.json').absolutePath
+    enableAssertions = true
+}
+tasks.named('check') { dependsOn tlsPolicyCheck }
+
+// Explicit runtime protocol fixture requires a prepared pinned core, never a live game.
+configurations { runtimeAuthCheckDependencies }
+dependencies {
+    runtimeAuthCheckDependencies 'net.java.dev.jna:jna:5.19.0'
+    runtimeAuthCheckDependencies 'net.java.dev.jna:jna-platform:5.19.0'
+}
+def runtimeAuthCheckOutput = layout.buildDirectory.dir('module-qa/runtime-auth-check/classes')
+def compileRuntimeAuthCheck = tasks.register('compileRuntimeAuthCheck', JavaCompile) {
+    dependsOn tasks.named('classes')
+    source fileTree('beta-lab/runtime-auth-check/src') { include '**/*.java' }
+    source fileTree('beta-lab/runtime-auth-check/stubs') { include '**/*.java' }
+    source file('runtime-overlay/src/main/java/dev/c4lam/celeste/auth/AuthServiceClient.java')
+    source file('runtime-overlay/src/main/java/dev/c4lam/celeste/auth/HardwareIdentityV2.java')
+    source file('runtime-overlay/src/main/java/dev/celestebeta/host/ResourceReloadBridge.java')
+    ['Crypto', 'AuthConfig', 'InstallCredential'].each { name -> source file("build/runtime-core/src/main/java/dev/c4lam/celeste/auth/${name}.java") }
+    classpath = sourceSets.main.output + configurations.compileClasspath + configurations.runtimeAuthCheckDependencies
+    destinationDirectory = runtimeAuthCheckOutput
+    doFirst {
+        if (!file('build/runtime-core/src/main/java/dev/c4lam/celeste/auth/Crypto.java').isFile())
+            throw new GradleException('runtimeAuthProtocolCheck requires the pinned runtime core from tools/prepare_runtime.py; no user Minecraft files are used.')
+    }
+}
+tasks.register('runtimeAuthProtocolCheck', JavaExec) {
+    dependsOn compileRuntimeAuthCheck
+    classpath = files(runtimeAuthCheckOutput) + sourceSets.main.runtimeClasspath + configurations.runtimeAuthCheckDependencies
+    mainClass = 'dev.c4lam.celeste.auth.BetaClientProtocolCheck'
+    enableAssertions = true
+    jvmArgs '-Xverify:all'
+}
+
+tasks.register('runtimeHardwareIdentityCheck', JavaExec) {
+    dependsOn compileRuntimeAuthCheck
+    classpath = files(runtimeAuthCheckOutput) + sourceSets.main.runtimeClasspath + configurations.runtimeAuthCheckDependencies
+    mainClass = 'dev.c4lam.celeste.auth.HardwareIdentityV2Check'
+    enableAssertions = true
+    if (providers.gradleProperty('nativeHardwareParityFile').isPresent()) args providers.gradleProperty('nativeHardwareParityFile').get()
+}

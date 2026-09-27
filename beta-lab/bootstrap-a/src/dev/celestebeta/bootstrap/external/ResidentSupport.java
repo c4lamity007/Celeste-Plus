@@ -131,6 +131,7 @@ final class ResidentSupport {
             }
             Path root = supportRoot.toRealPath();
             if (!Files.isDirectory(root, LinkOption.NOFOLLOW_LINKS)) throw new IOException("Support root must already be a directory");
+            try (SupportFileCustodian custodian = new SupportFileCustodian(root)) { custodian.sweep(); }
             PreparedDirectory prepared = new PreparedDirectory(root);
             try {
                 Map<String, Path> paths = new HashMap<>();
@@ -140,6 +141,9 @@ final class ResidentSupport {
                         throw new IOException("Materialized support library digest differs");
                     }
                     paths.put(entry.getKey(), file);
+                }
+                try (SupportFileCustodian custodian = new SupportFileCustodian(root)) {
+                    prepared.write(SupportFileCustodian.RECEIPT, custodian.receipt(prepared.directory, hashes));
                 }
                 return new ResidentSupport(prepared, paths, bridges, hashes);
             } catch (IOException | RuntimeException | Error failure) {
@@ -168,6 +172,7 @@ final class ResidentSupport {
             if (bridgeNames.contains(type.getName())) throw new IOException("A beta bridge is already resident; restart Minecraft before this beta");
         }
         retainedBridge = new JarFile(libraries.get("celeste-beta-bridges.jar").toFile());
+        Runtime.getRuntime().addShutdownHook(new Thread(this::retireAtExit, "celeste-support-cleanup"));
         instrumentation.appendToBootstrapClassLoaderSearch(retainedBridge);
         // A bridge append cannot be removed by Java. Keep the file/JarFile alive even on later failure.
         verifyCanonicalBridges(gameLoader, agentLoader);
@@ -178,6 +183,14 @@ final class ResidentSupport {
             if (Class.forName(name, false, loader).getClassLoader() != loader) throw new IOException("Resident dependency resolved outside the signed support loader");
         }
         installed = true;
+    }
+
+    private synchronized void retireAtExit() {
+        // The VM is shutting down. Closing file handles does not unload JNI or bootstrap classes.
+        // Locked files remain covered by the authenticated next-start cleanup receipt.
+        try { if (loader != null) loader.close(); } catch (IOException ignored) { }
+        try { if (retainedBridge != null) retainedBridge.close(); } catch (IOException ignored) { }
+        try { preparedDirectory.discard(); } catch (IOException | RuntimeException ignored) { }
     }
 
     synchronized void discardIfUninstalled() throws IOException {
@@ -197,6 +210,7 @@ final class ResidentSupport {
 
         PreparedDirectory(Path root) throws IOException {
             directory = Files.createTempDirectory(root, "celeste-beta-support-").toAbsolutePath().normalize();
+            SupportFileCustodian.restrict(directory, true);
             directoryKey = identity(directory, true);
         }
 

@@ -44,6 +44,19 @@ pub fn recheck_process(target: &MinecraftProcess) -> Result<()> {
     Ok(())
 }
 
+pub(crate) fn process_is_definitely_gone(pid: u32, started: u64) -> bool {
+    if pid == 0 || started == 0 {
+        return false;
+    }
+    match process_identity(pid) {
+        Ok((_, current)) => current != started,
+        Err(error) => error.downcast_ref::<std::io::Error>().is_some_and(|error| {
+            error.kind() == std::io::ErrorKind::NotFound
+                || (cfg!(windows) && error.raw_os_error() == Some(87))
+        }),
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct GameProfile {
     pub name: String,

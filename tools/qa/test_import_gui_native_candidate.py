@@ -55,7 +55,7 @@ class GuiCandidateImportTest(unittest.TestCase):
             path.write_bytes(b"// isolated source fixture\n")
         for name in ("beta-lab/native-launcher/Cargo.toml", "beta-lab/native-launcher/Cargo.lock",
                      "beta-lab/native-launcher/assets/celeste-logo.png",
-                     "tools/packaging/build-windows-native-candidate.ps1", "tools/packaging/windows_release_metadata.py"):
+                     "tools/packaging/build-windows-native-candidate.ps1", "tools/packaging/windows_release_metadata.py", "rust-toolchain.toml"):
             path = self.source / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(b"isolated fixture")
@@ -96,8 +96,8 @@ class GuiCandidateImportTest(unittest.TestCase):
             self.run_import()
         self.assertFalse((self.output / "protected-candidates.json").exists())
 
-    def alias_fixture(self):
-        self.input_bytes, original_map = mapping_fixture()
+    def alias_fixture(self, profile=importer.map_alias.DEFAULT_PROFILE):
+        self.input_bytes, original_map = mapping_fixture(profile)
         (self.candidate / "Celeste+.exe").write_bytes(self.input_bytes)
         self.map.write_bytes(original_map)
         self.protected.write_bytes(self.input_bytes + b"synthetic changed output; not real virtualization")
@@ -106,8 +106,8 @@ class GuiCandidateImportTest(unittest.TestCase):
         self.write_candidate()
         directory = self.base / "derived"
         mapping = importer.map_alias.prepare(self.candidate / "Celeste+.exe", self.map,
-                                             self.candidate / "candidate.json", directory)
-        args = {"derived_map": directory / "Celeste+.map", "map_alias_record": directory / "mapping.json"}
+                                             self.candidate / "candidate.json", directory, profile=profile)
+        args = {"derived_map": directory / "Celeste+.map", "map_alias_record": directory / "mapping.json", "profile": profile}
         doc = ET.Element("Document")
         protection = ET.SubElement(doc, "Protection", {
             "InputFileName": str(directory / "Celeste+.exe"), "OutputFileName": str(self.protected)})
@@ -123,7 +123,7 @@ class GuiCandidateImportTest(unittest.TestCase):
         f.record["configuration"]["sha256"] = importer.sha(self.project.read_bytes())
         f.policy_record["approved_protectors"][0]["configuration_sha256"] = f.record["configuration"]["sha256"]
         f.policy.write_text(json.dumps(f.policy_record))
-        f.report.update({"binary_sha256": f.record["binary_sha256"], "virtualized_functions": 7,
+        f.report.update({"binary_sha256": f.record["binary_sha256"], "virtualized_functions": len(mapping["functions"]),
                          "map_sha256": self.record["privateMapSha256"],
                          "derived_map_sha256": mapping["aliased_map_sha256"],
                          "map_alias_record_sha256": importer.sha(args["map_alias_record"].read_bytes()),
@@ -147,7 +147,7 @@ class GuiCandidateImportTest(unittest.TestCase):
         gate.validate(product / "Celeste+.exe", product / "protection-receipt.json",
                       release_id=self.fixture.record["release_id"], product="celeste_plus", platform="windows-x64")
 
-    def test_actual_empty_production_policy_refuses_before_creating_output(self):
+    def test_actual_production_policy_refuses_synthetic_receipt_before_creating_output(self):
         with patch.object(gate, "POLICY_FILE", ROOT / "tools/packaging/native-protection-policy.json"):
             self.assert_refused()
         self.assertFalse(self.output.exists())
@@ -333,6 +333,48 @@ class GuiCandidateImportTest(unittest.TestCase):
         self.fixture.write_record()
         with self.assertRaisesRegex(ValueError, "companion MAP differs"):
             self.run_import(**args)
+        self.assertFalse(self.output.exists())
+
+    def test_explicit_v2_profile_requires_all_fourteen_transformed_functions(self):
+        args = self.alias_fixture(importer.map_alias.V2_PROFILE)
+        result = self.run_import(**args)
+        self.assertEqual(14, len(result["selected_functions"]))
+        self.assertEqual(14, len({row["map_symbol"] for row in result["selected_functions"]}))
+        self.assertFalse(result["signed"])
+        self.assertFalse(result["published"])
+        self.assertEqual(self.protected.read_bytes(), (self.output / "celeste_plus/Celeste+.exe").read_bytes())
+
+    def test_v2_record_cannot_implicitly_change_default_profile(self):
+        args = self.alias_fixture(importer.map_alias.V2_PROFILE)
+        args.pop("profile")
+        with self.assertRaises(ValueError):
+            self.run_import(**args)
+        self.assertFalse(self.output.exists())
+
+    def test_v2_profile_requires_bound_alias_evidence(self):
+        with self.assertRaisesRegex(ValueError, "requires its validated derived MAP"):
+            self.run_import(profile=importer.map_alias.V2_PROFILE)
+        self.assertFalse(self.output.exists())
+
+    def test_v2_profile_does_not_approve_synthetic_protection(self):
+        args = self.alias_fixture(importer.map_alias.V2_PROFILE)
+        with patch.object(gate, "POLICY_FILE", ROOT / "tools/packaging/native-protection-policy.json"):
+            with self.assertRaises(ValueError):
+                self.run_import(**args)
+        self.assertFalse(self.output.exists())
+
+    def test_v2_profile_rejects_only_seven_covered_functions(self):
+        args = self.alias_fixture(importer.map_alias.V2_PROFILE)
+        self.fixture.report["function_coverage"] = self.fixture.report["function_coverage"][:7]
+        self.fixture.report["virtualized_functions"] = 7
+        self.fixture.write_report()
+        with self.assertRaisesRegex(ValueError, "cover every selected function"):
+            self.run_import(**args)
+        self.assertFalse(self.output.exists())
+
+    def test_unknown_profile_is_refused_before_creating_output(self):
+        with self.assertRaisesRegex(ValueError, "Unknown MAP selection profile"):
+            self.run_import(profile="unreviewed")
         self.assertFalse(self.output.exists())
 
 

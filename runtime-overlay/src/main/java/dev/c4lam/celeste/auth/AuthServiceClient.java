@@ -61,6 +61,38 @@ final class AuthServiceClient {
     private final GameIdentity identity;
     private final String expectedBetaCatalog;
     private volatile DpopProofSigner proofSigner;
+    private volatile SessionBinding sessionBinding;
+    record SessionBinding(String hardware, String hwid, long pid, String session) {
+        SessionBinding {
+            if (hardware == null || !hardware.matches("[0-9a-f]{64}") || hwid == null
+                || !(hwid.isEmpty() || hwid.matches("[0-9a-f]{64}")) || pid <= 0
+                || session == null || !session.matches("[A-Za-z0-9_-]{32}"))
+                throw new IllegalArgumentException("Invalid runtime identity");
+        }
+        String device() { return hwid.isEmpty() ? hardware : hwid; }
+        String signedSuffix() { return "\nceleste-session-v2\n" + hardware + "\n" + hwid + "\n" + pid + "\n" + session; }
+    }
+
+    AuthServiceClient(AuthConfig config, GameIdentity identity, String catalog, HttpClient http, SessionBinding binding) throws GeneralSecurityException {
+        this(config, identity, catalog, http);
+        this.sessionBinding = java.util.Objects.requireNonNull(binding);
+    }
+    static String coreHardwareDigest(HardwareFingerprint hardware) {
+        JsonObject core = new JsonObject();
+        core.addProperty("board", hardware.board()); core.addProperty("processor", hardware.processor()); core.addProperty("system", hardware.system());
+        return Crypto.sha256(GSON.toJson(core));
+    }
+    private synchronized SessionBinding binding(HardwareFingerprint hardware) {
+        if (sessionBinding == null) sessionBinding = new SessionBinding(coreHardwareDigest(hardware == null ? HardwareFingerprint.collect() : hardware),
+            HardwareIdentityV2.current(), ProcessHandle.current().pid(), dev.celestebeta.host.ResourceReloadBridge.processSessionId());
+        return sessionBinding;
+    }
+    private void addHardwareIdentity(JsonObject body, HardwareFingerprint hardware) {
+        if (expectedBetaCatalog != null) {
+            SessionBinding value = binding(hardware);
+            if (!value.hwid().isEmpty()) body.addProperty("hwid_sha256", value.hwid());
+        }
+    }
 
     AuthServiceClient(AuthConfig config, GameIdentity identity) throws GeneralSecurityException {
         this(config, identity, null);
@@ -68,10 +100,7 @@ final class AuthServiceClient {
 
     AuthServiceClient(AuthConfig config, GameIdentity identity, String expectedBetaCatalog)
         throws GeneralSecurityException {
-        this(config, identity, expectedBetaCatalog, HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(8))
-            .followRedirects(HttpClient.Redirect.NEVER)
-            .build());
+        this(config, identity, expectedBetaCatalog, null);
     }
 
     /** Package-local transport seam for protocol fixtures; runtime always uses the HTTPS client above. */
@@ -84,7 +113,12 @@ final class AuthServiceClient {
         this.identity = identity;
         this.expectedBetaCatalog = expectedBetaCatalog;
         this.serverKey = Crypto.ed25519Public(config.serverKey());
-        this.http = java.util.Objects.requireNonNull(http, "http");
+        this.http = http;
+    }
+
+    private HttpClient transport() throws IOException, InterruptedException {
+        if (http != null) return http; // Package-local deterministic protocol fixture only.
+        return PinnedTls.client(config.baseUri(), config.serverKey(), product());
     }
 
     Enrollment enroll(String licenseKey, HardwareFingerprint hardware) throws Exception {
@@ -97,9 +131,10 @@ final class AuthServiceClient {
         startBody.addProperty("install_signing_key", Crypto.b64(Crypto.rawPublic(installSigning.getPublic())));
         startBody.addProperty("install_encryption_key", Crypto.b64(Crypto.rawPublic(installEncryption.getPublic())));
         startBody.add("hardware", hardwareJson(hardware));
+        addHardwareIdentity(startBody, hardware);
         JsonObject start = post("/v1/enroll/start", startBody);
         byte[] message = requiredB64(start, "message");
-        requireProduct(GSON.fromJson(new String(message, StandardCharsets.UTF_8), JsonObject.class));
+        requireChallenge(GSON.fromJson(new String(message, StandardCharsets.UTF_8), JsonObject.class), hardware);
 
         JsonObject completeBody = new JsonObject();
         completeBody.addProperty("challenge_id", requiredString(start, "challenge_id"));
@@ -149,9 +184,10 @@ final class AuthServiceClient {
             startBody.addProperty("beta_catalog_sha256", expectedBetaCatalog);
         }
         startBody.add("hardware", hardwareJson(hardware));
+        addHardwareIdentity(startBody, hardware);
         JsonObject start = post("/v1/auth/start", startBody);
         byte[] message = requiredB64(start, "message");
-        requireProduct(GSON.fromJson(new String(message, StandardCharsets.UTF_8), JsonObject.class));
+        requireChallenge(GSON.fromJson(new String(message, StandardCharsets.UTF_8), JsonObject.class), hardware);
 
         JsonObject completeBody = new JsonObject();
         completeBody.addProperty("challenge_id", requiredString(start, "challenge_id"));
@@ -165,6 +201,7 @@ final class AuthServiceClient {
         requireProduct(claims);
         if (expectedBetaCatalog != null) {
             requireBetaContext(claims);
+            if (requiredLong(claims, "auth_protocol") != 2) throw new GeneralSecurityException("Startup authorization requires the current protocol");
         }
         if (uid != credential.uid()
             || uid != Long.parseLong(requiredString(claims, "sub"))
@@ -185,6 +222,7 @@ final class AuthServiceClient {
             }
             // The beta host already supplied both verified parts. This grant
             // must never be usable as a normal bootstrap/download authorization.
+            validateStartupGrant(grant, signer, binding(hardware), claims);
             return new Authenticated(uid, grant, null, null);
         }
         if (complete.has("runtime") || claims.has("beta_catalog_sha256")) {
@@ -213,6 +251,23 @@ final class AuthServiceClient {
             throw new GeneralSecurityException("Payload manifest does not match the authorized release");
         }
         return new Authenticated(uid, grant, payload, loader);
+    }
+
+    private void validateStartupGrant(String grant, DpopProofSigner signer, SessionBinding binding, JsonObject claims) throws Exception {
+        URI endpoint = sameOrigin("/v1/validate");
+        HttpRequest request = HttpRequest.newBuilder(endpoint).timeout(Duration.ofSeconds(12))
+            .header("Content-Type", "application/json").header("Accept", "application/json")
+            .header("Authorization", "DPoP " + grant).header("X-Device-Id", binding.device())
+            .header("DPoP", signer.proofForDevice("POST", endpoint, grant, binding.device()))
+            .POST(HttpRequest.BodyPublishers.ofString("{}", StandardCharsets.US_ASCII)).build();
+        HttpResponse<String> response = sendAuth(request);
+        if (response.statusCode() != 200) throw rejected(response.statusCode(), response.body());
+        try {
+            JsonObject value = GSON.fromJson(response.body(), JsonObject.class);
+            long expiration = requiredLong(value, "expires_epoch");
+            if (!"valid".equals(requiredString(value, "status")) || expiration != requiredLong(claims, "exp")
+                || expiration <= Instant.now().getEpochSecond()) throw new GeneralSecurityException("Startup grant is no longer valid");
+        } catch (RuntimeException error) { throw new GeneralSecurityException("Invalid startup grant validation", error); }
     }
 
     void consumeInstallerTicket(String ticket, InstallCredential credential) throws Exception {
@@ -263,7 +318,7 @@ final class AuthServiceClient {
             .header("DPoP", requestProof("GET", endpoint, grant))
             .GET()
             .build();
-        HttpResponse<byte[]> response = http.send(request, boundedBytes(ARTIFACT_RESPONSE_LIMIT));
+        HttpResponse<byte[]> response = transport().send(request, boundedBytes(ARTIFACT_RESPONSE_LIMIT));
         if (response.statusCode() < 200 || response.statusCode() >= 300) {
             throw new AuthRejectedException(response.statusCode(), "Protected artifact download failed");
         }
@@ -304,6 +359,10 @@ final class AuthServiceClient {
         body.addProperty("event", event);
         if (expectedBetaCatalog != null) {
             body.addProperty("beta_catalog_sha256", expectedBetaCatalog);
+            SessionBinding bound = binding(null);
+            body.addProperty("hardware_sha256", bound.hardware());
+            if (!bound.hwid().isEmpty()) body.addProperty("hwid_sha256", bound.hwid());
+            body.addProperty("process_id", bound.pid()); body.addProperty("session_id", bound.session());
         }
         body.addProperty("install_signature", Crypto.b64(Crypto.sign(credential.signingKey(), message)));
         body.addProperty("token_signature", Crypto.b64(Crypto.sign(credential.tokenKey(), message)));
@@ -325,6 +384,11 @@ final class AuthServiceClient {
         }
         if (expectedBetaCatalog != null) {
             requireBetaContext(claims);
+            SessionBinding bound = binding(null);
+            if (!bound.hardware().equals(requiredHex(claims, "hardware_sha256"))
+                || bound.pid() != requiredLong(claims, "process_id") || !bound.session().equals(requiredString(claims, "session_id"))
+                || (bound.hwid().isEmpty() ? claims.has("hwid_sha256") : !bound.hwid().equals(requiredHex(claims, "hwid_sha256"))))
+                throw new GeneralSecurityException("Session identity binding differs");
         } else if (claims.has("beta_catalog_sha256")) {
             throw new GeneralSecurityException("Unexpected beta session context");
         }
@@ -381,7 +445,7 @@ final class AuthServiceClient {
         } else {
             builder.GET();
         }
-        HttpResponse<byte[]> response = http.send(builder.build(), boundedBytes(CLOUD_RESPONSE_LIMIT));
+        HttpResponse<byte[]> response = transport().send(builder.build(), boundedBytes(CLOUD_RESPONSE_LIMIT));
         if (response.statusCode() < 200 || response.statusCode() >= 300) {
             throw new AuthRejectedException(response.statusCode(), "Cloud config request failed (" + response.statusCode() + ")");
         }
@@ -401,12 +465,24 @@ final class AuthServiceClient {
             + expectedDigest + "\n" + observedDigest + "\n" + event + "\n"
             + identity.uuid() + "\n" + identity.username();
         if (expectedBetaCatalog != null) {
-            message += "\n" + config.releaseId() + "\n" + config.clientVersion() + "\n" + expectedBetaCatalog;
+            message += "\n" + config.releaseId() + "\n" + config.clientVersion() + "\n" + expectedBetaCatalog + binding(null).signedSuffix();
         }
         return message.getBytes(StandardCharsets.UTF_8);
     }
 
     private String product() { return expectedBetaCatalog == null ? "celeste" : "celeste_plus"; }
+
+    private void requireChallenge(JsonObject claims, HardwareFingerprint hardware) throws GeneralSecurityException {
+        requireProduct(claims);
+        if (expectedBetaCatalog == null) return;
+        try {
+            SessionBinding bound = binding(hardware);
+            if (!Crypto.b64(java.util.HexFormat.of().parseHex(bound.hardware())).equals(requiredString(claims, "hardware"))
+                || (bound.hwid().isEmpty() ? !"cst-auth-1".equals(requiredString(claims,"protocol")) || claims.has("hwid_sha256")
+                    : !"cst-auth-2".equals(requiredString(claims,"protocol")) || !bound.hwid().equals(requiredHex(claims,"hwid_sha256"))))
+                throw new GeneralSecurityException("Authentication challenge has another hardware binding");
+        } catch (RuntimeException error) { throw new GeneralSecurityException("Invalid authentication hardware challenge", error); }
+    }
 
     private void requireProduct(JsonObject claims) throws GeneralSecurityException {
         try {
@@ -516,15 +592,7 @@ final class AuthServiceClient {
         HttpRequest request = builder.build();
         HttpResponse<String> response = sendAuth(request);
         if (response.statusCode() < 200 || response.statusCode() >= 300) {
-            String message = switch (response.statusCode()) {
-                case 401, 403 -> "License or device verification failed";
-                case 409 -> expectedBetaCatalog == null
-                    ? "This license needs its device binding reset"
-                    : "Refresh the beta release before trying again";
-                case 429 -> "Too many attempts; wait before retrying";
-                default -> "Authentication service returned " + response.statusCode();
-            };
-            throw new AuthRejectedException(response.statusCode(), message);
+            throw rejected(response.statusCode(), response.body());
         }
         try {
             JsonObject parsed = GSON.fromJson(response.body(), JsonObject.class);
@@ -540,9 +608,15 @@ final class AuthServiceClient {
     private HttpResponse<String> sendAuth(HttpRequest request)
         throws IOException, InterruptedException, GeneralSecurityException {
         try {
-            return http.send(request, information -> HttpResponse.BodySubscribers.mapping(
-                boundedBytes(AUTH_RESPONSE_LIMIT).apply(information),
+            var pending = transport().sendAsync(request, information -> HttpResponse.BodySubscribers.mapping(
+                new BoundedBodySubscriber(information.statusCode() >= 200 && information.statusCode() < 300 ? AUTH_RESPONSE_LIMIT : 4096, -1),
                 bytes -> new String(bytes, StandardCharsets.UTF_8)));
+            try { return pending.get(12, java.util.concurrent.TimeUnit.SECONDS); }
+            catch (java.util.concurrent.TimeoutException error) { throw new IOException("Authentication response timed out", error); }
+            catch (java.util.concurrent.ExecutionException error) {
+                if (error.getCause() instanceof IOException io) throw io;
+                throw new IOException("Authentication transport failed", error.getCause());
+            } finally { pending.cancel(true); }
         } catch (IOException exception) {
             Throwable cause = exception;
             for (int depth = 0; cause != null && depth < 16; depth++, cause = cause.getCause()) {
@@ -726,16 +800,44 @@ final class AuthServiceClient {
         return value;
     }
 
+    private AuthRejectedException rejected(int status, String response) {
+        String code = "", request = ""; int retry = 0;
+        try {
+            JsonObject value = GSON.fromJson(response, JsonObject.class);
+            code = requiredString(value, "error_code");
+            if (!code.matches("[a-z_]{1,64}")) code = "";
+            if (value.has("request_id")) { request = requiredString(value, "request_id"); if (!request.matches("[A-Za-z0-9_-]{1,80}")) request = ""; }
+            if (value.has("retry_after_seconds")) retry = (int)Math.min(86400, Math.max(0, requiredLong(value, "retry_after_seconds")));
+        } catch (RuntimeException ignored) { code = ""; }
+        String message = switch (code) {
+            case "device_mismatch" -> "This license is linked to another device";
+            case "subscription_inactive" -> "Your subscription is inactive";
+            case "token_revoked", "reactivation_required" -> "Sign in again to reactivate this installation";
+            case "token_rotated", "invalid_grant" -> "Authorization changed; sign in again";
+            case "concurrent_session_rejected" -> "Verify this device again before reconnecting";
+            case "rebind_cooldown" -> "Wait before changing the linked device";
+            case "runtime_disabled" -> "This release is unavailable; update the launcher";
+            default -> switch (status) {
+                case 401, 403 -> "License or device verification failed";
+                case 409 -> expectedBetaCatalog == null ? "This license needs its device binding reset" : "Refresh the beta release before trying again";
+                case 429 -> "Too many attempts; wait before retrying";
+                default -> "Authentication service returned " + status;
+            };
+        };
+        return new AuthRejectedException(status, message, code, request, retry);
+    }
     static final class AuthRejectedException extends Exception {
+        private static final long serialVersionUID = 1L;
         private final int statusCode;
-
-        AuthRejectedException(int statusCode, String message) {
-            super(message);
-            this.statusCode = statusCode;
+        private final String code, requestId;
+        private final int retryAfterSeconds;
+        AuthRejectedException(int statusCode, String message) { this(statusCode, message, "", "", 0); }
+        AuthRejectedException(int statusCode, String message, String code, String requestId, int retryAfterSeconds) {
+            super(message); this.statusCode = statusCode; this.code = code; this.requestId = requestId; this.retryAfterSeconds = retryAfterSeconds;
         }
-
-        int statusCode() {
-            return statusCode;
-        }
+        int statusCode() { return statusCode; }
+        String code() { return code; }
+        String requestId() { return requestId; }
+        int retryAfterSeconds() { return retryAfterSeconds; }
     }
 }

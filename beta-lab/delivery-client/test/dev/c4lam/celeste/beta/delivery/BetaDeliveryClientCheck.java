@@ -43,6 +43,7 @@ public final class BetaDeliveryClientCheck {
 
     public static void main(String[] args) throws Exception {
         JsonObject golden = new Gson().fromJson(Files.readString(Path.of(args[0]), StandardCharsets.UTF_8), JsonObject.class);
+        envelopeVector();
         Fixture serverGolden = new Fixture(golden);
         BetaDeliveryClient.VerifiedCatalog serverCatalog = serverGolden.client().verifyManifest(serverGolden.manifestToken, serverGolden.nonce);
         check(serverCatalog.catalogSha256().equals(golden.get("catalog_sha256").getAsString()), "actual signed server catalog");
@@ -229,7 +230,7 @@ public final class BetaDeliveryClientCheck {
             requests++;
             check(uri.getScheme().equals("https") && uri.getHost().equals("auth.invalid"), "HTTPS same origin");
             check(headers.get("Authorization").equals("DPoP " + installerToken), "original installer token with DPoP scheme only");
-            try { verifyProof(uri, headers.get("DPoP")); }
+            try { verifyProof(uri, headers); }
             catch (GeneralSecurityException failure) { throw new IOException("Fixture rejected invalid request proof", failure); }
             check(timeout.toSeconds() == 25, "bounded request deadline");
             if (uri.getPath().equals("/v1/beta/manifest")) {
@@ -259,7 +260,7 @@ public final class BetaDeliveryClientCheck {
             check(uri.getPath().equals("/v1/beta/artifacts/" + golden.getAsJsonObject("manifest_claims").get("release_id").getAsString() + "/" + id), "fixed artifact route");
             check(headers.get("X-Celeste-Beta-Manifest").equals(manifestToken), "exact signed manifest header");
             byte[] content = artifacts.get(id).clone();
-            check(maximum == content.length, "transport bound equals signed size");
+            check(maximum == content.length + ArtifactEnvelope.OVERHEAD, "transport bound equals signed plaintext plus fixed AEAD overhead");
             URI finalUri = uri; int status = 200;
             Map<String, List<String>> responseHeaders = new LinkedHashMap<>();
             responseHeaders.put("Content-Type", List.of("application/octet-stream"));
@@ -276,10 +277,15 @@ public final class BetaDeliveryClientCheck {
                 case "expiry" -> clock.epoch += 121;
                 default -> { }
             }
+            try { content = seal(content, uri.getRawPath(), installerToken, headers.get("X-Celeste-Request-Nonce"), headers.get("X-Celeste-Delivery-Key")); }
+            catch (GeneralSecurityException error) { throw new IOException(error); }
+            if (id.equals("bootstrap-b") && failure.equals("aead-tag")) content[content.length - 1] ^= 1;
+            if (id.equals("bootstrap-b") && failure.equals("aead-magic")) content[0] ^= 1;
             delivered.add(content);
             return new BetaDeliveryClient.Reply(finalUri, status, responseHeaders, content);
         }
-        private void verifyProof(URI uri, String proof) throws GeneralSecurityException {
+        private void verifyProof(URI uri, Map<String, String> headers) throws GeneralSecurityException {
+            String proof = headers.get("DPoP");
             check(proof != null, "DPoP proof header required on every request");
             String[] parts = proof.split("\\.", -1);
             check(parts.length == 3, "compact proof JWT");
@@ -296,7 +302,12 @@ public final class BetaDeliveryClientCheck {
             verifier.update((parts[0] + "." + parts[1]).getBytes(StandardCharsets.US_ASCII));
             check(verifier.verify(BetaDeliveryClient.decode(parts[2])), "real Ed25519 request proof signature");
             JsonObject claims = BetaDeliveryClient.object(BetaDeliveryClient.decode(parts[1]));
-            check(claims.keySet().equals(Set.of("jti", "htm", "htu", "iat", "ath")), "exact resource request proof claims");
+            boolean artifact = uri.getPath().startsWith("/v1/beta/artifacts/");
+            check(claims.keySet().equals(artifact ? Set.of("jti", "htm", "htu", "iat", "ath", "cek", "cnonce") : Set.of("jti", "htm", "htu", "iat", "ath")), "exact resource request proof claims");
+            if (artifact) {
+                check(claims.get("cek").getAsString().equals(headers.get("X-Celeste-Delivery-Key")) && claims.get("cnonce").getAsString().equals(headers.get("X-Celeste-Request-Nonce")), "encrypted artifact recipient and nonce signed by installation key");
+                check(requestNonces.add(headers.get("X-Celeste-Request-Nonce")), "fresh artifact encryption nonce");
+            }
             check(claims.get("htm").getAsString().equals("GET") && claims.get("htu").getAsString().equals(uri.toString()),
                 "proof is bound to this method and individual route");
             check(claims.get("iat").getAsLong() == clock.epoch, "proof timestamp uses current clock");
@@ -378,6 +389,45 @@ public final class BetaDeliveryClientCheck {
         rejected(CompletionException.class, () -> failed.getBody().toCompletableFuture().join());
         check(cancelled.cancelled, "cancellation stops partial body");
     }
+    private static void envelopeVector() throws Exception {
+        JsonObject vector = com.google.gson.JsonParser.parseString(Files.readString(Path.of("auth-service/tests/fixtures/artifact-envelope-v1.json"))).getAsJsonObject();
+        byte[] privateKey = Base64.getUrlDecoder().decode(vector.get("client_private_key").getAsString());
+        byte[] publicKey = Base64.getUrlDecoder().decode(vector.get("client_public_key").getAsString());
+        byte[] prefix = java.util.HexFormat.of().parseHex("302a300506032b656e032100");
+        byte[] encoded = Arrays.copyOf(prefix,prefix.length+32);System.arraycopy(publicKey,0,encoded,prefix.length,32);
+        KeyPair pair = new KeyPair(KeyFactory.getInstance("X25519").generatePublic(new java.security.spec.X509EncodedKeySpec(encoded)),
+            KeyFactory.getInstance("X25519").generatePrivate(new java.security.spec.XECPrivateKeySpec(NamedParameterSpec.X25519,privateKey)));
+        byte[] envelope = Base64.getUrlDecoder().decode(vector.get("envelope").getAsString()), plain = Base64.getUrlDecoder().decode(vector.get("plaintext").getAsString());
+        String path=vector.get("request_path").getAsString(), token=vector.get("installer_token").getAsString(), nonce=vector.get("request_nonce").getAsString();
+        check(Arrays.equals(plain,new ArtifactEnvelope(pair,nonce).open(envelope,path,token,plain.length)),"actual Python backend AEAD ciphertext decrypted by Java");
+        for(int i=0;i<envelope.length;i++) {byte[] bad=envelope.clone();bad[i]^=1;rejected(GeneralSecurityException.class,()->new ArtifactEnvelope(pair,nonce).open(bad,path,token,plain.length));}
+        rejected(GeneralSecurityException.class,()->new ArtifactEnvelope(pair,nonce).open(envelope,path+"-other",token,plain.length));
+        rejected(GeneralSecurityException.class,()->new ArtifactEnvelope(pair,nonce).open(envelope,path,token+"x",plain.length));
+        rejected(GeneralSecurityException.class,()->new ArtifactEnvelope(pair,"Z".repeat(32)).open(envelope,path,token,plain.length));
+        rejected(GeneralSecurityException.class,()->new ArtifactEnvelope(pair,nonce).open(plain,path,token,plain.length));
+    }
+
+    static byte[] seal(byte[] plain, String path, String token, String nonce, String publicKey) throws GeneralSecurityException {
+        var server = KeyPairGenerator.getInstance("X25519").generateKeyPair();
+        byte[] prefix = java.util.HexFormat.of().parseHex("302a300506032b656e032100");
+        byte[] client = Base64.getUrlDecoder().decode(publicKey);
+        byte[] encoded = Arrays.copyOf(prefix, prefix.length + client.length); System.arraycopy(client, 0, encoded, prefix.length, client.length);
+        var ka = javax.crypto.KeyAgreement.getInstance("X25519"); ka.init(server.getPrivate());
+        ka.doPhase(KeyFactory.getInstance("X25519").generatePublic(new java.security.spec.X509EncodedKeySpec(encoded)), true);
+        byte[] secret = ka.generateSecret();
+        var hmac = javax.crypto.Mac.getInstance("HmacSHA256");
+        hmac.init(new javax.crypto.spec.SecretKeySpec(MessageDigest.getInstance("SHA-256").digest(token.getBytes(StandardCharsets.US_ASCII)), "HmacSHA256"));
+        byte[] prk = hmac.doFinal(secret);
+        byte[] info = ("celeste-artifact-v1\n" + path + "\n" + nonce + "\n" + publicKey).getBytes(StandardCharsets.UTF_8);
+        hmac.init(new javax.crypto.spec.SecretKeySpec(prk, "HmacSHA256")); hmac.update(info); byte[] key = hmac.doFinal(new byte[]{1});
+        byte[] iv = new byte[12]; new java.security.SecureRandom().nextBytes(iv);
+        var aes = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding"); aes.init(javax.crypto.Cipher.ENCRYPT_MODE, new javax.crypto.spec.SecretKeySpec(key,"AES"), new javax.crypto.spec.GCMParameterSpec(128,iv)); aes.updateAAD(info);
+        byte[] cipher = aes.doFinal(plain), pub = server.getPublic().getEncoded();
+        byte[] output = ByteBuffer.allocate(50 + cipher.length).put("CSTAE1".getBytes(StandardCharsets.US_ASCII)).put(pub,pub.length-32,32).put(iv).put(cipher).array();
+        Arrays.fill(secret,(byte)0);Arrays.fill(prk,(byte)0);Arrays.fill(key,(byte)0);
+        return output;
+    }
+
     private static String encode(byte[] bytes) { return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes); }
     private static byte[] read(ByteBuffer buffer) { byte[] bytes = new byte[buffer.remaining()]; buffer.get(bytes); return bytes; }
     private static boolean allZero(byte[] bytes) { for (byte value : bytes) if (value != 0) return false; return true; }

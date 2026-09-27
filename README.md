@@ -83,6 +83,12 @@ The five-file output contains A, B, two payload parts, and `beta-release.json`. 
 
 ## Authentication and publication
 
+The next coordinated auth upgrade is documented in the
+[protocol 2 implementation and rollback record](docs/auth-protocol-v2-20260927.md).
+It adds pinned transport policies, encrypted delivery, hardware/process session
+binding and grant rotation. It requires a matching new loader and Java release;
+the production history below remains separate from this unshipped source.
+
 The complete [authentication, Java obfuscation and VMProtect runbook](tools/packaging/README.md)
 documents the build order, selective protection settings, tool usage, verification,
 new-loader requirements and coordinated publication flow.
