@@ -489,7 +489,7 @@
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/module/impl/combat/CrystalCombatCoordinator.java",
-      "sha256": "3ac7c70de800d8227946208ef8e732b5ccc4cfceedc585f661797a5458905bce",
+      "sha256": "2d6bf3bf86957db81396dbb2038d97fe963335874cf9ac66efee1e242a81b70d",
       "baseSha256": "095a96fde01fe16bd1e2907d60fd95935c1007c17431c427184bc91b937a0544"
     },
     {

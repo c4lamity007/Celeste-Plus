@@ -1,0 +1,2 @@
+package net.minecraft.block;
+public record BlockState(Block block,int charges) {public boolean isOf(Block value){return block==value;}public boolean isAir(){return block==Blocks.AIR;}public boolean isReplaceable(){return isAir()||block==Blocks.FIRE||block==Blocks.SOUL_FIRE||block instanceof FluidBlock;}public Block getBlock(){return block;}public int get(Object property){return charges;}public BlockState with(Object property,int value){return new BlockState(block,value);} }

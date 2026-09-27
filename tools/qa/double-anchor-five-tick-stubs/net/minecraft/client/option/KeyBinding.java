@@ -1,0 +1,1 @@
+package net.minecraft.client.option;public final class KeyBinding {public boolean pressed;public int queued;public boolean isPressed(){return pressed;}public void setPressed(boolean value){pressed=value;} }

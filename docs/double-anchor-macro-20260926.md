@@ -1,125 +1,86 @@
 # Double Anchor Macro
 
-Enable **Anchor Macro** and **Double Anchor Macro** in the Crystal tab. Choose a
-**Hold** key in Double Anchor Macro, then hold it when starting an Anchor Macro
-cycle with right-click. The ordinary **Bind** setting still toggles the module.
-Both keys start unbound; the new module starts disabled.
+Enable **Anchor Macro** and **Double Anchor Macro** in the Crystal tab. Set the
+**Hold** key, then hold it while starting Anchor Macro with right-click.
 
-Each press-and-hold of the modifier allows one double sequence. After that pair,
-keeping the modifier held uses normal Anchor Macro cycles. Release and press the
-modifier again to allow another pair. Releasing the modifier does not change a
-cycle already in progress; releasing right-click cancels it.
+Each modifier-key hold allows one double sequence. After it finishes, keeping the
+key held uses ordinary Anchor Macro. Release and press the modifier again to rearm.
+Releasing right-click cancels the active sequence; releasing only the modifier
+lets that sequence finish. Anchor Macro's silent swap and Hold to loop still apply.
 
 ## Timing
 
-With an anchor already selected and Anchor Macro's two-tick chance at zero:
+With **2 tick swap chance** at zero:
 
-| Tick | Selected item | Right-click action |
+| Tick | Selected item | Use |
 | --- | --- | --- |
 | 1 | Anchor | Place first anchor |
 | 2 | Glowstone | Charge first anchor |
-| 3 | Anchor | Detonate first anchor |
-| 4 | Anchor | Place second anchor |
-| 5 | Glowstone | Charge second anchor |
-| 6 | Totem | Detonate second anchor |
+| 3 | Anchor | Explode, then place the replacement in the same tick |
+| 4 | Glowstone | Charge the replacement |
+| 5 | Totem | Explode the replacement |
 
-The two-tick swap chance comes from **Anchor Macro**. At 100%, the same sequence
-has use actions on ticks **1, 3, 5, 6, 8, 10**: the swaps before charging and
-detonation get their extra tick. The replacement always uses the tick immediately
-after the first detonation, including when its anchor moves to another hotbar slot.
-Double mode uses one glowstone click per anchor regardless of **Double glowstone**.
-The base module's silent-swap and hold-to-loop settings still apply.
+The two uses on tick 3 share the original anchor hit and selected anchor slot.
+There is no slot change, support-block search or tick boundary between them. Once
+the server removes the first anchor, the replacement targets that same block
+space, including when adjacent supports are gone.
+
+The existing swap-delay setting can add a tick before an item swap's use. It never
+splits the two uses on tick 3. With the anchor already selected and the chance at
+100%, the six uses occur on ticks **1, 3, 5, 5, 7, 9**. Double mode always sends one
+glowstone use per anchor, regardless of **Double glowstone**.
 
 ## Interaction handling
 
-All actions use Anchor Macro's existing input lease, slot ownership and primary
-action scheduler. There is no second competing click loop or operating-system input.
+The existing input lease, primary action scheduler and slot ownership handle the
+whole sequence. Both tick-3 uses go through Minecraft's interaction manager, with
+its separate prediction sequence IDs. The held physical use input remains consumed.
 
-The first explosion does not immediately remove its block from Minecraft's client
-world. Replacement still uses the original valid placement surface on the next
-tick. If local prediction reports `FAIL`/`PASS`, or still shows the old charged
-anchor, the macro waits within its four-tick confirmation window for an actual
-uncharged replacement. It then continues with glowstone and totem. The replacement
-click is never repeated. A stale charged anchor, air or liquid is not confirmation;
-timeout cancels the continuation. The macro never changes the world to manufacture
-that evidence.
+The client can still show the original charged anchor after the server explodes
+it. The replacement and its two followup uses therefore advance when dispatched,
+without waiting for local block acknowledgements or retrying a rejected local
+prediction. This keeps delayed updates from adding a second glowstone click or
+stopping the sequence after its fourth use. The macro does not edit the client
+world to simulate placement.
 
-Each charge click requires a current uncharged anchor; final use requires a current
-charged anchor. These conditions are rechecked after planning, before the action.
-The first accepted charge is not retried after a delayed or rolled-back update.
-Lost initial targets and confirmation timeouts cancel without starting another
-sequence under the same held click. Ordinary Anchor Macro also checks its current
-anchor target before charge and detonation.
+The first anchor still requires valid placement and charge state. The continuation
+checks item availability, reach, world border, loaded chunks and dimension. It
+stops on menu/focus/player/world changes or inventory/input takeover. Sneaking and
+offhand glowstone stop the double sequence because they change vanilla use behavior.
+Starting with placement requires two anchors, two glowstone and a hotbar totem.
 
-Consequently, six actions occur at the stated cadence when native placement and
-world state are valid. Delayed replacement confirmation can delay the last two
-actions; a timeout still stops the continuation. The next-tick replacement is not
-replayed later to compensate for that delay.
+Cancellation consumes held use until release. Silent-slot cleanup after an
+interaction defers restoration until the next tick. A manual totem selection is
+preserved. A cancelled double sequence does not rearm under the same modifier hold.
 
-The macro checks item availability, reach, world border, loaded chunks and the
-target's anchor behavior. It stops on menu/focus/player/world changes or manual
-inventory/input takeover. Sneaking and offhand glowstone pause the double sequence
-because vanilla would interpret the clicks differently. New placements require two
-anchors, two glowstone and a real hotbar totem. An existing anchor needs a known or
-safely inferred replacement surface; interactive supports are not inferred.
-
-If input ownership, support or inventory changes prevent the replacement on its due
-tick, the continuation is cancelled rather than replayed late. The timing contract
-is for client action scheduling; server acceptance and network arrival timing are
-outside the macro's control.
-
-An automatic or manual totem selection that interrupts a visible sequence is
-preserved. Cancellation keeps the held and queued Use input consumed until
-release, preventing a stray native totem click. A competing silent-slot owner
-also cancels the pair without restarting ordinary Anchor Macro on the same press.
-Cleanup after an attempted native interaction defers silent-slot restoration
-until the next tick, including exceptions and same-tick disable callbacks.
+These ticks describe client action scheduling. Server acceptance, network arrival
+and third-party checks are not guaranteed by that schedule.
 
 ## Verification
 
-Replacement-confirmation correction: `celeste-plus-20260926-anchor-packets-01`.
-The combined build and all ten stages passed, including 1,209 Double Anchor
-checks. Saved previous source reproduces the four-action stop. Cases cover
-immediate and 1/2/3-tick confirmation after `FAIL`, `PASS` and `CONSUME`, timeout,
-late updates, single replacement click, and unchanged slot-delay settings.
-Protected packaging, auth and live artifact/endpoint verification passed.
-See [release notes](releases/20260926-anchor-packets.md).
+Run the focused behavior fixture from the Plus repository:
 
-Run `module_qa.py check --module "Anchor Macro" --module "Double Anchor Macro"
---suite double-anchor --java-home <JDK21>` for the incremental build, real coordinator
-and scheduler behavior checks, and physical-key/catalog checks.
+```powershell
+& ./tools/qa/run-double-anchor-five-tick.ps1
+```
 
-Support/charge correction run: `build/module-qa/20260927T025745Z-44c73c93/result.json`.
-The build and all nine QA stages passed, including 627 Double Anchor behavior
-checks. Negative controls against the prior coordinator reproduce rejected
-placement continuation, invalid support, target-loss restart, and the extra first
-glowstone charge. The corrected coordinator stops each case while preserving
-normal six-stage cadence and one pair per modifier hold.
+It compiles the real overlay coordinator with the pinned runtime's scheduler and
+slot manager. Minecraft prediction and server handling are bounded test fixtures;
+they are not live gameplay evidence.
 
-Earlier input correction run: `build/module-qa/20260927T023727Z-7f8c5a61/result.json`.
-The combined incremental build and all checks passed, including 320 Double Anchor
-checks against the production coordinator, scheduler and slot manager, plus 35
-physical-key/catalog checks. Cases include repeated RMB presses during one H
-hold, Hold to loop, H release/repress, interruption, and actual slot/use traces.
-Both zero and 100% swap-delay settings retain the exact six-step item order and
-one-tick replacement. The trace clears its use flag only at a movement boundary.
+For an incremental Minecraft build after preparing the verified overlay:
 
-Initial module receipt: `build/module-qa/20260927T002908Z-2ff17696/result.json`.
-The incremental build, 162 coordinator/scheduler checks and 30 physical-key/catalog
-checks passed. Additional checks passed for the QA workflow (40) and existing GUI
-geometry/text handling (6,814).
+```powershell
+$env:JAVA_HOME = 'C:/Program Files/Eclipse Adoptium/jdk-21.0.11.10-hotspot'
+& ./build/runtime-core/gradlew.bat -p ./build/runtime-core :build --offline --no-daemon --console=plain
+```
 
-Source fingerprint: `2ce747016f7049cf178f91dba38912b1206b081d097d5706585960c79fc1b420`.
+This revision passed 336 focused checks and the game module's `:build`. The older
+QA runner's unqualified `build` also selects an unused legacy bootstrap loader,
+which fails on missing `EnvironmentGate` / `PortableCredentialProtection` imports.
+That broader build failure remains separate from the successful game build.
 
-Automated checks are not live Minecraft evidence. No edited candidate was loaded
-in an authorized local world during this task; live animation and server interaction
-timing remain unverified.
-
-The original version was published with Safe Anchor as `celeste-plus-20260926-safe-anchor-01`. The combined
-release QA includes 164 Anchor/Double Anchor checks and the shared input-ownership
-regression. See [release notes](releases/20260926-safe-anchor.md).
-The once-per-hold and cancellation corrections are published as
-`celeste-plus-20260926-anchor-fixes-01`. See [correction release notes](releases/20260926-anchor-fixes.md).
-The support validation, failed-replacement and duplicate-charge corrections are
-published in `celeste-plus-20260926-anchor-support-01`.
-See [placement release notes](releases/20260926-anchor-support.md).
+The five-tick revision supersedes the six-tick replacement timing documented in
+[the previous release](releases/20260926-anchor-packets.md). Source/build validation
+and a protected production release are separate; this revision needs live gameplay
+verification with its own loaded build identity.
