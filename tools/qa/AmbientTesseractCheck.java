@@ -8,7 +8,7 @@ public final class AmbientTesseractCheck {
     static void require(boolean ok,String message){checks++;if(!ok)throw new AssertionError(message);}
     static double distance(AmbientField.Mote a,AmbientField.Mote b){return Math.sqrt(Math.pow(a.x()-b.x(),2)+Math.pow(a.y()-b.y(),2)+Math.pow(a.z()-b.z(),2));}
     public static void main(String[] args){
-        Set<Double> sizes=new HashSet<>();int births=0;double minimumVisible=100,maximumVisible=0;
+        Set<Double> sizes=new HashSet<>();Set<Long> spins=new HashSet<>();Set<Integer> spinDirections=new HashSet<>();int births=0;double minimumVisible=100,maximumVisible=0;
         for(int cell=-20;cell<=20;cell++){
             double span=0;var previous=AmbientTesseractField.sample(cell,1,-3,0,71);
             for(int i=1;i<=8400;i++){
@@ -29,10 +29,28 @@ public final class AmbientTesseractCheck {
                 if(a.opacity()>.1&&b.opacity()>.1&&c.opacity()>.1){
                     require(Math.abs(a.x()-2*b.x()+c.x())<1e-10&&Math.abs(a.y()-2*b.y()+c.y())<1e-10&&Math.abs(a.z()-2*b.z()+c.z())<1e-10,"position is circling/accelerating rather than subtle free drift");
                     require(distance(a,b)<=.0008,"drift too fast");
+                    double yaw=(b.yaw()-a.yaw())/.01,pitch=(b.pitch()-a.pitch())/.01;
+                    require(Math.abs(yaw)>=.239999&&Math.abs(yaw)<=.480001,"yaw is imperceptible or too fast");
+                    require(Math.abs(pitch)>=.139999&&Math.abs(pitch)<=.300001,"pitch is imperceptible or too fast");
+                    require(Math.abs(a.yaw()-2*b.yaw()+c.yaw())<1e-10&&Math.abs(a.pitch()-2*b.pitch()+c.pitch())<1e-10,"rotation jitters within one life");
+                    spins.add(Math.round(yaw*100000));spinDirections.add((yaw>0?1:0)|(pitch>0?2:0));
                 }
             }
         }
         require(births>150&&sizes.size()>150,"positions/sizes do not reseed each life");
+        require(spins.size()>100&&spinDirections.size()==4,"cubes rotate in sync instead of independent directions/speeds");
+        int rotatingMeshes=0;
+        for(int cell=-20;cell<=20;cell++)for(int t=1;t<84;t++){
+            var a=AmbientTesseractField.sample(cell,1,-3,t,71);var b=AmbientTesseractField.sample(cell,1,-3,t+.4,71);
+            if(a.opacity()<.8||b.opacity()<.8||distance(a,b)>.04)continue;
+            double[] first=new double[48],later=new double[48];
+            // Remove center drift: this checks movement of the actual corners from rotation alone.
+            AmbientTesseractGeometry.corners(first,0,0,0,a.size(),a.yaw(),a.pitch());
+            AmbientTesseractGeometry.corners(later,0,0,0,b.size(),b.yaw(),b.pitch());
+            double motion=0;for(int i=0;i<24;i++)motion=Math.max(motion,Math.abs(first[i]-later[i]));
+            require(motion>a.size()*.04,"tesseract mesh rotation is not visible");rotatingMeshes++;
+        }
+        require(rotatingMeshes>1000,"not enough visible rotation samples");
         require(maximumVisible-minimumVisible>3,"lifetimes not varied");
         var field=new AmbientTesseractField(42);var before=field.sample(1,2,3,3);field.reset();require(!before.equals(field.sample(1,2,3,3)),"reset retains old particles");
         require(AmbientTesseractField.sample(1,2,3,0,42).equals(AmbientTesseractField.sample(1,2,3,Double.NaN,42)),"invalid time fallback");
@@ -46,6 +64,6 @@ public final class AmbientTesseractCheck {
         AmbientTesseractGeometry.fill(corners,(x,y,z,u,v,nx,ny,nz,a)->{fill[0]++;require(a>0&&a<.25&&u==4,"face lacks translucent material");require((x-2)*nx+(y-3)*ny+(z-4)*nz>0,"cube face winding inward");});
         AmbientTesseractGeometry.beams(corners,0,0,0,.12,(x,y,z,u,v,nx,ny,nz,a)->{beams[0]++;require(Double.isFinite(x)&&Double.isFinite(y)&&Double.isFinite(z)&&u>=2&&u<=3&&a>0,"bad beam geometry");});
         require(fill[0]==36&&beams[0]==112,"geometry cap changed");
-        System.out.println("PASS Ambient tesseracts: "+checks+" checks; "+births+" invisible respawns; random lives/positions, straight drift, reset, bounded cube faces and 28 beams");
+        System.out.println("PASS Ambient tesseracts: "+checks+" checks; "+births+" invisible respawns; random lives/positions, independent visible rotation, straight drift, reset, bounded cube faces and 28 beams");
     }
 }

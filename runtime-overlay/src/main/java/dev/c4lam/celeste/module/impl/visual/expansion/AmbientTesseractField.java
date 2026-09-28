@@ -27,9 +27,14 @@ public final class AmbientTesseractField {
         double py = (y + .18 + unit(mix(birth + 5)) * .64) * AmbientField.CELL + signed(birth + 6) * .032 * driftTime;
         double pz = (z + .18 + unit(mix(birth + 7)) * .64) * AmbientField.CELL + signed(birth + 8) * .045 * driftTime;
         double radius = .085 + unit(mix(birth + 9)) * .055;
-        double yaw = unit(mix(birth + 10)) * Math.PI * 2 + signed(birth + 11) * .10 * driftTime;
-        double pitch = unit(mix(birth + 12)) * Math.PI * 2 + signed(birth + 13) * .075 * driftTime;
+        double yaw = unit(mix(birth + 10)) * Math.PI * 2 + angularSpeed(birth + 11, .24, .48) * driftTime;
+        double pitch = unit(mix(birth + 12)) * Math.PI * 2 + angularSpeed(birth + 13, .14, .30) * driftTime;
         return new AmbientField.Mote(px, py, pz, radius, yaw, pitch, alpha, 0x48ACFF);
+    }
+    /** Each life turns gently in its own direction; no almost-stationary cubes. */
+    private static double angularSpeed(long seed, double minimum, double maximum) {
+        double direction = signed(seed);
+        return Math.copySign(minimum + (maximum - minimum) * Math.abs(direction), direction);
     }
     private static double signed(long x) { return unit(mix(x)) * 2.0 - 1.0; }
     private static double unit(long x) { return (x >>> 11) * 0x1.0p-53; }
