@@ -9,6 +9,7 @@ import net.minecraft.component.DataComponentTypes;
 import net.minecraft.item.ItemStack;
 import net.minecraft.util.Arm;
 import net.minecraft.util.Hand;
+import org.joml.Matrix4f;
 
 /** Adds a local swing after Hand Models placement; vanilla still owns equip and use animations. */
 public final class SwingAnimationFeature implements ModuleFeature {
@@ -34,12 +35,23 @@ public final class SwingAnimationFeature implements ModuleFeature {
     }
 
     static void transform(AbstractClientPlayerEntity player, Hand hand, ItemStack item, MatrixStack matrices) {
+        transform(player, hand, item, matrices, new Matrix4f());
+    }
+
+    /** Position is layered in camera space; grip rotation follows the configured model placement. */
+    static void transform(AbstractClientPlayerEntity player, Hand hand, ItemStack item, MatrixStack matrices,
+                          Matrix4f placement) {
         MinecraftClient client = MinecraftClient.getInstance();
+        Hand swingingHand = player.preferredHand == null ? Hand.MAIN_HAND : player.preferredHand;
         if (!enabled || player != client.player || client.world == null || HandModelsFeature.isEditing()
             || player.isUsingItem() || player.isUsingSpyglass() || player.isUsingRiptide()
-            || item.isEmpty() || item.contains(DataComponentTypes.MAP_ID) || player.preferredHand != hand) return;
+            || item.isEmpty() || item.contains(DataComponentTypes.MAP_ID) || swingingHand != hand) {
+            matrices.multiplyPositionMatrix(placement);
+            return;
+        }
         float progress = player.getHandSwingProgress(client.getRenderTickCounter().getTickProgress(false));
         Arm arm = hand == Hand.MAIN_HAND ? player.getMainArm() : player.getMainArm().getOpposite();
-        matrices.multiplyPositionMatrix(SwingAnimationPose.transform(style, arm == Arm.RIGHT, progress, strength, affectPosition));
+        matrices.multiplyPositionMatrix(SwingAnimationPose.compose(placement, style, arm == Arm.RIGHT,
+            progress, strength, affectPosition));
     }
 }

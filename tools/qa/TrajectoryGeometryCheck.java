@@ -82,7 +82,79 @@ public final class TrajectoryGeometryCheck {
             "degenerate path safely rejected");
         glowTrail();
         timedGlow();
+        roundBloom();
         System.out.println("PASS TrajectoryGeometry: " + checks + " assertions; production presentation/ribbon with value-only adapters, not a game test.");
+    }
+
+    private static void roundBloom() {
+        var points = new ArrayList<Vec3d>();
+        for (int i = 0; i <= 80; i++) points.add(new Vec3d(i * .12, 1 + Math.sin(i * .035), 0));
+        var original = List.copyOf(points);
+        for (Vec3d camera : List.of(new Vec3d(4, 3, 5), new Vec3d(4, 9, 0), new Vec3d(-4, 1, 0))) {
+            for (int capacity : new int[] {0, 1, 8, 16, 32, 64, 1000}) {
+                var quads = new ArrayList<WorldGlowRenderer.Quad>();
+                int count = GlowTrail.appendRound(quads, points, camera, capacity, 1, .9, false, p -> 0xF35CAD);
+                check(count == quads.size() && count <= Math.min(64, capacity), "Round bloom obeys shared sprite budget");
+                if (capacity >= 16) check(count > 0, "Round bloom visible from ordinary camera angles");
+                for (var q : quads) {
+                    check(q.texture() == WorldGlowRenderer.Texture.BLOOM && q.uStart() == 0 && q.uEnd() == 1,
+                        "Round bloom uses dedicated full-UV material");
+                    check(finite(q.a()) && finite(q.b()) && finite(q.c()) && finite(q.d()), "Round bloom geometry finite");
+                    Vec3d center = mid(q.a(), q.c());
+                    check(onPath(center, points), "Round bloom remains centered on exact source polyline");
+                    Vec3d right = q.b().subtract(q.a()), up = q.d().subtract(q.a());
+                    Vec3d facing = camera.subtract(center).normalize();
+                    check(Math.abs(right.dotProduct(facing)) < 1e-9 && Math.abs(up.dotProduct(facing)) < 1e-9,
+                        "Round bloom faces camera even above path");
+                    check(Math.abs(right.lengthSquared() - up.lengthSquared()) < 1e-9
+                        && Math.abs(right.dotProduct(up)) < 1e-9, "Round bloom is square, never stretched along path");
+                    check(right.lengthSquared() <= 1.74240001, "Adaptive bloom radius stays bounded");
+                    check(q.color() == q.endColor() && (q.color() >>> 24) > 0 && (q.color() >>> 24) <= 230,
+                        "Round bloom tint is bounded and uniform");
+                }
+            }
+        }
+        check(points.equals(original), "Round bloom never mutates projectile or player history");
+        var straight = List.of(new Vec3d(0, 0, 0), new Vec3d(0, 4, 0));
+        var parallel = new ArrayList<WorldGlowRenderer.Quad>();
+        check(GlowTrail.appendRound(parallel, straight, new Vec3d(0, 8, 0), 64, 1, 1, false, t -> -1) > 0,
+            "Camera-parallel round bloom does not vanish");
+        int energy = parallel.stream().mapToInt(q -> q.color() >>> 24).sum();
+        check(energy >= 230 && energy <= 290, "Coincident blooms retain roughly one sprite of light rather than 64");
+        var near = new ArrayList<WorldGlowRenderer.Quad>();
+        var far = new ArrayList<WorldGlowRenderer.Quad>();
+        var shortPath = List.of(new Vec3d(-.5, 0, 0), new Vec3d(.5, 0, 0));
+        GlowTrail.appendRound(near, shortPath, new Vec3d(0, 0, 2), 64, 1, 1, false, t -> -1);
+        GlowTrail.appendRound(far, shortPath, new Vec3d(0, 0, 100), 64, 1, 1, false, t -> -1);
+        check(Math.abs(near.getFirst().a().squaredDistanceTo(near.getFirst().b())
+            - far.getFirst().a().squaredDistanceTo(far.getFirst().b())) < 1e-10,
+            "Round bloom world size does not inflate with camera distance");
+        var output = new ArrayList<WorldGlowRenderer.Quad>();
+        Vec3d camera = new Vec3d(0, 2, 5);
+        check(GlowTrail.appendRound(output, shortPath, camera, 64, 0, 1, false, t -> -1) == 0, "Round Glow0 emits nothing");
+        check(GlowTrail.appendRound(output, shortPath, camera, 64, 1, 0, false, t -> -1) == 0, "Round Opacity0 emits nothing");
+        check(GlowTrail.appendRound(output, shortPath, camera, 64, 1, 1, false, t -> -1, t -> 0, .2) == 0,
+            "Expired lifetime envelope suppresses round bloom");
+        check(GlowTrail.appendRound(output, shortPath, camera, 64, 1, 1, false, t -> -1, t -> Double.NaN, .2) == 0,
+            "Invalid lifetime envelope suppresses round bloom");
+        check(GlowTrail.appendRound(output, shortPath, camera, 64, 1, 1, false, t -> -1, t -> 1, Double.NaN) == 0,
+            "Invalid size suppresses round bloom");
+        check(GlowTrail.appendRound(null, shortPath, camera, 64, 1, 1, false, t -> -1) == 0, "Null round batch ignored");
+        check(GlowTrail.appendRound(output, List.of(new Vec3d(0, 0, 0), new Vec3d(100, 0, 0)), camera, 64, 1, 1, false, t -> -1) == 0,
+            "Round bloom never bridges a teleport");
+        check(GlowTrail.appendRound(output, List.of(new Vec3d(0, 0, 0), new Vec3d(Double.NaN, 0, 0)), camera, 64, 1, 1, false, t -> -1) == 0,
+            "Round invalid points reject complete batch");
+        check(GlowTrail.appendRound(output, List.of(new Vec3d(-.02, 0, 0), new Vec3d(.02, 0, 0)), new Vec3d(0, 0, .1), 64, 1, 1, false, t -> -1) == 0,
+            "Near-eye round bloom is faded before filling the view");
+        var repeated = new ArrayList<>(points); repeated.add(20, repeated.get(20));
+        check(GlowTrail.appendRound(output, repeated, camera, 64, 1, 1, false, t -> -1) > 0,
+            "Repeated path samples do not break round bloom");
+        int occupied = output.size();
+        check(GlowTrail.appendRound(output, points, camera, 1, 1, 1, false, t -> -1) == 0 && output.size() == occupied,
+            "Insufficient round budget preserves prior effects and requests exact line fallback");
+        var timed = new ArrayList<WorldGlowRenderer.Quad>();
+        GlowTrail.appendRound(timed, shortPath, camera, 64, 1, 1, false, t -> -1, t -> t, .2);
+        check((timed.getFirst().color() >>> 24) < (timed.getLast().color() >>> 24), "Round player trail honors lifetime envelope");
     }
 
     private static void timedGlow() {

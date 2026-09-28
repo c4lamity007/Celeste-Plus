@@ -36,36 +36,46 @@ vec2 flowingCloud(vec2 pixel, float scale, float time) {
     return vec2(cloud, hot);
 }
 vec2 flowingFlame(vec2 pixel, float scale, float time) {
-    // Vertically stretched, continuously rising folds make tongues of flame;
-    // no point sprites, radial blobs, quantized clocks, or randomly born sparks.
-    vec2 field = vec2(pixel.x / (15.0 * scale), pixel.y / (42.0 * scale) - time * 1.25);
-    field.x += sin(field.y * 1.7 + time * 0.43) * 0.36
-        + (smoothNoise(field * 0.73 + 8.0) - 0.5) * 0.65;
-    float fire = smoothNoise(field) * 0.72 + smoothNoise(field * vec2(2.05, 1.45) + 13.0) * 0.28;
-    return vec2(smoothstep(0.14, 0.83, fire), smoothstep(0.48, 0.86, fire));
+    // A broad rising fold changes brightness gently without cutting the aura apart.
+    vec2 field = pixel / (vec2(58.0, 88.0) * scale) - vec2(0.0, time * 0.16);
+    field.x += sin(field.y * 2.0 + time * 0.65) * 0.10;
+    float fold = smoothNoise(field) * 0.8 + smoothNoise(field * 2.0 + 13.0) * 0.2;
+    return vec2(fold, smoothstep(0.45, 0.9, fold));
 }
 float flameCoverage(vec2 uv, vec2 pixel, vec2 size, float scale, float time, float nearCoverage) {
-    float drift = (smoothNoise(vec2(pixel.x / (28.0 * scale), pixel.y / (48.0 * scale) - time * 0.9)) - 0.5);
-    float plume = nearCoverage * 0.62;
-    // Rising tongues escape exposed upper edges, not enclosed transparent
-    // cutouts underneath another part of the item. Use the smooth mask rather
-    // than hard item-color taps so the ceiling cannot introduce an extra rim.
-    float ceiling = max(glowCoverage(uv + vec2(0.0, 26.0 * scale) / size),
-        glowCoverage(uv + vec2(0.0, 46.0 * scale) / size));
-    float openAbove = 1.0 - smoothstep(0.02, 0.45, ceiling);
-    // Integrate the delayed silhouette from below, with diminishing energy.
-    // All taps use the same continuous field and bounded sampler.
-    for (int i = 1; i <= 4; ++i) {
-        float step = float(i);
-        vec2 offset = vec2(drift * step * 3.0, step * 10.0) * scale / size;
-        plume += glowCoverage(uv - offset) * (0.21 - step * 0.027) * openAbove;
-    }
-    return clamp(plume, 0.0, 1.0);
+    // Keep the original silhouette as the root of one continuous flame.
+    // Small offsets bend only the exterior; no detached tongues or bright islands.
+    float sway = sin(pixel.y / (54.0 * scale) - time * 0.85) * 1.8
+        + sin(pixel.y / (93.0 * scale) + time * 0.55) * 0.8;
+    vec2 bend = vec2(sway, 0.0) * scale / size;
+    float flowing = glowCoverage(uv - bend);
+    float rising = glowCoverage(uv - bend * 1.2 - vec2(0.0, 8.0 * scale) / size);
+    return clamp(max(nearCoverage, max(flowing * 0.98, rising * 0.82)), 0.0, 1.0);
+}
+vec4 attachedFlame(vec4 material, vec2 size) {
+    float scale = clamp(size.y / 540.0, 1.0, 3.0);
+    float density = flameCoverage(texCoord, gl_FragCoord.xy, size, scale,
+        HandEffect.w, glowCoverage(texCoord));
+    vec2 fold = flowingFlame(gl_FragCoord.xy, scale, HandEffect.w);
+    float opacity = clamp(HandColor.a, 0.05, 1.0);
+    float strength = clamp(HandEffect.y, 0.0, 2.0);
+    vec3 tint = clamp(HandColor.rgb, 0.0, 1.0);
+    float envelope = smoothstep(0.0005, 0.018, density);
+    float flameAlpha = (1.0 - exp(-density * (7.0 + fold.x * 1.8)))
+        * envelope * opacity * min(1.0, strength);
+    float core = smoothstep(0.08, 0.5, density);
+    vec3 energy = mix(tint, vec3(1.0), core * 0.16);
+    energy *= 0.84 + fold.x * 0.16;
+    // The aura surrounds the current item; it never paints over its texture.
+    float alpha = material.a + flameAlpha * (1.0 - material.a);
+    vec3 premul = material.rgb + energy * flameAlpha * (1.0 - material.a);
+    return alpha > 0.001 ? vec4(clamp(premul / alpha, 0.0, 1.0), alpha) : vec4(0.0);
 }
 void main() {
     ivec2 size = textureSize(InSampler, 0);
     ivec2 pixel = ivec2(gl_FragCoord.xy);
     vec4 material = texelFetch(InSampler, pixel, 0);
+    if (HandEffect.x > 2.5) { fragColor = attachedFlame(material, vec2(size)); return; }
     float body = coverage(pixel, size);
     int radius = int(clamp(HandEffect.z, 1.0, 3.0) + 0.5);
     float outer = body;

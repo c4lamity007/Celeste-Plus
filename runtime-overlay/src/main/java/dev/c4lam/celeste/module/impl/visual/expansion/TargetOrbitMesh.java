@@ -7,30 +7,40 @@ import dev.c4lam.celeste.module.impl.visual.expansion.SolidVisualMesh.Point;
 
 /** Small, complete solid objects around the actual target bounds. Pure geometry. */
 public final class TargetOrbitMesh {
+    public static final int OBJECT_COUNT = 18;
+    public static final int MAX_QUADS = OBJECT_COUNT * 8;
     private static final double TAU = Math.PI * 2;
+    private static final double GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
     private TargetOrbitMesh() { }
 
     public static List<Face> build(String style, double width, double depth, double height,
                                    double spacing, double phase, int color, int accent, int budget) {
-        if (!valid(width, depth, height, spacing, phase) || budget < 4) return List.of();
+        if (!valid(width, depth, height, spacing, phase) || budget < 6
+            || !("Crystals".equals(style) || "Cubes".equals(style) || "Sparks".equals(style))) return List.of();
         boolean cubes = "Cubes".equals(style), sparks = "Sparks".equals(style);
-        int count = sparks ? 4 : 3, cost = cubes ? 6 : 8;
-        List<Face> result = new ArrayList<>();
+        int cost = cubes ? 6 : 8;
+        int count = Math.min(OBJECT_COUNT, budget / cost);
+        if (count == 0) return List.of();
+        List<Face> result = new ArrayList<>(count * cost);
         double small = Math.min(1, height / .8);
-        for (int i = 0; i < count && result.size() + cost <= Math.min(64, budget); i++) {
+        double size = (sparks ? .029 : cubes ? .045 : .050) * small;
+        List<Face> main = cubes ? cube(size, color, accent)
+            : SolidVisualMesh.diamond(new Point(0, 0, 0), size, (sparks ? .085 : .115) * small, color, cost);
+        List<Face> alternate = cubes ? main
+            : SolidVisualMesh.diamond(new Point(0, 0, 0), size, (sparks ? .085 : .115) * small, accent, cost);
+        for (int i = 0; i < count; i++) {
+            // Six objects per tilted band, staggered around the whole target.
+            // Smaller budgets still distribute complete objects around a full turn.
+            int band = i % 3;
             double angle = phase + TAU * i / count;
-            double x = Math.cos(angle) * (width * .5 + .18 * spacing);
-            double z = Math.sin(angle) * (depth * .5 + .18 * spacing);
-            double y = height * (.50 + .18 * Math.sin(angle * (sparks ? 2 : 1)));
-            double size = (sparks ? .038 : cubes ? .065 : .070) * small;
-            List<Face> local = cubes ? cube(size, color, accent)
-                : SolidVisualMesh.diamond(new Point(0, 0, 0), size, (sparks ? .12 : .145) * small,
-                    i % 2 == 0 ? color : accent, cost);
+            double x = Math.cos(angle) * (width * .5 + .20 * spacing + .035);
+            double z = Math.sin(angle) * (depth * .5 + .20 * spacing + .035);
+            double y = height * (.26 + .24 * band + .055 * Math.sin(angle + band * TAU / 3));
+            Frame frame = inwardFrame(x, y, z, height * .5, phase * .8 + i * GOLDEN_ANGLE);
+            List<Face> local = i % 2 == 0 ? main : alternate;
             for (Face face : local) result.add(new Face(
-                rotate(face.a(), x, y, z, angle * 1.3, sparks ? Math.PI * .5 : .22),
-                rotate(face.b(), x, y, z, angle * 1.3, sparks ? Math.PI * .5 : .22),
-                rotate(face.c(), x, y, z, angle * 1.3, sparks ? Math.PI * .5 : .22),
-                rotate(face.d(), x, y, z, angle * 1.3, sparks ? Math.PI * .5 : .22),
+                place(face.a(), frame, cubes), place(face.b(), frame, cubes),
+                place(face.c(), frame, cubes), place(face.d(), frame, cubes),
                 face.color(), face.endColor(), face.uStart(), face.uEnd()));
         }
         return List.copyOf(result);
@@ -64,9 +74,32 @@ public final class TargetOrbitMesh {
             face(b,f,g,c,accent,color),face(d,c,g,h,color,accent),face(e,f,b,a,color,accent));
     }
     private static Face face(Point a,Point b,Point c,Point d,int color,int accent) { return new Face(a,b,c,d,color,accent,0,1); }
-    private static Point rotate(Point p,double x,double y,double z,double yaw,double tilt) {
-        double py=p.y()*Math.cos(tilt)-p.z()*Math.sin(tilt), pz=p.y()*Math.sin(tilt)+p.z()*Math.cos(tilt);
-        return new Point(x+p.x()*Math.cos(yaw)+pz*Math.sin(yaw), y+py, z-p.x()*Math.sin(yaw)+pz*Math.cos(yaw));
+    private record Frame(Point center, Point side, Point inward, Point across) { }
+    private static Frame inwardFrame(double x, double y, double z, double targetY, double roll) {
+        double horizontal = Math.hypot(x, z);
+        double length = Math.hypot(horizontal, targetY - y);
+        Point inward = new Point(-x / length, (targetY - y) / length, -z / length);
+        Point side = new Point(z / horizontal, 0, -x / horizontal);
+        Point across = new Point(-side.z() * inward.y(), side.z() * inward.x() - side.x() * inward.z(),
+            side.x() * inward.y());
+        double c = Math.cos(roll), s = Math.sin(roll);
+        return new Frame(new Point(x, y, z), mix(side, across, c, s), inward, mix(side, across, -s, c));
+    }
+    private static Point mix(Point a, Point b, double scaleA, double scaleB) {
+        return new Point(a.x() * scaleA + b.x() * scaleB, a.y() * scaleA + b.y() * scaleB,
+            a.z() * scaleA + b.z() * scaleB);
+    }
+    private static Point place(Point p, Frame frame, boolean cube) {
+        double x = p.x(), y = p.y(), z = p.z();
+        if (cube) {
+            // Aim a cube corner along the same inward axis as the crystal tips.
+            x = (p.x() - p.z()) / Math.sqrt(2);
+            y = (p.x() + p.y() + p.z()) / Math.sqrt(3);
+            z = (p.x() - 2 * p.y() + p.z()) / Math.sqrt(6);
+        }
+        return new Point(frame.center().x() + frame.side().x() * x + frame.inward().x() * y + frame.across().x() * z,
+            frame.center().y() + frame.side().y() * x + frame.inward().y() * y + frame.across().y() * z,
+            frame.center().z() + frame.side().z() * x + frame.inward().z() * y + frame.across().z() * z);
     }
     private static boolean valid(double w,double d,double h,double s,double t) {
         return w>0 && d>0 && h>0 && s>0 && w<64 && d<64 && h<64 && s<=4

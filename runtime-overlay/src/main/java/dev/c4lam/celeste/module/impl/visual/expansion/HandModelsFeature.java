@@ -13,6 +13,7 @@ import net.minecraft.item.ItemDisplayContext;
 import net.minecraft.item.ItemStack;
 import net.minecraft.registry.tag.ItemTags;
 import org.joml.Quaternionfc;
+import org.joml.Matrix4f;
 
 /** First-person presentation only: vanilla still owns held models, use poses and swings. */
 public final class HandModelsFeature implements ModuleFeature {
@@ -86,12 +87,13 @@ public final class HandModelsFeature implements ModuleFeature {
         MinecraftClient client = MinecraftClient.getInstance();
         boolean editing = isEditing();
         if (player != client.player || client.world == null) return;
-        if (enabled || editing) applyPlacement(player, hand, renderedItem, matrices, client, editing);
-        SwingAnimationFeature.transform(player, hand, renderedItem, matrices);
+        Matrix4f placement = enabled || editing
+            ? placement(player, hand, renderedItem, client, editing) : new Matrix4f();
+        SwingAnimationFeature.transform(player, hand, renderedItem, matrices, placement);
     }
 
-    private static void applyPlacement(AbstractClientPlayerEntity player, Hand hand, ItemStack renderedItem,
-                                       MatrixStack matrices, MinecraftClient client, boolean editing) {
+    private static Matrix4f placement(AbstractClientPlayerEntity player, Hand hand, ItemStack renderedItem,
+                                      MinecraftClient client, boolean editing) {
         Arm arm = hand == Hand.MAIN_HAND ? player.getMainArm() : player.getMainArm().getOpposite();
         boolean right = arm == Arm.RIGHT;
         double x = right ? rightX : leftX;
@@ -123,7 +125,7 @@ public final class HandModelsFeature implements ModuleFeature {
         // Flat generated/handheld models are corrected from their actual model
         // transforms, not a sword-only tag. True 3D/special models retain theirs.
         boolean swordLean = facing != null && renderedItem.isIn(ItemTags.SWORDS);
-        matrices.multiplyPositionMatrix(HandModelsPose.transform(right, x, y, aspect, fov, size, facing, swordLean));
+        return HandModelsPose.transform(right, x, y, aspect, fov, size, facing, swordLean);
     }
 
     private static double coordinate(double value, double fallback) {

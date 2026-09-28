@@ -139,14 +139,14 @@ if ($Suite -in @('Gpu', 'All')) {
     $previewPath = Join-Path $gpuPreview $previewName
     @(
         'GPU PREVIEW - direct offscreen shader render; NOT an in-game screenshot.'
-        'Columns: Ribbon | Pulse | Jump Glow | Jump Lean | Splash | Droplet | Water Wave 3D | Solid Volume'
+        'Columns: Ribbon | Pulse | Jump Glow | Jump Lean | Splash | Droplet | Water Wave 3D | Solid Volume | Round Bloom'
         'Rows: GameTime 3.000000 s | 3.016667 s | 3.500000 s'
         'The first six materials use additive blending on a neutral background. Assertions inspect unblended floating-point output.'
         'Water uses translucent blending; its flat column is a surface-sampling fixture. The posed 3D water geometry preview is separate.'
         'Volume uses translucent blending and filled quad boundaries. Its full 3D mesh preview is separate.'
         'This does not test Minecraft runtime integration, world placement, or actual gameplay.'
     ) | Set-Content -LiteralPath (Join-Path $gpuPreview 'GPU-PREVIEW-README.txt') -Encoding utf8
-    Write-Output "Gpu: PASS eight actual materials at ${Tile}x${Tile}; GPU preview: $previewPath (not an in-game screenshot)."
+    Write-Output "Gpu: PASS nine actual materials at ${Tile}x${Tile}; GPU preview: $previewPath (not an in-game screenshot)."
 }
 
 Write-Output "QA complete: suite=$Suite; logs/artifacts=$outputPath"

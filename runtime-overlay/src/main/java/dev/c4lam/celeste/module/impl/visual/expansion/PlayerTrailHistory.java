@@ -70,8 +70,8 @@ public final class PlayerTrailHistory {
 
     public static double alpha(Sample sample, long nowMs, long lifetimeMs) {
         if (sample == null || lifetimeMs <= 0) return 0;
-        double remaining = 1 - (double) Math.max(0, nowMs - sample.timeMs) / lifetimeMs;
-        double fade = Math.max(0, Math.min(1, remaining / .55));
+        double remaining = lifetimeMs - (double) Math.max(0, nowMs - sample.timeMs);
+        double fade = Math.max(0, Math.min(1, remaining / Math.min(250.0, lifetimeMs)));
         return fade * fade * (3 - 2 * fade);
     }
 }

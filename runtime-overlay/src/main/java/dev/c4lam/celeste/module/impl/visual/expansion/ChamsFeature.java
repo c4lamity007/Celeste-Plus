@@ -103,6 +103,7 @@ public final class ChamsFeature implements ModuleFeature {
         material = switch (context.mode("Material", "Pearl")) {
             case "Flow" -> 1;
             case "Mist" -> 2;
+            case "Glow" -> 3;
             default -> 0;
         };
         range = MathHelper.clamp(context.slider("Range", 64.0), 8.0, 96.0);

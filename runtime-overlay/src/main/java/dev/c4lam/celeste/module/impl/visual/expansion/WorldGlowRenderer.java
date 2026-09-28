@@ -42,10 +42,11 @@ public final class WorldGlowRenderer {
         WorldVfxRenderer.ribbonLayer(), WorldVfxRenderer.pulseLayer(),
         WorldVfxRenderer.jumpLayer(), WorldVfxRenderer.splashLayer(), WorldVfxRenderer.dropletLayer(),
         WorldVfxRenderer.prismLayer(), WorldVfxRenderer.waterLayer(),
-        WorldVfxRenderer.trajectoryLayer(), WorldVfxRenderer.trajectoryImpactLayer(), WorldVfxRenderer.jumpLeanLayer()
+        WorldVfxRenderer.trajectoryLayer(), WorldVfxRenderer.trajectoryImpactLayer(), WorldVfxRenderer.jumpLeanLayer(),
+        WorldVfxRenderer.bloomLayer()
     };
 
-    public enum Texture { HALO, SOFT, STREAK, RIBBON, PULSE, JUMP, SPLASH, DROPLET, PRISM, WATER, TRAJECTORY, TRAJECTORY_IMPACT, JUMP_LEAN, VOLUME }
+    public enum Texture { HALO, SOFT, STREAK, RIBBON, PULSE, JUMP, SPLASH, DROPLET, PRISM, WATER, TRAJECTORY, TRAJECTORY_IMPACT, JUMP_LEAN, BLOOM, VOLUME }
 
     /** World-space corners, in UV order (0,0), (1,0), (1,1), (0,1). */
     public record Quad(Texture texture, Vec3d a, Vec3d b, Vec3d c, Vec3d d, int color, int endColor,

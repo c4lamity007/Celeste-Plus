@@ -18,7 +18,7 @@ import java.util.List;
 
 /** Exact hitbox or compact, frame-animated objects around the selected target. */
 public final class TargetEspFeature implements ModuleFeature {
-    private static final int MAX_EFFECT_QUADS = 64;
+    private static final int MAX_EFFECT_QUADS = TargetOrbitMesh.MAX_QUADS;
     private volatile boolean enabled;
     private volatile String style = "Box";
     private volatile String theme = "Celeste";

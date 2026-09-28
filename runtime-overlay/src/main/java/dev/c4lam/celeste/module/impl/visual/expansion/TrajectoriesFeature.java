@@ -228,7 +228,7 @@ public final class TrajectoriesFeature implements ModuleFeature {
                                 List<WorldGlowRenderer.Quad> glows, List<Vec3d> points,
                                 Vec3d camera, TrajectoryAppearance.Budget budget) {
         if ("Glow".equals(pathStyle)) {
-            int written = GlowTrail.append(glows, points, camera,
+            int written = GlowTrail.appendRound(glows, points, camera,
                 budget.pathSegments() + budget.glowSprites(), glow, opacity, trailFade, this::pathColor);
             if (written == 0) fallbackPath(paths, points, camera);
             return;

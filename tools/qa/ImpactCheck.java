@@ -45,6 +45,7 @@ public class ImpactCheck {
         return shader;
     }
     static boolean analyticRing(String name) { return name.equals("jump") || name.equals("jump_lean"); }
+    static boolean analytic(String name) { return analyticRing(name) || name.equals("bloom"); }
     static int program(String name) throws Exception {
         Path core = resources.resolve("assets/celeste/shaders/core");
         int vertex = shader(GL_VERTEX_SHADER, preprocess(Files.readString(core.resolve(name.equals("water") || name.equals("volume") ? "world_" + name + ".vsh" : "world_vfx.vsh")))
@@ -63,7 +64,7 @@ public class ImpactCheck {
             if (index != GL_INVALID_INDEX) glUniformBlockBinding(program, index, binding);
         }
         int block = glGetUniformBlockIndex(program, "Globals");
-        if (block == GL_INVALID_INDEX && !analyticRing(name)) throw new AssertionError(name + ": required Globals UBO missing");
+        if (block == GL_INVALID_INDEX && !analytic(name)) throw new AssertionError(name + ": required Globals UBO missing");
         if (block != GL_INVALID_INDEX) {
             int size = glGetActiveUniformBlocki(program, block, GL_UNIFORM_BLOCK_DATA_SIZE);
             int binding = glGetActiveUniformBlocki(program, block, GL_UNIFORM_BLOCK_BINDING);
@@ -82,7 +83,7 @@ public class ImpactCheck {
         glUseProgram(program);
         int sampler = glGetUniformLocation(program, "Sampler0");
         if (sampler >= 0) glUniform1i(sampler, 0);
-        System.out.println("PASS driver compile/link: world_" + name + "; actual Minecraft includes; " + (analyticRing(name) ? "CPU-animated procedural ring, no sampler/Globals dependency" : "Globals binding 2 / 64 bytes / GameTime offset 44"));
+        System.out.println("PASS driver compile/link: world_" + name + "; actual Minecraft includes; " + (analytic(name) ? "Procedural material, no sampler/Globals dependency" : "Globals binding 2 / 64 bytes / GameTime offset 44"));
         return program;
     }
     static int buffer(int binding, ByteBuffer data) {
@@ -211,7 +212,7 @@ public class ImpactCheck {
         }
         if (visible < 30 || partial < 10) throw new AssertionError(material.name + ": no visible/soft alpha silhouette");
         if (maxEdge > .015f) throw new AssertionError(material.name + ": visible quad boundary alpha=" + maxEdge);
-        if (!analyticRing(material.name) && (changed < 30 || fractionalChanged < 30))
+        if (!analytic(material.name) && (changed < 30 || fractionalChanged < 30))
             throw new AssertionError(material.name + ": animation absent; half-second=" + changed + ", fractional=" + fractionalChanged);
         if (analyticRing(material.name)) {
             if (changed != 0 || fractionalChanged != 0) throw new AssertionError("Ring timing must be owned by the production CPU pose");
@@ -263,6 +264,23 @@ public class ImpactCheck {
         double dx=x-x0,dy=y-y0;
         return (values[(y0*TILE+x0)*4+channel]*(1-dx)+values[(y0*TILE+x1)*4+channel]*dx)*(1-dy)
             +(values[(y1*TILE+x0)*4+channel]*(1-dx)+values[(y1*TILE+x1)*4+channel]*dx)*dy;
+    }
+    static void profileCheck(Material material) {
+        // Independent measured radial luminance targets; checks actual GPU RGB*alpha.
+        double[] radii = {.2,.4,.5,.6,.7,.8,.9};
+        double[] expected = material.name.equals("bloom")
+            ? new double[] {.97319,.52837,.30196,.15833,.06939,.02218,.00450}
+            : new double[] {0,.01336,.17286,.56180,1,.49081,.12678};
+        float[] pixels = render(material, 3, CYAN[3], material.texture);
+        for(int i=0;i<radii.length;i++) {
+            int x=(int)Math.round((radii[i]+1)*.5*TILE-.5), y=TILE/2;
+            int at=(y*TILE+x)*4;
+            double light=pixels[at+2]*pixels[at+3]/(CYAN[2]*CYAN[3]);
+            if(Math.abs(light-expected[i])>.035) throw new AssertionError(material.name+": radial brightness mismatch at "+radii[i]+": "+light);
+            if(pixels[at+3]>.003) for(int c=0;c<3;c++)
+                if(Math.abs(pixels[at+c]-CYAN[c])>1e-5) throw new AssertionError(material.name+": RGB must not dim alpha a second time");
+        }
+        System.out.println("PASS "+material.name+": measured radial brightness and single alpha attenuation");
     }
     static void overlayCheck(Material material) {
         int white=solidTexture(255);float seconds=1.7f;
@@ -340,7 +358,7 @@ public class ImpactCheck {
         for (int i = 0; i < sizes.length; i++) { glEnableVertexAttribArray(i); glVertexAttribPointer(i, sizes[i], GL_FLOAT, false, 48, offset); offset += sizes[i] * 4; }
         glDisable(GL_CULL_FACE); blankTexture = solidTexture(0);
         List<Material> materials = new ArrayList<>();
-        for (String name : new String[] {"ribbon", "pulse", "jump", "jump_lean", "splash", "droplet", "water", "volume"}) {
+        for (String name : new String[] {"ribbon", "pulse", "jump", "jump_lean", "splash", "droplet", "water", "volume", "bloom"}) {
             if (!Files.exists(resources.resolve("assets/celeste/shaders/core/world_" + name + ".fsh"))) {
                 throw new AssertionError("Required production shader missing: " + name);
             }
@@ -349,7 +367,7 @@ public class ImpactCheck {
             materials.add(new Material(name, program(name), texture(path), path));
         }
         frame = framebuffer(TILE, TILE, true);
-        for (Material material : materials) {check(material);if(!analyticRing(material.name)) overlayCheck(material);}
+        for (Material material : materials) {check(material);if(!analytic(material.name)) overlayCheck(material); if(material.name.equals("bloom") || material.name.equals("jump")) profileCheck(material);}
         // These pipelines have separate feature previews, but share the overlay contract.
         overlayCheck(new Material("prism",program("prism"),0,"white"));
         overlayCheck(new Material("echo",program("echo"),0,"white"));

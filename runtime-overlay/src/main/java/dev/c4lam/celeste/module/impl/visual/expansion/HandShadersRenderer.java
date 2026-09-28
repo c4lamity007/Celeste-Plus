@@ -106,7 +106,8 @@ public final class HandShadersRenderer {
             long now = System.nanoTime();
             HandShadersFeature.Settings settings = HandShadersFeature.settings();
             double elapsed = (now - lastCaptureNanos) * 1.0e-9;
-            float retention = historyValid ? HandFogTiming.retention(elapsed, settings.mode() == 3) : 0;
+            // Flame stays attached to this frame. Smoke keeps its existing temporal flow.
+            float retention = historyValid && settings.mode() != 3 ? HandFogTiming.retention(elapsed, false) : 0;
             if (retention == 0) invalidateHistory();
             if (historyNeedsClear) {
                 var encoder = RenderSystem.getDevice().createCommandEncoder();

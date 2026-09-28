@@ -48,7 +48,7 @@ public final class TrailsFeature implements ModuleFeature {
             if (i > 0) distances[i] = distances[i - 1] + points.get(i).distanceTo(points.get(i - 1));
         }
         double total = distances[distances.length - 1];
-        GlowTrail.append(glows, points, context.camera().getCameraPos(), Math.min(64, available),
+        GlowTrail.appendRound(glows, points, context.camera().getCameraPos(), Math.min(64, available),
             1, opacity, false, progress -> VisualEffects.color(theme, color, 0, progress * .32),
             progress -> {
                 double at = total * progress;
@@ -59,7 +59,7 @@ public final class TrailsFeature implements ModuleFeature {
                 double a = PlayerTrailHistory.alpha(samples.get(edge - 1), now, lifetimeMs);
                 double b = PlayerTrailHistory.alpha(samples.get(edge), now, lifetimeMs);
                 return a + (b - a) * t;
-            }, size / .20);
+            }, size);
     }
 
     private void update(ModuleContext context) {

@@ -27,6 +27,8 @@ public final class WorldVfxRenderer {
     private static final RenderLayer TRAJECTORY = material("trajectory", false, "textures/visual/fake_lag/soft.png");
     private static final RenderLayer TRAJECTORY_IMPACT = material("trajectory_impact", false, "textures/visual/fake_lag/soft.png");
 
+    private static final RenderLayer BLOOM = material("bloom", false, "", false);
+
     private WorldVfxRenderer() { }
 
     public static RenderLayer ribbonLayer() { return RIBBON; }
@@ -34,6 +36,7 @@ public final class WorldVfxRenderer {
     public static RenderLayer echoLayer() { return ECHO; }
     public static RenderLayer jumpLayer() { return JUMP; }
     public static RenderLayer jumpLeanLayer() { return JUMP_LEAN; }
+    public static RenderLayer bloomLayer() { return BLOOM; }
     public static RenderLayer splashLayer() { return SPLASH; }
     public static RenderLayer dropletLayer() { return DROPLET; }
     public static RenderLayer prismLayer() { return PRISM; }
@@ -46,7 +49,7 @@ public final class WorldVfxRenderer {
     }
 
     private static RenderLayer material(String name, boolean normals, String texture, boolean depthTest) {
-        boolean analyticRing = "jump".equals(name) || "jump_lean".equals(name);
+        boolean analyticRing = "jump".equals(name) || "jump_lean".equals(name) || "bloom".equals(name);
         RenderPipeline.Builder builder = RenderPipeline.builder(
             analyticRing ? new RenderPipeline.Snippet[] {RenderPipelines.TRANSFORMS_AND_PROJECTION_SNIPPET}
                 : new RenderPipeline.Snippet[] {RenderPipelines.TRANSFORMS_AND_PROJECTION_SNIPPET, RenderPipelines.GLOBALS_SNIPPET});

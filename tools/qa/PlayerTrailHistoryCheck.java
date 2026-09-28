@@ -22,9 +22,9 @@ public final class PlayerTrailHistoryCheck {
         }
         Point stopped = new Point(10, 1, 0);
         var beforeStop = trail.observe(world, player, stopped, 5010, 1500);
-        var fading = trail.observe(world, player, stopped, 6200, 1500);
+        var fading = trail.observe(world, player, stopped, 6300, 1500);
         check(!fading.isEmpty(), "Trail disappeared before its lifetime");
-        check(PlayerTrailHistory.alpha(fading.getLast(), 6200, 1500) < 1, "Standing still refreshed the trail forever");
+        check(PlayerTrailHistory.alpha(fading.getLast(), 6300, 1500) < 1, "Standing still refreshed the trail forever");
         check(trail.observe(world, player, stopped, 6600, 1500).isEmpty(), "Stationary trail did not expire");
         var resumed = trail.observe(world, player, new Point(10.1, 1, 0), 6610, 1500);
         check(resumed.size() == 1, "Resuming movement bridged expired history");
@@ -48,6 +48,14 @@ public final class PlayerTrailHistoryCheck {
             previous = alpha;
         }
         check(previous == 0, "Expired trail retained opacity");
+        for (long lifetime : new long[] {500, 1500, 3000}) {
+            check(PlayerTrailHistory.alpha(sample, sample.timeMs() + lifetime - 250, lifetime) == 1,
+                "Trail should keep its glow until the final 250 ms");
+            check(Math.abs(PlayerTrailHistory.alpha(sample, sample.timeMs() + lifetime - 125, lifetime) - .5) < 1e-12,
+                "Last 250 ms should provide a smooth half-opacity midpoint");
+            check(PlayerTrailHistory.alpha(sample, sample.timeMs() + lifetime, lifetime) == 0,
+                "Trail must be invisible exactly at expiry");
+        }
         var clock = new PlayerTrailHistory.Clock();
         check(clock.update(100, false) == 0 && clock.update(150, false) == 50, "Active trail clock did not advance");
         check(clock.update(200, true) == 50 && clock.update(5200, true) == 50, "Paused trail continued aging");

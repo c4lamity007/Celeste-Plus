@@ -73,12 +73,14 @@ public final class UnifiedChamsRenderer {
             .withDepthTestFunction(DepthTestFunction.NO_DEPTH_TEST)
             .withDepthWrite(false).withColorWrite(true).withCull(false).build());
 
+    private static final RenderPipeline GLOW_BLUR = glowPipeline(false);
     private static BufferAllocator allocator;
     private static final RenderPipeline[] MATERIALS = {
-        materialPipeline(0), materialPipeline(1), materialPipeline(2)
+        materialPipeline(0), materialPipeline(1), materialPipeline(2), glowPipeline(true)
     };
     private static GpuBuffer vertices;
     private static SimpleFramebuffer silhouette;
+    private static SimpleFramebuffer glowBlur;
     private static Object loadedModels;
     private static boolean initialized;
 
@@ -95,6 +97,21 @@ public final class UnifiedChamsRenderer {
                 .withSampler("InSampler").withBlend(BlendFunction.TRANSLUCENT)
                 .withDepthTestFunction(DepthTestFunction.NO_DEPTH_TEST)
                 .withDepthWrite(false).withColorWrite(true).withCull(false).build());
+    }
+
+    private static RenderPipeline glowPipeline(boolean composite) {
+        String shader = composite ? "chams_glow" : "chams_glow_blur";
+        var builder = RenderPipeline.builder()
+            .withLocation(id("pipeline/" + shader))
+            .withVertexShader(id("core/unified_chams_composite"))
+            .withFragmentShader(id("core/" + shader))
+            .withVertexFormat(VertexFormats.EMPTY, VertexFormat.DrawMode.TRIANGLES)
+            .withSampler("InSampler")
+            .withDepthTestFunction(DepthTestFunction.NO_DEPTH_TEST)
+            .withDepthWrite(false).withColorWrite(true).withCull(false);
+        if (composite) builder.withSampler("GlowSampler").withBlend(BlendFunction.TRANSLUCENT);
+        else builder.withoutBlend();
+        return dev.c4lam.celeste.compat.BetaRenderPipelines.register(builder.build());
     }
 
     /** Call once during client visual initialization; this does not allocate GPU storage. */
@@ -146,6 +163,7 @@ public final class UnifiedChamsRenderer {
         if (target == null || target.isClosed()) return;
         int width = target.getWidth(0), height = target.getHeight(0);
         if (width < 1 || height < 1) return;
+        boolean exteriorGlow = material >= MATERIALS.length - 1;
         GpuTextureView energyTexture = material < 0 ? client.getTextureManager()
             .getTexture(id("textures/visual/plasma_flow.png")).getGlTextureView() : null;
         if (material < 0 && (energyTexture == null || energyTexture.isClosed())) return;
@@ -229,6 +247,22 @@ public final class UnifiedChamsRenderer {
                     }
                 }
 
+                if (exteriorGlow) {
+                    int blurWidth = (width + 1) / 2, blurHeight = (height + 1) / 2;
+                    if (glowBlur == null) glowBlur = new SimpleFramebuffer("Celeste chams glow", blurWidth, blurHeight, false);
+                    else if (glowBlur.textureWidth != blurWidth || glowBlur.textureHeight != blurHeight)
+                        glowBlur.resize(blurWidth, blurHeight);
+                    // Blur only the resolved posed silhouette, once for the entire frame.
+                    // Half-resolution storage keeps the broad, smooth bloom bounded.
+                    try (RenderPass pass = encoder.createRenderPass(
+                        () -> "Celeste chams glow blur", glowBlur.getColorAttachmentView(), OptionalInt.of(0))) {
+                        pass.setPipeline(GLOW_BLUR);
+                        pass.bindTexture("InSampler", silhouette.getColorAttachmentView(),
+                            RenderSystem.getSamplerCache().get(FilterMode.LINEAR));
+                        pass.draw(0, 3);
+                    }
+                }
+
                 // No external depth attachment, clear, copy, write or global
                 // framebuffer/projection override. Alpha is applied exactly once.
                 try (RenderPass pass = encoder.createRenderPass(
@@ -236,7 +270,9 @@ public final class UnifiedChamsRenderer {
                     pass.setPipeline(material < 0 ? COMPOSITE : MATERIALS[Math.min(material, MATERIALS.length - 1)]);
                     RenderSystem.bindDefaultUniforms(pass);
                     pass.bindTexture("InSampler", silhouette.getColorAttachmentView(),
-                        RenderSystem.getSamplerCache().get(FilterMode.NEAREST));
+                        RenderSystem.getSamplerCache().get(exteriorGlow ? FilterMode.LINEAR : FilterMode.NEAREST));
+                    if (exteriorGlow) pass.bindTexture("GlowSampler", glowBlur.getColorAttachmentView(),
+                        RenderSystem.getSamplerCache().get(FilterMode.LINEAR));
                     if (energyTexture != null) pass.bindTexture("EnergySampler", energyTexture,
                         RenderSystem.getSamplerCache().get(FilterMode.LINEAR, true));
                     pass.draw(0, 3);
@@ -258,19 +294,21 @@ public final class UnifiedChamsRenderer {
     public static void releaseResources() {
         RenderSystem.assertOnRenderThread();
         SimpleFramebuffer previousSilhouette = silhouette;
+        SimpleFramebuffer previousGlow = glowBlur;
         GpuBuffer previousVertices = vertices;
         BufferAllocator previousAllocator = allocator;
         silhouette = null;
+        glowBlur = null;
         vertices = null;
         allocator = null;
         loadedModels = null;
         try {
             if (previousSilhouette != null) previousSilhouette.delete();
         } finally {
-            try {
-                if (previousVertices != null) previousVertices.close();
-            } finally {
-                if (previousAllocator != null) previousAllocator.close();
+            try { if (previousGlow != null) previousGlow.delete(); }
+            finally {
+                try { if (previousVertices != null) previousVertices.close(); }
+                finally { if (previousAllocator != null) previousAllocator.close(); }
             }
         }
     }
