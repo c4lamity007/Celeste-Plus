@@ -214,7 +214,7 @@
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/gui/model/GuiCatalog.java",
-      "sha256": "3e287f3266e9a920563f08f99f81933ccd208c891ffc444511f9fb61a21c586e",
+      "sha256": "906a63f7b62a051ad449f742f4aff5585af3f1397bec41a0da5976f104fedb83",
       "baseSha256": "11f261cd447bf0307a91732fa8903e3e71f8f9a4ea5638f508abfbcd887a66d6"
     },
     {
@@ -638,6 +638,31 @@
       "baseSha256": "59025c32dc8b24cc7b9c2e66c1f73b71eb29f0b94831159cd7a2267141255863"
     },
     {
+      "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/AmbientEffectsFeature.java",
+      "sha256": "982fc7131eb65c6b4737e96db62d3bb659b2335c2d12458c6f59ef837949dcb8",
+      "baseSha256": "a9d5098c0e9b8fb711cef546d0ef4d4e285b026148da82a06519270c6dbe7bb6"
+    },
+    {
+      "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/AmbientEffectsRenderer.java",
+      "sha256": "cc6ea29884943b97930bb565d9104e870d7d01b93b7367ddab3d618976647ff7",
+      "baseSha256": "2799aef931aa3ec20044a948c4c3dfaca4a90747ffdef3890715c6498942be54"
+    },
+    {
+      "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/AmbientField.java",
+      "sha256": "5c2f6b3a9564673835697797db0198715c36e3555abfaba75ef9a077de30756a",
+      "baseSha256": "19fa6827fcc57d8f763b15bf838c90e598ea1479a052f409caca1fe3b58c1e17"
+    },
+    {
+      "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/AmbientTesseractField.java",
+      "sha256": "bb35cb8c929f1f69d5922ecc733680c85beec251398aa8f7b3cd066ed68d10f4",
+      "baseSha256": null
+    },
+    {
+      "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/AmbientTesseractGeometry.java",
+      "sha256": "25562b841812e8678f9d135231d44b6dac0a04d82fcb8960bb663350ea8bd863",
+      "baseSha256": null
+    },
+    {
       "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/ChamsFeature.java",
       "sha256": "1709a03c55d89f439abc2c868bd7162f3a0bb8a9faf81f92c2583d9b8e5c8d8f",
       "baseSha256": "eeaaae011427ba88f2c32c316b5d45bc3e6fcabaf1fdb788f410f2eec7f53932"
@@ -669,7 +694,7 @@
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/HandFogTiming.java",
-      "sha256": "5f0433a0490732d3a066dcf142153ba03b0fbf91b37f2a9a288abb4f4b9ee97b",
+      "sha256": "b24d2d4def6b9a1cb4f8a9e065aa52385a22ac2302bdc1debaefdf597ec4291a",
       "baseSha256": null
     },
     {
@@ -684,7 +709,7 @@
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/HandModelsFeature.java",
-      "sha256": "7eb1b14c55890d206204ea139f769d4bda0ab00a1defeef61cfdb3c9aff9772e",
+      "sha256": "eb3a89921eba63f3c9d988419b53116395c4f4b6856ec304e9c57e560f39b8c1",
       "baseSha256": null
     },
     {
@@ -704,7 +729,7 @@
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/HandShadersRenderer.java",
-      "sha256": "521e23b4570212a9a8d7a5cd3eb82588c52efd99ad1dbe8a567fd5af20e9a588",
+      "sha256": "bcf960436579ae30f5a9d5fa87a66e8a56816463244e033090dc26b46bf14532",
       "baseSha256": null
     },
     {
@@ -719,12 +744,12 @@
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/JumpCircleAnimation.java",
-      "sha256": "9d0db17efcbe8e6eb7128ee7511566e0babba30f6107539c1969d9282b340aa8",
+      "sha256": "504418d52f525a147170cf76deb8cdfdd948342bbdc192426a7b68953d98c804",
       "baseSha256": "995fc7afc3072782c94fc081e859d1d31ab8a2b1c7414a9891c311b79b7ad1bb"
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/JumpCirclesFeature.java",
-      "sha256": "100599ee6e56d1e85c33d3a97e503980d02f75021274e02564fb69ef4cb5c391",
+      "sha256": "0a73113394362a0bf57eb50a6ac1aed733aa348baf827e2eb88ffa0adefe7e6a",
       "baseSha256": "0b1f2e7978eebf8b80aab09f012e76eeb9aaec58b1087be7db09f70c08194ff0"
     },
     {
@@ -743,23 +768,13 @@
       "baseSha256": "247eef9935ce5dd1b3743e5ac8a612ba0896e69c36b09f45896d0a89ad5a1638"
     },
     {
-      "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/SkyboxFeature.java",
-      "sha256": "22fe9676efb6551791f43e28a1b77d7428731600cc1800434796d27dc4d37e62",
-      "baseSha256": "b784a548c8b005d713ba80a6ed624319f729d0f6c69ac0538ee73580bd9d1339"
-    },
-    {
-      "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/SkyboxRenderer.java",
-      "sha256": "c902811a04b4cab93fc665d76636281a4b1858076163b3f4a595fad08b3f7790",
-      "baseSha256": "bf9f99b73860255c17e1e73ef444720b37377ddad586a1a0f6c4a62569930137"
-    },
-    {
       "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/SwingAnimationFeature.java",
-      "sha256": "85b31427fa2181afa24536cd71938bcb57e4058b1faa2cbbe5d13326031de7a3",
+      "sha256": "02c4ce4af241aee80e164015f79596fe89167b31ee9187ce6dba01f4821f6002",
       "baseSha256": null
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/SwingAnimationPose.java",
-      "sha256": "02da326fe3c18ca5c596d9f2096cffc91fc35a13c42d122972ed94a1f5484462",
+      "sha256": "c04f62523f604337c739eae151b13d332a4cf54fd1f4e169f4b7df97df3922cf",
       "baseSha256": null
     },
     {
@@ -779,7 +794,7 @@
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/TargetOrbitMesh.java",
-      "sha256": "16e95e6b09ccc8361660fb0c2b3f28bbd038c4d96655555a12df1d0a25a5f887",
+      "sha256": "f4efb9636c8c69ac75ca5b6bc9fc2dde341763dd5e6214f95c5615ab73399647",
       "baseSha256": null
     },
     {
@@ -814,12 +829,12 @@
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/WorldGlowRenderer.java",
-      "sha256": "bfacb8b93373183f91e8e13f7f4404987012a854c0b7213133b21f1ca318d9aa",
+      "sha256": "85ad1d68b3bc0766114b4463bf486a53ece2e6dbb69d112eb423f1ca4603a96b",
       "baseSha256": "031752a6e432628494d9a4f3f8d11bce7c1b7e430a459eb3efe714b3c7832a24"
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/WorldVfxRenderer.java",
-      "sha256": "55bf02cc5213c9b6c460841c29dce3178bf4bfc42b8ba9dc17c34b2535f8267f",
+      "sha256": "9b5e8127491471483fb0d2da25ddc168a872b57cef1098ec139f8fb955b616ee",
       "baseSha256": "56fdee5e834c5206d5c66e4cb3a22ec30ba5dfee0a310162d26f9477b456bf18"
     },
     {
@@ -948,6 +963,16 @@
       "baseSha256": "c6124d076a95ea123aa79f456181c1fbe2d573aee9af3c953e84dc8ff99ffd2c"
     },
     {
+      "path": "src/main/resources/assets/celeste/shaders/core/ambient_glow.fsh",
+      "sha256": "1cbdadec776e22b0e4fc9a5f0d8893959f344c027f95e57359f8a663da466e49",
+      "baseSha256": "e7a5ec2237ec4785fc55aebc19c831cc687a9d7081533439354be631a5dfe3ae"
+    },
+    {
+      "path": "src/main/resources/assets/celeste/shaders/core/ambient_mesh.fsh",
+      "sha256": "94039743f0bd650833b585001db7e195b25317c217407a320634e8d73d1ef256",
+      "baseSha256": "df3dd96ab747978c5c6a5625cb708130cdec7f543656c040776928f9f944f8e7"
+    },
+    {
       "path": "src/main/resources/assets/celeste/shaders/core/chams_glow.fsh",
       "sha256": "39587dd7324b37c134e345dd267cc58071010487e394e656c1bbc0ddb441439d",
       "baseSha256": null
@@ -974,12 +999,12 @@
     },
     {
       "path": "src/main/resources/assets/celeste/shaders/core/hand_shaders_composite.fsh",
-      "sha256": "89e717935995dc0b611267757dffb0b47dba159bb0c998e4d1b9fb8e6a01c550",
+      "sha256": "af3fde0b16e060873c9a46f04a5b0a1f860fecfe8fceb74f2031532fc3a115df",
       "baseSha256": null
     },
     {
       "path": "src/main/resources/assets/celeste/shaders/core/hand_shaders_history.fsh",
-      "sha256": "42f30dfee77419d4869ba8039e61d9ba5aa958dc1e0f7160a8dcbdae46e33139",
+      "sha256": "bc90f1c5e7f6bc23507b45c64c4298ce9215ee2c31a3bb533280161c1d797688",
       "baseSha256": null
     },
     {
@@ -1008,11 +1033,6 @@
       "baseSha256": null
     },
     {
-      "path": "src/main/resources/assets/celeste/shaders/core/skybox.fsh",
-      "sha256": "4ee9fb34aa21bf7059e6d6626b323ba5b2b7ee4b21ceb9f5ee1b8139f942a3c7",
-      "baseSha256": "bba6cb92d754cb63802b840f095cf758759c9591274dada1720e0bd5739c2027"
-    },
-    {
       "path": "src/main/resources/assets/celeste/shaders/core/text.fsh",
       "sha256": "315fd1df1fc8de944302428b73fb9596d60c92d739d0cc11c49f3f3d15a4904f",
       "baseSha256": "c585c58a89c8e9c39e920e28432dcd835a117feb06de0afc812ea76a5f9e8b51"
@@ -1031,6 +1051,11 @@
       "path": "src/main/resources/assets/celeste/shaders/core/world_jump.fsh",
       "sha256": "0877ba071a35b7deaf73b0fabb9e116d57c1fa8943f96418dc2d0deb7e728254",
       "baseSha256": "703fecadc52aa68971a07e187d2efca0c00f9939595f2b080685a39d58f19d50"
+    },
+    {
+      "path": "src/main/resources/assets/celeste/shaders/core/world_jump_classic.fsh",
+      "sha256": "703fecadc52aa68971a07e187d2efca0c00f9939595f2b080685a39d58f19d50",
+      "baseSha256": null
     },
     {
       "path": "src/main/resources/assets/celeste/shaders/core/world_jump_lean.fsh",

@@ -19,6 +19,7 @@ public final class WorldVfxRenderer {
     private static final RenderLayer PULSE = material("pulse", false, "textures/visual/fake_lag/halo.png");
     private static final RenderLayer ECHO = material("echo", true, "textures/visual/energy_ribbon.png");
     private static final RenderLayer JUMP = material("jump", false, "textures/visual/jump/glow.png", true);
+    private static final RenderLayer JUMP_CLASSIC = material("jump_classic", false, "textures/visual/jump/glow.png", true);
     private static final RenderLayer JUMP_LEAN = material("jump_lean", false, "textures/visual/jump/glow.png", true);
     private static final RenderLayer SPLASH = material("splash", false, "textures/visual/jump/splash.png", true);
     private static final RenderLayer DROPLET = material("droplet", false, "textures/visual/fake_lag/soft.png", true);
@@ -35,6 +36,7 @@ public final class WorldVfxRenderer {
     public static RenderLayer pulseLayer() { return PULSE; }
     public static RenderLayer echoLayer() { return ECHO; }
     public static RenderLayer jumpLayer() { return JUMP; }
+    public static RenderLayer jumpClassicLayer() { return JUMP_CLASSIC; }
     public static RenderLayer jumpLeanLayer() { return JUMP_LEAN; }
     public static RenderLayer bloomLayer() { return BLOOM; }
     public static RenderLayer splashLayer() { return SPLASH; }

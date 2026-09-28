@@ -74,6 +74,7 @@ public final class HandModelsFeature implements ModuleFeature {
         // Facing now follows the selected model's actual authored transform.
         // Retain physical context for every item: switching it at screen center
         // changes translations and even the basis of generated/left-hand items.
+        SwingAnimationFeature.finish(original, renderedItem);
         return original;
     }
 

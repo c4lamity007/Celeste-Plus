@@ -39,7 +39,7 @@ public final class HandShadersRenderer {
     private static final RenderPipeline BLUR = BetaRenderPipelines.register(base("hand_shaders_blur")
         .withSampler("InSampler").withUniform("BlurData", UniformType.UNIFORM_BUFFER).withoutBlend().build());
     private static final RenderPipeline COMPOSITE = BetaRenderPipelines.register(base("hand_shaders_composite")
-        .withSampler("InSampler").withSampler("GlowSampler")
+        .withSampler("InSampler").withSampler("GlowSampler").withSampler("CurrentGlowSampler")
         .withUniform("HandShaderData", UniformType.UNIFORM_BUFFER).withBlend(BlendFunction.TRANSLUCENT).build());
     private static final RenderPipeline HISTORY = BetaRenderPipelines.register(base("hand_shaders_history")
         .withSampler("InSampler").withSampler("HistorySampler")
@@ -106,8 +106,8 @@ public final class HandShadersRenderer {
             long now = System.nanoTime();
             HandShadersFeature.Settings settings = HandShadersFeature.settings();
             double elapsed = (now - lastCaptureNanos) * 1.0e-9;
-            // Flame stays attached to this frame. Smoke keeps its existing temporal flow.
-            float retention = historyValid && settings.mode() != 3 ? HandFogTiming.retention(elapsed, false) : 0;
+            // Delay only the surrounding aura; the actual item always uses this frame.
+            float retention = historyValid ? HandFogTiming.retention(elapsed, settings.mode() == 3) : 0;
             if (retention == 0) invalidateHistory();
             if (historyNeedsClear) {
                 var encoder = RenderSystem.getDevice().createCommandEncoder();
@@ -155,9 +155,11 @@ public final class HandShadersRenderer {
                 blur(captured.getColorAttachmentView(), blurHorizontal, horizontalParameters);
                 blur(blurHorizontal.getColorAttachmentView(), blurVertical, verticalParameters);
                 GpuTextureView glow = blurVertical.getColorAttachmentView();
+                GpuTextureView currentGlow = glow;
                 if (fog) {
                     blur(glow, fogHorizontal, fogHorizontalParameters);
                     blur(fogHorizontal.getColorAttachmentView(), fogVertical, fogVerticalParameters);
+                    currentGlow = fogVertical.getColorAttachmentView();
                     accumulateFog();
                     glow = historyRead.getColorAttachmentView();
                     historyValid = true;
@@ -169,6 +171,7 @@ public final class HandShadersRenderer {
                     pass.setUniform("HandShaderData", parameters);
                     pass.bindTexture("InSampler", captured.getColorAttachmentView(), RenderSystem.getSamplerCache().get(FilterMode.NEAREST));
                     pass.bindTexture("GlowSampler", glow, RenderSystem.getSamplerCache().get(FilterMode.LINEAR));
+                    pass.bindTexture("CurrentGlowSampler", currentGlow, RenderSystem.getSamplerCache().get(FilterMode.LINEAR));
                     pass.draw(0, 3);
                 }
             } catch (RuntimeException | LinkageError failure) {
@@ -252,7 +255,10 @@ public final class HandShadersRenderer {
             encoder.writeToBuffer(verticalParameters.slice(), bytes);
             bytes.clear();
             float rise = settings.mode() == 3 && retention > 0 ? HandFogTiming.flameRise(elapsed, height) : 0;
-            bytes.putFloat(retention).putFloat(rise).putFloat(0).putFloat(0).flip();
+            float sway = settings.mode() == 3 && retention > 0
+                ? HandFogTiming.flameSway(elapsed, captured.textureWidth, height, seconds) : 0;
+            float spread = settings.mode() == 3 && retention > 0 ? HandFogTiming.flameSpread(elapsed, height) : 0;
+            bytes.putFloat(retention).putFloat(rise).putFloat(sway).putFloat(spread).flip();
             encoder.writeToBuffer(historyParameters.slice(), bytes);
         } finally { MemoryUtil.memFree(bytes); }
     }

@@ -3,9 +3,35 @@ package dev.c4lam.celeste.module.impl.visual.expansion;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 
-/** Relative grip motion. Idle, disabled translation and the other hand remain unchanged. */
+/** First-person presets and the optional rotation-only overlay. */
 public final class SwingAnimationPose {
     private SwingAnimationPose() { }
+
+    /** Full ordinary-item pose. These presets replace vanilla's swing/equip pose. */
+    public static Matrix4f preset(String style, boolean right, double progress, double strength) {
+        double p = Double.isFinite(progress) ? Math.clamp(progress, 0, 1) : 0;
+        double amount = Double.isFinite(strength) ? Math.clamp(strength, 0, 100) : 40;
+        float side = right ? 1 : -1;
+        double quick = Math.sin(Math.sqrt(p) * Math.PI);
+        double arc = Math.sin(p * Math.PI);
+        Matrix4f result = new Matrix4f().translation(side * .56F, -.52F, -.72F);
+        switch (style) {
+            case "Slice" -> result.rotateX(radians(50)).rotateY(radians(side * -60))
+                .rotateZ(radians(side * (110 + amount * quick)));
+            case "Sweep" -> result.rotateX(radians(50))
+                .rotateY(radians(side * (-30 * (1 - quick) - 30 + (amount - 20) * quick)))
+                .rotateZ(radians(side * 110));
+            case "Thrust" -> result.rotateY(radians(side * 90)).rotateZ(radians(side * -30))
+                .rotateX(radians(-80 - amount * arc));
+            case "Spin" -> result.rotateX(radians(-360 * p));
+            default -> result.rotateY(radians(side * (45 - 20 * Math.sin(p * p * Math.PI))))
+                .rotateZ(radians(side * -20 * quick)).rotateX(radians(-80 * quick))
+                .rotateY(radians(side * -45));
+        }
+        return result;
+    }
+
+    private static float radians(double degrees) { return (float) Math.toRadians(degrees); }
 
     public static Matrix4f transform(String style, boolean right, double progress,
                                      double strength, boolean affectPosition) {

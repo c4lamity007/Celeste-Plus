@@ -6,6 +6,18 @@ final class JumpCircleAnimation {
 
     static double unit(double value) { return Math.max(0.0, Math.min(1.0, value)); }
 
+    static double radius(double age, double maximum) {
+        double remaining = 1.0 - unit(age);
+        return maximum * (0.14 + 0.86 * (1.0 - remaining * remaining * remaining));
+    }
+
+    static double opacity(double age) {
+        if (age < 0.0 || age >= 1.0) return 0.0;
+        double enter = unit(age / 0.075);
+        double exit = unit((1.0 - age) / 0.64);
+        return enter * enter * (3.0 - 2.0 * enter) * exit * exit;
+    }
+
     record Frame(double radius, double opacity, double rotation) { }
 
     /** Grow with sine easing, hold, then fade; Duration is the complete lifetime. */

@@ -17,7 +17,9 @@ import static org.lwjgl.opengl.GL33C.*;
 /** Offscreen GPU regression with a synthetic held-item mask, not Minecraft evidence. */
 public final class HandFlameCheck {
     static final int W=432,H=540;
-    static int checks,ubo,raw,glow,target,frame;
+    static int checks,ubo,raw,glow,currentGlow,target,frame;
+    static Surface horizontal,vertical,fogHorizontal,fogVertical,historyRead,historyWrite;
+    static int blurProgram,historyProgram;
     static String vertex;
     static float[] capture;
     record Surface(int texture,int frame,int width,int height) { }
@@ -30,7 +32,8 @@ public final class HandFlameCheck {
         glUniformBlockBinding(p,glGetUniformBlockIndex(p,block),0);
         glUniform1i(glGetUniformLocation(p,"InSampler"),0);
         int second=glGetUniformLocation(p,"GlowSampler");if(second>=0)glUniform1i(second,1);
-        return p;}
+        int third=glGetUniformLocation(p,"CurrentGlowSampler");if(third>=0)glUniform1i(third,2);
+        int history=glGetUniformLocation(p,"HistorySampler");if(history>=0)glUniform1i(history,1);return p;}
     static int texture(int w,int h,float[] data){int t=glGenTextures();glBindTexture(GL_TEXTURE_2D,t);
         glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA32F,w,h,0,GL_RGBA,GL_FLOAT,data);
         glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
@@ -45,10 +48,11 @@ public final class HandFlameCheck {
     static float[] read(Surface surface){glBindFramebuffer(GL_FRAMEBUFFER,surface.frame());float[] pixels=new float[surface.width()*surface.height()*4];
         glReadPixels(0,0,surface.width(),surface.height(),GL_RGBA,GL_FLOAT,pixels);return pixels;}
     static float[] render(int p,int mode,float time,float[] color){glBindFramebuffer(GL_FRAMEBUFFER,frame);glViewport(0,0,W,H);glUseProgram(p);
+        glActiveTexture(GL_TEXTURE2);glBindTexture(GL_TEXTURE_2D,currentGlow);
         glActiveTexture(GL_TEXTURE1);glBindTexture(GL_TEXTURE_2D,glow);glActiveTexture(GL_TEXTURE0);glBindTexture(GL_TEXTURE_2D,raw);
         uniforms(color[0],color[1],color[2],.85f,mode,1.25f,1,time);glDrawArrays(GL_TRIANGLES,0,3);
         float[] pixels=new float[W*H*4];glReadPixels(0,0,W,H,GL_RGBA,GL_FLOAT,pixels);
-        for(float v:pixels)check(Float.isFinite(v)&&v>=0&&v<=1.00001f,"invalid output");return pixels;}
+        boolean finite=true;for(float v:pixels)finite &= Float.isFinite(v)&&v>=0&&v<=1.00001f;check(finite,"invalid output");return pixels;}
     static void connected(float[] pixels){boolean[] seen=new boolean[W*H];int total=0,start=-1;
         for(int i=0;i<seen.length;i++)if(pixels[i*4+3]>.10f){total++;if(capture[i*4+3]>.9f)start=i;}
         check(start>=0,"item disappeared");ArrayDeque<Integer> todo=new ArrayDeque<>();todo.add(start);seen[start]=true;int count=0;
@@ -60,35 +64,94 @@ public final class HandFlameCheck {
         for(int y=0;y<H;y++)for(int x=0;x<W;x++){int i=(x+y*W)*4;float a=pixels[i+3];int[] rgb=new int[3];
             for(int c=0;c<3;c++)rgb[c]=Math.round(255*(pixels[i+c]*a+.025f*(1-a)));tile.setRGB(x,H-y-1,(rgb[0]<<16)|(rgb[1]<<8)|rgb[2]);}
         graphics.drawImage(tile,column*W,row*(H+28)+28,null);graphics.setColor(Color.WHITE);graphics.drawString(label,column*W+12,row*(H+28)+20);}
-    public static void main(String[] args)throws Exception{Path resources=Path.of(args[0]),before=Path.of(args[1]),output=Path.of(args[2]);Files.createDirectories(output);
+    static float[] mask(int shift) {
+        float[] result=new float[W*H*4];for(int y=35;y<460;y++)for(int x=0;x<W;x++){
+            int center=120+y/5+shift;boolean blade=y>=145&&Math.abs(x-center)<22,handle=y<145&&Math.abs(x-center)<11,guard=y>=135&&y<158&&Math.abs(x-center)<48;
+            if(!(blade||handle||guard))continue;int at=(x+y*W)*4;float shade=.13f+((x/8+y/8)%3)*.027f;
+            result[at]=shade*.55f;result[at+1]=shade*.9f;result[at+2]=shade;result[at+3]=1;
+        }return result;
+    }
+    static Surface historySurface() {
+        Surface result=surface(W/4,H/4);glBindTexture(GL_TEXTURE_2D,result.texture());
+        glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA8,W/4,H/4,0,GL_RGBA,GL_UNSIGNED_BYTE,(ByteBuffer)null);return result;
+    }
+    static void upload(float[] mask) {
+        capture=mask;glActiveTexture(GL_TEXTURE0);glBindTexture(GL_TEXTURE_2D,raw);
+        glTexSubImage2D(GL_TEXTURE_2D,0,0,0,W,H,GL_RGBA,GL_FLOAT,mask);
+        pass(blurProgram,raw,horizontal,1f/W,0,1,0);pass(blurProgram,horizontal.texture(),vertical,0,1f/H,0,0);
+        pass(blurProgram,vertical.texture(),fogHorizontal,4f/W,0,0,3);pass(blurProgram,fogHorizontal.texture(),fogVertical,0,4f/H,0,3);
+        currentGlow=fogVertical.texture();
+    }
+    static void step(double dt,double time,boolean reset) {
+        float retention=reset?0:dev.c4lam.celeste.module.impl.visual.expansion.HandFogTiming.retention(dt,true);
+        glActiveTexture(GL_TEXTURE1);glBindTexture(GL_TEXTURE_2D,historyRead.texture());
+        pass(historyProgram,currentGlow,historyWrite,retention,
+            retention==0?0:dev.c4lam.celeste.module.impl.visual.expansion.HandFogTiming.flameRise(dt,H),
+            retention==0?0:dev.c4lam.celeste.module.impl.visual.expansion.HandFogTiming.flameSway(dt,W,H,time),
+            retention==0?0:dev.c4lam.celeste.module.impl.visual.expansion.HandFogTiming.flameSpread(dt,H));
+        Surface swap=historyRead;historyRead=historyWrite;historyWrite=swap;glow=historyRead.texture();
+    }
+    static double[] centroid(float[] pixels,int w,int h,boolean encoded,int minY) {
+        double mass=0,x=0,y=0;for(int j=minY;j<h;j++)for(int i=0;i<w;i++){
+            int k=(i+j*w)*4;double a=encoded?(pixels[k]*256+pixels[k+1])/257:pixels[k+3];
+            mass+=a;x+=i*a;y+=j*a;
+        }return new double[]{x/Math.max(mass,1e-12),y/Math.max(mass,1e-12),mass};
+    }
+    static void save(float[] pixels,Path path)throws Exception {
+        BufferedImage image=new BufferedImage(W,H+28,BufferedImage.TYPE_INT_RGB);Graphics2D g=image.createGraphics();
+        g.setFont(new Font("SansSerif",Font.PLAIN,13));image(g,pixels,0,0,"Flame motion | synthetic GPU fixture");g.dispose();ImageIO.write(image,"png",path.toFile());
+    }
+    static double maxDifference(float[] a,float[] b){double result=0;for(int i=0;i<a.length;i++)result=Math.max(result,Math.abs(a[i]-b[i]));return result;}
+    public static void main(String[] args)throws Exception {
+        Path resources=Path.of(args[0]),baseline=Path.of(args[1]),output=Path.of(args[2]);Files.createDirectories(output.resolve("frames"));
         vertex=Files.readString(resources.resolve("hand_shaders.vsh"));GLFWErrorCallback callback=GLFWErrorCallback.createPrint(System.err);callback.set();
         check(glfwInit(),"GLFW");glfwWindowHint(GLFW_VISIBLE,GLFW_FALSE);glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR,3);glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR,3);
         glfwWindowHint(GLFW_OPENGL_PROFILE,GLFW_OPENGL_CORE_PROFILE);long window=glfwCreateWindow(W,H,"Celeste Flame GPU fixture",0,0);check(window!=0,"GL window");
         glfwMakeContextCurrent(window);GL.createCapabilities();glBindVertexArray(glGenVertexArrays());glDisable(GL_BLEND);glDisable(GL_DEPTH_TEST);glDepthMask(false);
         ubo=glGenBuffers();glBindBuffer(GL_UNIFORM_BUFFER,ubo);glBufferData(GL_UNIFORM_BUFFER,32,GL_DYNAMIC_DRAW);glBindBufferBase(GL_UNIFORM_BUFFER,0,ubo);
-        int old=program(Files.readString(before),"HandShaderData"),current=program(Files.readString(resources.resolve("hand_shaders_composite.fsh")),"HandShaderData");
-        int blur=program(Files.readString(resources.resolve("hand_shaders_blur.fsh")),"BlurData");
-        capture=new float[W*H*4];for(int y=35;y<460;y++)for(int x=0;x<W;x++){
-            int center=120+y/5;boolean blade=y>=145&&Math.abs(x-center)<22,handle=y<145&&Math.abs(x-center)<11,guard=y>=135&&y<158&&Math.abs(x-center)<48;
-            if(!(blade||handle||guard))continue;int at=(x+y*W)*4;float shade=.13f+((x/8+y/8)%3)*.027f;
-            capture[at]=shade*.55f;capture[at+1]=shade*.9f;capture[at+2]=shade;capture[at+3]=1;}
-        raw=texture(W,H,capture);Surface h=surface(W/2,H/2),v=surface(W/2,H/2),fh=surface(W/4,H/4),fv=surface(W/4,H/4),out=surface(W,H);
-        frame=out.frame();target=out.texture();pass(blur,raw,h,1f/W,0,1,0);pass(blur,h.texture(),v,0,1f/H,0,0);
-        pass(blur,v.texture(),fh,4f/W,0,0,3);pass(blur,fh.texture(),fv,0,4f/H,0,3);
-        float[] density=read(fv);for(int p=0;p<density.length;p+=4){int code=Math.round(density[p+3]*65535);density[p]=(code/256)/255f;density[p+1]=(code%256)/255f;}
-        glow=texture(W/4,H/4,density);
-        BufferedImage sheet=new BufferedImage(W*3,(H+28)*2,BufferedImage.TYPE_INT_RGB);Graphics2D g=sheet.createGraphics();g.setFont(new Font("SansSerif",Font.PLAIN,15));
-        float[] blue={.03f,.66f,1},gold={1,.74f,.02f},first=null;int moved=0,halo=0;
-        for(int t=0;t<3;t++){float seconds=new float[]{3,3+1f/60,3.7f}[t];float[] smokeBefore=render(old,2,seconds,blue),smokeAfter=render(current,2,seconds,blue);
-            for(int i=0;i<smokeBefore.length;i++)check(Math.abs(smokeBefore[i]-smokeAfter[i])<1e-6f,"Smoke output changed");
-            float[] result=render(current,3,seconds,blue);connected(result);
-            for(int p=0;p<W*H;p++){int at=p*4;if(capture[at+3]==1)for(int c=0;c<4;c++)check(result[at+c]==capture[at+c],"item texture changed");
-                if(capture[at+3]==0&&result[at+3]>.1f){halo++;if(first!=null&&Math.abs(result[at+3]-first[at+3])>.001)moved++;}}
-            if(first==null)first=result;image(g,result,t,0,"Flame / blue / "+seconds+"s");image(g,render(current,3,seconds,gold),t,1,"Flame / gold / "+seconds+"s");}
-        check(halo>10000,"missing exterior glow");check(moved>500,"missing smooth animation");
-        for(int p:new int[]{0,W-1,W*(H-1),W*H-1})check(first[p*4+3]==0,"effect leaking to screen border");
-        int empty=texture(W,H,new float[W*H*4]);raw=empty;glow=empty;for(float value:render(current,3,3,blue))check(value==0,"empty capture leaves flame");
-        g.dispose();ImageIO.write(sheet,"png",output.resolve("flame-gpu-preview.png").toFile());
-        check(glGetError()==GL_NO_ERROR,"GL error");System.out.println("PASS Hand Flame: "+checks+" checks; Smoke identical; connected halo; animated; item preserved; empty reset. Synthetic GPU preview only.");
-        glfwDestroyWindow(window);glfwTerminate();callback.free();}
+        int old=program(Files.readString(baseline.resolve("hand_shaders_composite.fsh")),"HandShaderData");
+        int current=program(Files.readString(resources.resolve("hand_shaders_composite.fsh")),"HandShaderData");
+        blurProgram=program(Files.readString(resources.resolve("hand_shaders_blur.fsh")),"BlurData");
+        historyProgram=program(Files.readString(resources.resolve("hand_shaders_history.fsh")),"HistoryData");
+        int oldHistory=program(Files.readString(baseline.resolve("hand_shaders_history.fsh")),"HistoryData");
+        raw=texture(W,H,mask(0));horizontal=surface(W/2,H/2);vertical=surface(W/2,H/2);fogHorizontal=surface(W/4,H/4);fogVertical=surface(W/4,H/4);
+        historyRead=historySurface();historyWrite=historySurface();Surface out=surface(W,H);frame=out.frame();target=out.texture();
+        float[] blue={.03f,.66f,1};double minX=1e9,maxX=-1e9,minY=1e9,maxY=-1e9;int top=0;
+        upload(mask(0));for(int n=0;n<90;n++){
+            double seconds=3+n/30.0;step(1.0/30,seconds,n==0);float[] pixels=render(current,3,(float)seconds,blue);connected(pixels);
+            boolean preserved=true;for(int i=0;i<W*H;i++)if(capture[i*4+3]==1)for(int c=0;c<4;c++)preserved &= pixels[i*4+c]==capture[i*4+c];
+            check(preserved,"item pixels changed");double[] center=centroid(pixels,W,H,false,468);
+            minX=Math.min(minX,center[0]);maxX=Math.max(maxX,center[0]);minY=Math.min(minY,center[1]);maxY=Math.max(maxY,center[1]);
+            for(int y=460;y<H;y++)for(int x=0;x<W;x++)if(pixels[(x+y*W)*4+3]>.1)top=Math.max(top,y);
+            save(pixels,output.resolve("frames/frame-%03d.png".formatted(n)));
+        }
+        System.out.printf("Stationary plume: sideways centroid range %.3f px, vertical range %.3f px, extension %d px at540p%n",maxX-minX,maxY-minY,top-459);
+        check(maxX-minX>5,"sideways motion is too small to see");check(top-459>=30,"missing upward plume");
+        // Move the actual captured silhouette, accumulate history and compare centers at matched times.
+        StringBuilder measures=new StringBuilder();for(int rate:new int[]{30,60,144}){
+            upload(mask(0));step(1.0/rate,0,true);
+            for(int n=1;n<=rate;n++){double time=n/(double)rate;upload(mask((int)Math.round(90*time)));step(1.0/rate,time,false);}
+            double[] now=centroid(read(fogVertical),W/4,H/4,false,0),delayed=centroid(read(historyRead),W/4,H/4,true,0);
+            double lag=(now[0]-delayed[0])*4,rise=(delayed[1]-now[1])*4;
+            System.out.printf("%d fps: moving hand lag %.3fpx; upward persistence %.3fpx%n",rate,lag,rise);
+            check(lag>2&&lag<12,"hand aura does not lag or lags too far at "+rate);check(rise>1&&rise<10,"upward flow at "+rate);
+            measures.append(rate).append(" fps: lag=").append(lag).append(" rise=").append(rise).append("\n");
+        }
+        // Smoke uses exactly the previous history formula and composite pixels with live feedback.
+        Surface smokeRead=historySurface(),smokeWrite=historySurface(),oldRead=historySurface(),oldWrite=historySurface();
+        for(int n=0;n<24;n++){
+            upload(mask(n*2));float retention=n==0?0:dev.c4lam.celeste.module.impl.visual.expansion.HandFogTiming.retention(1.0/60);
+            glActiveTexture(GL_TEXTURE1);glBindTexture(GL_TEXTURE_2D,oldRead.texture());pass(oldHistory,currentGlow,oldWrite,retention,0,0,0);
+            glActiveTexture(GL_TEXTURE1);glBindTexture(GL_TEXTURE_2D,smokeRead.texture());pass(historyProgram,currentGlow,smokeWrite,retention,0,0,0);
+            check(maxDifference(read(oldWrite),read(smokeWrite))==0,"Smoke history changed");
+            glow=oldWrite.texture();float[] before=render(old,2,n/60f,blue);glow=smokeWrite.texture();float[] after=render(current,2,n/60f,blue);
+            check(maxDifference(before,after)<1e-6,"Smoke composite changed");
+            Surface swap=smokeRead;smokeRead=smokeWrite;smokeWrite=swap;swap=oldRead;oldRead=oldWrite;oldWrite=swap;
+        }
+        upload(new float[W*H*4]);step(1.0/60,0,true);float[] empty=render(current,3,0,blue);boolean cleared=true;for(float value:empty)cleared&=value==0;check(cleared,"reset leaves a ghost");
+        check(glGetError()==GL_NO_ERROR,"GL error");
+        Files.writeString(output.resolve("result.txt"),"PASS: real blur + history + composite pipeline. Synthetic GPU fixture, not Minecraft.\nSideways="+(maxX-minX)+" px; top extension="+(top-459)+" px at540p\n"+measures+"Smoke feedback and composite unchanged. Item pixels exact. Reset clear.\n");
+        System.out.println("PASS Hand Flame temporal GPU: "+checks+" checks; moving silhouette + connected plume + unchanged Smoke. Synthetic preview only.");
+        glfwDestroyWindow(window);glfwTerminate();callback.free();
+    }
 }

@@ -32,23 +32,39 @@ public final class TargetOrbitMeshCheck {
         int cost=cost(style);
         var mesh=build(style,w,d,h,spacing,phase,144);
         require(mesh.size()==cost*18,"Every orbit style draws 18 complete objects");
+        double[] heights = new double[18];
+        int aboveHead = 0, besideBody = 0, headTransition = 0;
         for(int object=0;object<18;object++) {
             var faces=mesh.subList(object*cost,(object+1)*cost);
             Point center=center(faces);
             Point tip=style.equals("Cubes") ? faces.get(1).d() : faces.getFirst().a();
             Point inward=subtract(new Point(0,h*.5,0),center);
             require(alignment(subtract(tip,center),inward)>1-1e-10,"Every tip/cube corner points at target center");
-            require(center.y()>=h*.2 && center.y()<=h*.8,"Orbit centers remain in body region");
+            heights[object] = center.y() / h;
+            require(heights[object]>=.20 && heights[object]<=1.25,"Centers span body through above head");
+            if(center.y()>h) {
+                aboveHead++;
+                require(tip.y()<center.y(),"Above-head tip/cube corner tilts downward toward target");
+            }
+            if(center.y()<h*.9) besideBody++;
+            if(center.y()>=h*.78 && center.y()<=h*1.05) headTransition++;
             for(Face f:faces) for(Point p:points(f)) {
                 require(Double.isFinite(p.x()+p.y()+p.z()),"Finite mesh");
                 require(distance(p,center)<.12,"Individual objects remain compact");
-                require(p.y()>=-1e-12 && p.y()<=h+1e-12,"Objects stay beside target body");
+                require(p.y()>=-1e-12 && p.y()<=h*1.4+1e-12,"Objects stay in bounded body/head orbit volume");
             }
             if(object>0) {
                 Point previous=center(mesh.subList((object-1)*cost,object*cost));
                 require(distance(center,previous)>.02,"Objects have distinct positions");
             }
         }
+        require(aboveHead>=3,"Several objects remain above the head at every phase");
+        require(besideBody>=9,"At least half of the objects remain beside the body");
+        require(headTransition>=3,"Objects bridge the previous upper edge and head");
+        java.util.Arrays.sort(heights);
+        require(heights[0]<=.30 && heights[17]>=1.16,"Full vertical span stays populated");
+        for(int i=1;i<heights.length;i++)
+            require(heights[i]-heights[i-1]<=.13,"No empty height band separates body and overhead objects");
         var advanced=build(style,w,d,h,spacing,phase+.10,144);
         for(int object=0;object<18;object++) {
             Point before=center(mesh.subList(object*cost,(object+1)*cost));

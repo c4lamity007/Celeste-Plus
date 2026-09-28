@@ -39,6 +39,26 @@ public final class JumpCircleAnimationCheck {
         }
         near(JumpCircleAnimation.frame(.10,1.2,1.8,false).rotation(),Math.toRadians(100),1e-12,"Reference rotation cadence");
     }
+    private static void originalAnimation() {
+        for (double size : new double[] {.6, 1.8, 3}) {
+            double previousRadius = 0;
+            for (int i = 0; i <= 1000; i++) {
+                double age = i / 1000.0;
+                double radius = JumpCircleAnimation.radius(age, size);
+                double alpha = JumpCircleAnimation.opacity(age);
+                require(radius >= previousRadius && radius <= size, "Original ring expands smoothly");
+                require(alpha >= 0 && alpha <= 1, "Original opacity bounded");
+                previousRadius = radius;
+            }
+            near(JumpCircleAnimation.radius(0, size), size * .14, 1e-12, "Original initial ring radius restored");
+            near(JumpCircleAnimation.radius(1, size), size, 1e-12, "Original final ring radius restored");
+            near(JumpCircleAnimation.opacity(0), 0, 0, "Original ring starts invisible");
+            near(JumpCircleAnimation.opacity(.1), 1, 1e-12, "Original ring enters before expanding fade");
+            near(JumpCircleAnimation.opacity(.68), .25, 1e-12, "Original quadratic fade restored");
+            near(JumpCircleAnimation.opacity(1), 0, 0, "Original ring expires cleanly");
+            near(JumpCircleAnimation.opacity(-.13), 0, 0, "Delayed echo absent before its start");
+        }
+    }
     private static void clocks() {
         JumpCircleAnimation.Clock clock = new JumpCircleAnimation.Clock();
         near(clock.sample(5_000_000_000L, false), 0, 0, "First sample starts at zero");
@@ -76,7 +96,7 @@ public final class JumpCircleAnimationCheck {
         System.out.println("PASS production takeoff: complete boolean eligibility table; downward/too-small/too-large rise rejected; >=2-block displacement and nonfinite input rejected");
     }
     public static void main(String[] args) {
-        animation(); clocks(); takeoff();
+        animation(); originalAnimation(); clocks(); takeoff();
         System.out.println("PASS " + assertions + " deterministic assertions. Feature lifecycle and game rendering require runtime verification.");
     }
 }

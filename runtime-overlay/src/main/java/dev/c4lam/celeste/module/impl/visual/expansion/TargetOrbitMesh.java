@@ -29,13 +29,15 @@ public final class TargetOrbitMesh {
         List<Face> alternate = cubes ? main
             : SolidVisualMesh.diamond(new Point(0, 0, 0), size, (sparks ? .085 : .115) * small, accent, cost);
         for (int i = 0; i < count; i++) {
-            // Six objects per tilted band, staggered around the whole target.
-            // Smaller budgets still distribute complete objects around a full turn.
+            // Three interleaved rising bands fill the body-to-above-head span.
+            // Distribute heights across the available count, even on a smaller budget.
             int band = i % 3;
+            int heightRank = band * (count / 3) + Math.min(band, count % 3) + i / 3;
+            double level = heightRank / (double) Math.max(1, count - 1);
             double angle = phase + TAU * i / count;
             double x = Math.cos(angle) * (width * .5 + .20 * spacing + .035);
             double z = Math.sin(angle) * (depth * .5 + .20 * spacing + .035);
-            double y = height * (.26 + .24 * band + .055 * Math.sin(angle + band * TAU / 3));
+            double y = height * (.25 + .95 * level + .035 * Math.sin(angle + band * TAU / 3));
             Frame frame = inwardFrame(x, y, z, height * .5, phase * .8 + i * GOLDEN_ANGLE);
             List<Face> local = i % 2 == 0 ? main : alternate;
             for (Face face : local) result.add(new Face(

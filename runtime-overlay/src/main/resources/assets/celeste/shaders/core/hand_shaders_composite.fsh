@@ -1,6 +1,7 @@
 #version 330
 uniform sampler2D InSampler;
 uniform sampler2D GlowSampler;
+uniform sampler2D CurrentGlowSampler;
 layout(std140) uniform HandShaderData { vec4 HandColor; vec4 HandEffect; };
 in vec2 texCoord;
 out vec4 fragColor;
@@ -35,22 +36,30 @@ vec2 flowingCloud(vec2 pixel, float scale, float time) {
     float hot = pow(smoothstep(0.48, 0.80, charge * 0.55 + cloud * 0.45), 1.5);
     return vec2(cloud, hot);
 }
+float currentFlameCoverage(vec2 uv) {
+    if (any(lessThan(uv, vec2(0.0))) || any(greaterThanEqual(uv, vec2(1.0)))) return 0.0;
+    return texture(CurrentGlowSampler, uv).a;
+}
 vec2 flowingFlame(vec2 pixel, float scale, float time) {
-    // A broad rising fold changes brightness gently without cutting the aura apart.
-    vec2 field = pixel / (vec2(58.0, 88.0) * scale) - vec2(0.0, time * 0.16);
-    field.x += sin(field.y * 2.0 + time * 0.65) * 0.10;
-    float fold = smoothNoise(field) * 0.8 + smoothNoise(field * 2.0 + 13.0) * 0.2;
+    // Large, continuously rising folds. The field travels independently of the hand.
+    vec2 field = pixel / (vec2(48.0, 72.0) * scale) - vec2(time * 0.07, time * 0.62);
+    field.x += sin(field.y * 2.1 + time * 2.8) * 0.22;
+    float fold = smoothNoise(field) * 0.8 + smoothNoise(field * 1.83 + 13.0) * 0.2;
     return vec2(fold, smoothstep(0.45, 0.9, fold));
 }
 float flameCoverage(vec2 uv, vec2 pixel, vec2 size, float scale, float time, float nearCoverage) {
-    // Keep the original silhouette as the root of one continuous flame.
-    // Small offsets bend only the exterior; no detached tongues or bright islands.
-    float sway = sin(pixel.y / (54.0 * scale) - time * 0.85) * 1.8
-        + sin(pixel.y / (93.0 * scale) + time * 0.55) * 0.8;
-    vec2 bend = vec2(sway, 0.0) * scale / size;
-    float flowing = glowCoverage(uv - bend);
-    float rising = glowCoverage(uv - bend * 1.2 - vec2(0.0, 8.0 * scale) / size);
-    return clamp(max(nearCoverage, max(flowing * 0.98, rising * 0.82)), 0.0, 1.0);
+    // Anchor the base to this frame; bend the delayed exterior into one connected plume.
+    float root = currentFlameCoverage(uv);
+    float sway = sin(pixel.y / (43.0 * scale) - time * 5.4) * 7.0
+        + sin(pixel.y / (79.0 * scale) + time * 3.7) * 3.5;
+    float rise = 29.0 + sin(pixel.x / (51.0 * scale) + time * 3.1) * 5.0;
+    vec2 plume = vec2(sway, rise) * scale / size;
+    float lower = glowCoverage(uv - plume * 0.24) * 0.92;
+    float middle = glowCoverage(uv - plume * 0.59) * 0.67;
+    float upper = glowCoverage(uv - plume) * 0.32;
+    // Overlapping offsets keep the moving folds attached, including around narrow blades.
+    return clamp(max(root * 0.86, max(nearCoverage * 0.8,
+        max(lower, max(middle, upper)))), 0.0, 1.0);
 }
 vec4 attachedFlame(vec4 material, vec2 size) {
     float scale = clamp(size.y / 540.0, 1.0, 3.0);
@@ -61,11 +70,11 @@ vec4 attachedFlame(vec4 material, vec2 size) {
     float strength = clamp(HandEffect.y, 0.0, 2.0);
     vec3 tint = clamp(HandColor.rgb, 0.0, 1.0);
     float envelope = smoothstep(0.0005, 0.018, density);
-    float flameAlpha = (1.0 - exp(-density * (7.0 + fold.x * 1.8)))
+    float flameAlpha = (1.0 - exp(-density * (7.0 + fold.x * 2.6)))
         * envelope * opacity * min(1.0, strength);
     float core = smoothstep(0.08, 0.5, density);
     vec3 energy = mix(tint, vec3(1.0), core * 0.16);
-    energy *= 0.84 + fold.x * 0.16;
+    energy *= 0.76 + fold.x * 0.24;
     // The aura surrounds the current item; it never paints over its texture.
     float alpha = material.a + flameAlpha * (1.0 - material.a);
     vec3 premul = material.rgb + energy * flameAlpha * (1.0 - material.a);

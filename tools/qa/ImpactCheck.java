@@ -358,7 +358,7 @@ public class ImpactCheck {
         for (int i = 0; i < sizes.length; i++) { glEnableVertexAttribArray(i); glVertexAttribPointer(i, sizes[i], GL_FLOAT, false, 48, offset); offset += sizes[i] * 4; }
         glDisable(GL_CULL_FACE); blankTexture = solidTexture(0);
         List<Material> materials = new ArrayList<>();
-        for (String name : new String[] {"ribbon", "pulse", "jump", "jump_lean", "splash", "droplet", "water", "volume", "bloom"}) {
+        for (String name : new String[] {"ribbon", "pulse", "jump", "jump_lean", "jump_classic", "splash", "droplet", "water", "volume", "bloom"}) {
             if (!Files.exists(resources.resolve("assets/celeste/shaders/core/world_" + name + ".fsh"))) {
                 throw new AssertionError("Required production shader missing: " + name);
             }

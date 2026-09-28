@@ -27,4 +27,18 @@ public final class HandFogTiming {
         double scale = Math.clamp(framebufferHeight / 540.0, 1.0, 3.0);
         return (float) (FLAME_RISE_PIXELS_PER_SECOND * scale * deltaSeconds / framebufferHeight);
     }
+
+    /** Gentle sideways flow, integrated by elapsed time instead of frame count. */
+    public static float flameSway(double deltaSeconds, int width, int height, double seconds) {
+        if (retention(deltaSeconds) == 0 || width <= 0 || height <= 0 || !Double.isFinite(seconds)) return 0;
+        double scale = Math.clamp(height / 540.0, 1.0, 3.0);
+        return (float) (Math.sin(seconds * 1.9) * 34.0 * scale * deltaSeconds / width);
+    }
+
+    /** Outward motion of the low-frequency exterior aura, expressed in vertical UV units. */
+    public static float flameSpread(double deltaSeconds, int height) {
+        if (retention(deltaSeconds) == 0 || height <= 0) return 0;
+        return (float) (24.0 * Math.clamp(height / 540.0, 1.0, 3.0) * deltaSeconds / height);
+    }
+
 }

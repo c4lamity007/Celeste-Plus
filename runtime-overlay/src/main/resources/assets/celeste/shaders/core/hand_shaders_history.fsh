@@ -14,6 +14,18 @@ void main() {
         // Positive displacement rises in framebuffer coordinates. Sampling is
         // explicitly bounded so clamp-to-edge cannot feed a permanent border.
         vec2 previousUv = texCoord - vec2(0.0, HistoryEffect.y);
+        if (HistoryEffect.w > 0.0) {
+            vec2 size = vec2(textureSize(InSampler, 0));
+            vec2 stepUv = 1.0 / size;
+            // The negative silhouette gradient points away from the item.
+            vec2 gradient = vec2(texture(InSampler, texCoord + vec2(stepUv.x,0.0)).a
+                - texture(InSampler, texCoord - vec2(stepUv.x,0.0)).a,
+                texture(InSampler, texCoord + vec2(0.0,stepUv.y)).a
+                - texture(InSampler, texCoord - vec2(0.0,stepUv.y)).a);
+            vec2 outward = -gradient / max(length(gradient), 0.002);
+            previousUv -= vec2(HistoryEffect.z, 0.0)
+                + outward * HistoryEffect.w * vec2(size.y / size.x, 1.0);
+        }
         float previous = 0.0;
         if (all(greaterThanEqual(previousUv, vec2(0.0))) && all(lessThanEqual(previousUv, vec2(1.0)))) {
             previous = dot(texture(HistorySampler, previousUv).rg, vec2(256.0 / 257.0, 1.0 / 257.0));
