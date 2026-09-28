@@ -32,8 +32,16 @@ Both Windows media DLLs are supplied through the existing explicit build overrid
 
 Prepare the pinned runtime with `tools/prepare_runtime.py` into a fresh checkout's `build/runtime-core`. Run the Plus `tools/qa/module_qa.py` with `--project` pointing to that prepared runtime and `--suite build` or `--suite visuals`; those two suites are distributed here. Pass Java 21 with `--java-home`. For Windows release inputs, pass the official media override with `--gradle-init-script` and both explicit media DLL environment inputs. The shader checks use the selected runtime's Minecraft dependency cache. `run-visual-refresh.ps1` checks swing, jump, and Target ESP math; `run-chams-material.ps1` checks the three new Chams materials on the GPU.
 
-This is a development artifact, not a protected release candidate. No launcher, auth, or production delivery change is included.
+## Published release
 
-## Remaining game check
+The protected visual release passed all 41 native protocol/lifecycle checks and 15 Java packaging/bootstrap stages. Existing authentication classes, native DLLs and Windows media DLLs retain their previously approved bytes. The final catalog passed 82 backend delivery tests; one Windows symlink-privilege test was skipped.
 
-The normal Celeste+ loader fetches the single live catalog. The existing Celeste Owner Beta QA profile has no separate staged catalog, so it currently loads the previous release. Actual Minecraft motion, GUI interaction, and screenshot verification require a supported staged delivery route or a separately authorized rollout of these changes. Authentication must remain enabled.
+The live rollout verified all 53 game artifact files, unchanged backend code, the Standard release, native policy and public loader. The deployed release is `celeste-plus-20260928-visuals-01`.
+
+Not verified in game: desktop control was stopped with Escape before Minecraft QA of this build. Earlier game observations were from the previous live release. Build, logic and GPU checks are separate from actual game verification.
+
+The existing `Celeste+Setup.exe` mini launcher remains compatible. Fully close Minecraft and the full Celeste+ loader, then reopen the same mini launcher and load normally to obtain the new catalog. No replacement launcher is needed.
+
+Canonical runtime SHA-256: `e74d8789f47872d577dc8dea9d6cf633760de45431854801b98f341749655825`.
+
+Catalog file SHA-256: `86e3d9c87034eba2002dd3f0bafe6bbbc002bd542067753746d4353a2c81231a`.
