@@ -2,6 +2,7 @@ package dev.c4lam.celeste.module.impl.visual;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.PriorityQueue;
@@ -25,6 +26,7 @@ public final class BlockEspScan {
     // selections therefore fill the nearest cache immediately without a frame
     // spike, while rare blocks can skip 96 palette-negative sections per tick.
     public static final int MATCHED_SECTION_BUDGET = 2;
+    public static final int INDEXED_SECTION_BUDGET = 16;
     public static final int CACHE_LIMIT = 1024;
     public static final int DRAW_LIMIT = 512;
 
@@ -53,6 +55,9 @@ public final class BlockEspScan {
         /** Cheap palette-level test. No individual block walk belongs here. */
         boolean mayMatch(Section section);
 
+        /** Indexed storage positions avoid a walk of all 4,096 block states. */
+        default boolean indexed(Section section) { return false; }
+
         /** Emits matching positions from one section already known to match. */
         void collect(Section section, PointConsumer output);
 
@@ -61,6 +66,7 @@ public final class BlockEspScan {
     }
 
     private final Set<Point> known = new LinkedHashSet<>();
+    private final Set<Section> visited = new HashSet<>();
     private List<Section> sections = List.of();
     private List<Point> published = List.of();
     private Object world;
@@ -72,6 +78,7 @@ public final class BlockEspScan {
 
     public void clear() {
         known.clear();
+        visited.clear();
         sections = List.of();
         published = List.of();
         world = null;
@@ -101,7 +108,7 @@ public final class BlockEspScan {
         radius = nextRadius;
         bottomSection = requestedBottomSection;
         topSection = requestedTopSection;
-        if (rebuild) rebuild(center);
+        if (rebuild) rebuild(center, !differentWorld);
 
         long rangeSquared = (long) radius * radius;
         known.removeIf(point -> point.distance(center) > rangeSquared
@@ -114,22 +121,29 @@ public final class BlockEspScan {
 
         int paletteChecks = 0;
         int matchedSections = 0;
+        int indexedSections = 0;
         while (cursor < sections.size() && paletteChecks < PALETTE_BUDGET) {
             Section section = sections.get(cursor);
             if (!probe.loaded(section)) {
+                visited.add(section);
                 cursor++;
                 paletteChecks++;
                 continue;
             }
             if (!probe.mayMatch(section)) {
+                visited.add(section);
                 cursor++;
                 paletteChecks++;
                 continue;
             }
-            if (matchedSections >= MATCHED_SECTION_BUDGET) break;
+            boolean indexed = probe.indexed(section);
+            if (indexed ? indexedSections >= INDEXED_SECTION_BUDGET
+                        : matchedSections >= MATCHED_SECTION_BUDGET) break;
             cursor++;
+            visited.add(section);
             paletteChecks++;
-            matchedSections++;
+            if (indexed) indexedSections++;
+            else matchedSections++;
             probe.collect(section, point -> {
                 if (point == null || !section.contains(point) || point.distance(center) > rangeSquared
                     || known.contains(point)) return;
@@ -145,7 +159,7 @@ public final class BlockEspScan {
         if (cursor >= sections.size()) {
             // Repeat the loaded-section pass so newly placed blocks are found
             // without waiting for a player move or a module toggle.
-            rebuild(center);
+            rebuild(center, false);
         }
         List<Point> sorted = new ArrayList<>(known);
         sorted.sort(nearest);
@@ -156,7 +170,10 @@ public final class BlockEspScan {
         return Math.max(MIN_RADIUS, Math.min(MAX_RADIUS, requestedRadius));
     }
 
-    private void rebuild(Point center) {
+    private void rebuild(Point center, boolean keepProgress) {
+        // Crossing a chunk boundary used to restart at the nearest section.
+        // Walking along that boundary could indefinitely starve distant blocks.
+        if (!keepProgress) visited.clear();
         anchor = center;
         cursor = 0;
         int chunkRadius = (radius + 15) / 16;
@@ -175,9 +192,11 @@ public final class BlockEspScan {
                 }
             }
         }
-        next.sort(Comparator.comparingLong((Section section) -> sectionDistance(section, center))
+        next.sort(Comparator.comparing((Section section) -> visited.contains(section))
+            .thenComparingLong(section -> sectionDistance(section, center))
             .thenComparingInt(Section::x).thenComparingInt(Section::y).thenComparingInt(Section::z));
         sections = List.copyOf(next);
+        visited.retainAll(next);
     }
 
     static long sectionDistance(Section section, Point point) {

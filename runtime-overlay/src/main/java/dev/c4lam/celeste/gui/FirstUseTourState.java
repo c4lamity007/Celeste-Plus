@@ -5,8 +5,8 @@ import java.util.EnumSet;
 /** Progress reported by normal GUI handlers after an action changes real state. */
 public final class FirstUseTourState {
     public enum Step { WELCOME, BROWSE, MODULES, SETTINGS, SEARCH, CONFIGS, HUD, READY }
-    public static final String MODULE = "ReBuff Notifier";
-    public static final String SETTING = "Alert duration";
+    public static final String MODULE = "Fullbright";
+    public static final String SETTING = "Strength";
     private final EnumSet<Step> practiced = EnumSet.noneOf(Step.class);
     private Step step = Step.WELCOME;
     private boolean active = true, settingsOpen, moved, resized, added;
@@ -99,9 +99,9 @@ public final class FirstUseTourState {
         return switch (step) {
             case WELCOME -> new String[]{"Try the controls as you go.", "Changes are saved normally."};
             case BROWSE -> new String[]{"Click Visuals in the sidebar."};
-            case MODULES -> new String[]{"Click this switch to toggle ReBuff Notifier."};
-            case SETTINGS -> settingsOpen ? new String[]{"Drag this slider to change Alert duration."}
-                : new String[]{"Right-click ReBuff Notifier."};
+            case MODULES -> new String[]{"Click this switch to toggle Fullbright."};
+            case SETTINGS -> settingsOpen ? new String[]{"Drag this slider to change the brightness."}
+                : new String[]{"Right-click Fullbright."};
             case SEARCH -> new String[]{"Click search and type ESP."};
             case CONFIGS -> configNamed ? new String[]{"Click Save."}
                 : new String[]{"Click here and enter a config name."};

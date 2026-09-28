@@ -13,15 +13,21 @@ import dev.c4lam.celeste.render.RenderUtil;
 import dev.c4lam.celeste.render.font.Font;
 import dev.c4lam.celeste.render.font.Fonts;
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.gui.hud.InGameHud;
 import net.minecraft.client.render.BufferBuilder;
+import net.minecraft.client.texture.Sprite;
+import net.minecraft.client.texture.SpriteAtlasTexture;
 import net.minecraft.client.util.math.MatrixStack;
+import net.minecraft.item.Items;
+import net.minecraft.util.Atlases;
 import net.minecraft.util.Identifier;
 import org.joml.Matrix4f;
 import org.joml.Vector4f;
 
 import java.awt.Color;
+import java.util.ArrayList;
 
-/** Compact top-center media/lyrics capsule with latest-only module interrupts. */
+/** Top-center media/lyrics capsule with module and effect notifications. */
 public final class DynamicIslandRenderer {
     private static final float TEXT_SIZE = 6.65F;
     private static final float ART_LIMIT = 14.0F;
@@ -32,6 +38,10 @@ public final class DynamicIslandRenderer {
     private final DynamicIslandTimeline timeline = new DynamicIslandTimeline();
     private final DynamicIslandPlaybackClock playbackClock = new DynamicIslandPlaybackClock();
     private final HudPolishPolicy.Interaction interaction = new HudPolishPolicy.Interaction();
+    private final DynamicIslandEffectExpiry effectExpiry = new DynamicIslandEffectExpiry();
+    private Object effectWorld;
+    private Object effectPlayer;
+    private int lastEffectTick = Integer.MIN_VALUE;
 
     private ArtworkMetrics mediaArtwork = ArtworkMetrics.NONE;
     private ArtworkMetrics previousMediaArtwork = ArtworkMetrics.NONE;
@@ -57,8 +67,19 @@ public final class DynamicIslandRenderer {
         lastUpdateNanos = now;
         active = true;
         interaction.update(elapsed);
-        boolean inWorld = client != null && client.player != null && client.world != null;
+        boolean inWorld = client != null && client.player != null && client.world != null && client.player.isAlive();
+        Object world = inWorld ? client.world : null;
+        Object player = inWorld ? client.player : null;
+        if (effectWorld != world || effectPlayer != player) {
+            effectWorld = world;
+            effectPlayer = player;
+            effectExpiry.reset();
+            lastEffectTick = Integer.MIN_VALUE;
+            timeline.reset();
+            DynamicIslandEvents.reset();
+        }
         DynamicIslandEvents.setAccepting(inWorld);
+        if (inWorld) updateEffectNotifications(client);
 
         float safeViewport = Float.isFinite(viewportWidth) && viewportWidth > 16.0F ? viewportWidth : 320.0F;
         float maximum = Math.max(8.0F, Math.min(MAX_WIDTH, safeViewport - 8.0F));
@@ -68,7 +89,9 @@ public final class DynamicIslandRenderer {
         ArtworkMetrics art = resolveArtwork(immutableSnapshot);
         PreparedMedia media = prepareMedia(immutableSnapshot, minimum, maximum, art);
         updateArtwork(media.state().key(), art);
-        DynamicIslandEvents.Toggle toggle = DynamicIslandEvents.latestAfter(timeline.lastEventSequence());
+        boolean showingEffect = timeline.notificationActive() && timeline.current().kind() == DynamicIslandTimeline.Kind.EFFECT;
+        DynamicIslandEvents.Toggle toggle = showingEffect ? null
+            : DynamicIslandEvents.latestAfter(timeline.lastEventSequence());
         DynamicIslandTimeline.Notice notice = prepareNotice(toggle, minimum, maximum);
         timeline.update(media.state(), notice, elapsed, minimum, maximum);
     }
@@ -126,7 +149,27 @@ public final class DynamicIslandRenderer {
         timeline.reset();
         playbackClock.reset();
         interaction.reset();
+        effectExpiry.reset();
+        effectWorld = null;
+        effectPlayer = null;
+        lastEffectTick = Integer.MIN_VALUE;
         DynamicIslandEvents.reset();
+    }
+
+    private void updateEffectNotifications(MinecraftClient client) {
+        if (lastEffectTick == client.player.age) return;
+        lastEffectTick = client.player.age;
+        var effects = new ArrayList<DynamicIslandEffectExpiry.Effect>();
+        for (var effect : client.player.getStatusEffects()) {
+            String name = effect.getEffectType().value().getName().getString();
+            if (effect.getAmplifier() > 0) name += " " + (effect.getAmplifier() + 1);
+            effects.add(new DynamicIslandEffectExpiry.Effect(name,
+                InGameHud.getEffectTexture(effect.getEffectType()).toString(), effect.getDuration()));
+        }
+        boolean drinkingMilk = client.player.isUsingItem() && client.player.getActiveItem().isOf(Items.MILK_BUCKET);
+        for (var expired : effectExpiry.update(client.player.age, drinkingMilk, effects)) {
+            DynamicIslandEvents.publishEffectExpired(expired.name(), expired.texture());
+        }
     }
 
     private void drawLayerWithChrome(MatrixStack matrices, DynamicIslandTimeline.Layer layer,
@@ -137,12 +180,19 @@ public final class DynamicIslandRenderer {
         }
         float textX;
         float textRight;
-        if (layer.kind() == DynamicIslandTimeline.Kind.TOGGLE) {
+        if (layer.kind() != DynamicIslandTimeline.Kind.MEDIA) {
             float labelWidth = Fonts.semibold().width(layer.text(), TEXT_SIZE);
             DynamicIslandTimeline.NoticeLayout layout = DynamicIslandTimeline.noticeLayout(x, width, labelWidth);
-            drawToggleMarker(matrices, layout, y + height * 0.5F, layer.enabled(), opacity);
+            if (layer.kind() == DynamicIslandTimeline.Kind.EFFECT) {
+                drawEffectMarker(matrices, layer.effectTexture(), layout.markerCenterX(), y + height * 0.5F, opacity);
+            } else {
+                drawToggleMarker(matrices, layout, y + height * 0.5F, layer.enabled(), opacity);
+            }
             textX = layout.textX();
             textRight = layout.textRight();
+        } else if ("idle".equals(layer.key())) {
+            textX = DynamicIslandTimeline.centeredTextX(x, width, Fonts.semibold().width(layer.text(), TEXT_SIZE));
+            textRight = x + width - 4.0F;
         } else {
             ArtworkMetrics art = artworkFor(layer);
             if (layer.artwork() && art.present()) {
@@ -215,6 +265,7 @@ public final class DynamicIslandRenderer {
         float highlight = Float.isNaN(rawHighlight)
             ? lyricHighlight(font, cue, fitted, progress) : rawHighlight;
         float desired = Math.clamp(leftChrome + font.width(fitted, TEXT_SIZE) + rightChrome, minimum, maximum);
+        if (!available) desired = DynamicIslandTimeline.idleWidth(desired, minimum, maximum);
         return new PreparedMedia(new DynamicIslandTimeline.Media(
             trackKey, fitted, highlight, paused, hasArtwork, desired
         ));
@@ -230,7 +281,7 @@ public final class DynamicIslandRenderer {
             DynamicIslandTimeline.noticeTextCapacity(maximum));
         float desired = Math.clamp(DynamicIslandTimeline.noticeWidth(font.width(fitted, TEXT_SIZE)),
             minimum, maximum);
-        return new DynamicIslandTimeline.Notice(toggle.sequence(), fitted, toggle.enabled(), desired);
+        return new DynamicIslandTimeline.Notice(toggle.sequence(), fitted, toggle.enabled(), desired, toggle.effectTexture());
     }
 
     private void drawLayer(MatrixStack matrices, DynamicIslandTimeline.Layer layer, float x, float y,
@@ -240,7 +291,7 @@ public final class DynamicIslandRenderer {
         }
         Font font = Fonts.semibold();
         float textY = y + (height - font.height(TEXT_SIZE)) * 0.5F;
-        if (layer.kind() == DynamicIslandTimeline.Kind.TOGGLE) {
+        if (layer.kind() != DynamicIslandTimeline.Kind.MEDIA) {
             Color toggleColor = layer.enabled() ? ENABLED : DISABLED;
             font.draw(matrices, layer.text(), x, textY, TEXT_SIZE, withAlpha(toggleColor, opacity));
             return;
@@ -306,6 +357,22 @@ public final class DynamicIslandRenderer {
         RenderUtil.CIRCULAR_COUNTDOWN.drawMarked(matrices,
             layout.markerCenterX(), centerY, layout.markerRadius(), layout.markerStroke(),
             timeline.notificationFraction(), enabled, withAlpha(color, opacity));
+    }
+
+    private void drawEffectMarker(MatrixStack matrices, String effectTexture, float centerX,
+                                  float centerY, float opacity) {
+        RenderUtil.CIRCULAR_COUNTDOWN.draw(matrices, centerX, centerY, 8.0F, 0.9F,
+            timeline.notificationFraction(), withAlpha(DISABLED, opacity));
+        try {
+            SpriteAtlasTexture atlas = MinecraftClient.getInstance().getAtlasManager().getAtlasTexture(Atlases.GUI);
+            Sprite sprite = atlas.getSprite(Identifier.of(effectTexture));
+            RenderUtil.TEXTURE_RECT.draw(matrices, centerX - 5.0F, centerY - 5.0F, 10.0F, 10.0F,
+                new Vector4f(0.0F), withAlpha(Color.WHITE, opacity), sprite.getMinU(), sprite.getMinV(),
+                sprite.getMaxU() - sprite.getMinU(), sprite.getMaxV() - sprite.getMinV(),
+                atlas.getGlTextureView(), GuiTextures.nearest(), true);
+        } catch (RuntimeException ignored) {
+            // Resource reloads may retire the atlas between update and draw.
+        }
     }
 
     private static void drawPausedMarker(MatrixStack matrices, float centerX, float centerY,

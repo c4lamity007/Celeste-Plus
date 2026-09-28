@@ -44,6 +44,7 @@ public final class TrajectoriesFeature implements ModuleFeature {
     private volatile double glow = 0.55D;
     private volatile double opacity = 0.90D;
     private volatile boolean trailFade = true;
+    private volatile String pathStyle = "Normal";
 
     @Override
     public String name() {
@@ -220,6 +221,18 @@ public final class TrajectoriesFeature implements ModuleFeature {
         if (points.size() < 2) return;
         TrajectoryAppearance.Budget budget = TrajectoryAppearance.budget(glows == null ? 0 : glows.size(),
             glows == null ? 0 : quadLimit, false, glow);
+        renderMaterial(paths, glows, points, camera, budget);
+    }
+
+    private void renderMaterial(List<VisualExpansionRenderer.WorldLineStrip> paths,
+                                List<WorldGlowRenderer.Quad> glows, List<Vec3d> points,
+                                Vec3d camera, TrajectoryAppearance.Budget budget) {
+        if ("Glow".equals(pathStyle)) {
+            int written = GlowTrail.append(glows, points, camera,
+                budget.pathSegments() + budget.glowSprites(), glow, opacity, trailFade, this::pathColor);
+            if (written == 0) fallbackPath(paths, points, camera);
+            return;
+        }
         boolean ribbon = projectileRibbon(glows, budget.pathSegments(), points, camera);
         GlowTrail.append(glows, points, camera, budget.glowSprites(), glow, opacity, trailFade, this::pathColor);
         if (!ribbon) fallbackPath(paths, points, camera);
@@ -273,11 +286,7 @@ public final class TrajectoriesFeature implements ModuleFeature {
         Vec3d camera = context.camera().getCameraPos();
         TrajectoryAppearance.Budget budget = TrajectoryAppearance.budget(glows == null ? 0 : glows.size(),
             glows == null ? 0 : quadLimit, landing && hitSomething, glow);
-        boolean ribbon = projectileRibbon(glows, budget.pathSegments(), points, camera);
-        GlowTrail.append(glows, points, camera, budget.glowSprites(), glow, opacity, trailFade, this::pathColor);
-        // No second line over the shader: it made joints look dark/doubled at grazing angles.
-        // Retain the unmodified predicted polyline only as a low-budget fallback.
-        if (!ribbon) fallbackPath(paths, points, camera);
+        renderMaterial(paths, glows, points, camera, budget);
         if (landing && hitSomething) {
             landingMarker(paths, glows, budget.absoluteLimit(), position, hitNormal, camera);
         }
@@ -407,6 +416,7 @@ public final class TrajectoriesFeature implements ModuleFeature {
         glow = MathHelper.clamp(context.slider("Glow", 0.55D), 0.0D, 1.0D);
         opacity = MathHelper.clamp(context.slider("Opacity", 0.90D), 0.1D, 1.0D);
         trailFade = context.toggle("Trail fade", true);
+        pathStyle = context.mode("Path style", "Normal");
     }
 
     private enum ProjectileKind { PEARL, ARROW }

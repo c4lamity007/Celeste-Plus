@@ -1,19 +1,22 @@
 package dev.c4lam.celeste.hud;
 
+import java.util.ArrayDeque;
+
 /**
- * Tiny latest-value bridge between modules and the Dynamic Island.
+ * Bounded bridge between modules, expired effects and the Dynamic Island.
  *
- * <p>The bridge deliberately has no queue: a newer toggle replaces an older
- * one, which keeps a burst of config/module changes from replaying stale
- * notifications. The renderer only opens the gate while the island is active
+ * <p>Module changes coalesce to their latest state. Effect expirations wait
+ * their turn, so two effects ending together each get their full two seconds.
+ * The renderer only opens the gate while the island is active
  * in a real world, so construction and startup config restoration stay quiet.</p>
  */
 public final class DynamicIslandEvents {
     private static final int MAX_NAME_CODE_POINTS = 48;
+    private static final int MAX_PENDING = 8;
 
     private static boolean accepting;
     private static long sequence;
-    private static Toggle latest;
+    private static final ArrayDeque<Toggle> pending = new ArrayDeque<>();
 
     private DynamicIslandEvents() {
     }
@@ -21,7 +24,7 @@ public final class DynamicIslandEvents {
     public static synchronized void setAccepting(boolean acceptingEvents) {
         accepting = acceptingEvents;
         if (!acceptingEvents) {
-            latest = null;
+            pending.clear();
         }
     }
 
@@ -33,18 +36,32 @@ public final class DynamicIslandEvents {
         if (cleanName.isEmpty()) {
             return;
         }
-        latest = new Toggle(++sequence, cleanName, enabled);
+        pending.removeIf(event -> !event.effect());
+        enqueue(new Toggle(++sequence, cleanName, enabled));
     }
 
-    /** Returns the newest event after {@code seenSequence}, never a backlog. */
+    public static synchronized void publishEffectExpired(String effectName, String effectTexture) {
+        String clean = cleanName(effectName);
+        if (!accepting || clean.isEmpty() || effectTexture == null || effectTexture.isBlank()) return;
+        pending.removeIf(event -> effectTexture.equals(event.effectTexture()));
+        enqueue(new Toggle(++sequence, clean, false, effectTexture));
+    }
+
+    private static void enqueue(Toggle event) {
+        while (pending.size() >= MAX_PENDING) pending.removeFirst();
+        pending.addLast(event);
+    }
+
+    /** Poll only when the current notice has finished its complete lifetime. */
     public static synchronized Toggle latestAfter(long seenSequence) {
-        return latest != null && latest.sequence() > seenSequence ? latest : null;
+        while (!pending.isEmpty() && pending.peekFirst().sequence() <= seenSequence) pending.removeFirst();
+        return pending.pollFirst();
     }
 
     /** Disables delivery and discards an event that has not been rendered yet. */
     public static synchronized void reset() {
         accepting = false;
-        latest = null;
+        pending.clear();
     }
 
     static synchronized boolean acceptingForTest() {
@@ -69,7 +86,11 @@ public final class DynamicIslandEvents {
         return clean.toString().strip();
     }
 
-    public record Toggle(long sequence, String moduleName, boolean enabled) {
+    public record Toggle(long sequence, String moduleName, boolean enabled, String effectTexture) {
+        public Toggle(long sequence, String moduleName, boolean enabled) {
+            this(sequence, moduleName, enabled, "");
+        }
+
         public Toggle {
             if (sequence <= 0L) {
                 throw new IllegalArgumentException("sequence must be positive");
@@ -78,6 +99,9 @@ public final class DynamicIslandEvents {
             if (moduleName.isEmpty()) {
                 throw new IllegalArgumentException("moduleName must not be blank");
             }
+            effectTexture = effectTexture == null ? "" : effectTexture;
         }
+
+        public boolean effect() { return !effectTexture.isEmpty(); }
     }
 }

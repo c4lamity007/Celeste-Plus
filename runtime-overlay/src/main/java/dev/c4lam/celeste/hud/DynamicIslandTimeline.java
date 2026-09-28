@@ -3,6 +3,7 @@ package dev.c4lam.celeste.hud;
 /** Pure, frame-rate-independent presentation state for the Dynamic Island. */
 public final class DynamicIslandTimeline {
     public static final float NOTIFICATION_SECONDS = 1.0F;
+    public static final float EFFECT_SECONDS = 2.0F;
     public static final float HEIGHT = 22.0F;
     private static final float TRANSITION_SECONDS = 0.18F;
     private static final float TOGGLE_BASE_WIDTH = 96.0F;
@@ -21,6 +22,7 @@ public final class DynamicIslandTimeline {
     private float transition = 1.0F;
     private float previousOpacity = 1.0F;
     private float noticeRemaining;
+    private float noticeDuration = NOTIFICATION_SECONDS;
     private float width = current.desiredWidth();
     private float widthVelocity;
     private long lastEventSequence;
@@ -48,12 +50,13 @@ public final class DynamicIslandTimeline {
         boolean acceptedNotice = notice != null && notice.sequence() > lastEventSequence;
         if (acceptedNotice) {
             lastEventSequence = notice.sequence();
-            noticeRemaining = NOTIFICATION_SECONDS;
+            noticeDuration = notice.effect() ? EFFECT_SECONDS : NOTIFICATION_SECONDS;
+            noticeRemaining = noticeDuration;
             transitionTo(Layer.from(notice.clamped(lower, upper)));
         }
 
         if (noticeRemaining > 0.0F) {
-            // The notification gets a complete one-second lifetime beginning
+            // The notification gets its complete lifetime beginning
             // at this update; the preceding frame delta must not consume it.
             if (!acceptedNotice) {
                 noticeRemaining = Math.max(0.0F, noticeRemaining - dt);
@@ -81,7 +84,7 @@ public final class DynamicIslandTimeline {
 
         // Module notices have their own layout. The spring starts at the visible
         // media width, but its destination never depends on the previous lyric.
-        float desiredWidth = current.kind() == Kind.TOGGLE
+        float desiredWidth = current.kind() != Kind.MEDIA
             ? Math.max(current.desiredWidth(), TOGGLE_BASE_WIDTH) : current.desiredWidth();
         float targetWidth = Math.clamp(desiredWidth, lower, upper);
         if (!initialized) {
@@ -100,6 +103,7 @@ public final class DynamicIslandTimeline {
         transition = 1.0F;
         previousOpacity = 1.0F;
         noticeRemaining = 0.0F;
+        noticeDuration = NOTIFICATION_SECONDS;
         width = current.desiredWidth();
         widthVelocity = 0.0F;
         lastEventSequence = 0L;
@@ -133,7 +137,17 @@ public final class DynamicIslandTimeline {
     }
 
     public float notificationFraction() {
-        return Math.clamp(noticeRemaining / NOTIFICATION_SECONDS, 0.0F, 1.0F);
+        return Math.clamp(noticeRemaining / noticeDuration, 0.0F, 1.0F);
+    }
+
+    public boolean notificationActive() { return noticeRemaining > 0.0F; }
+
+    static float idleWidth(float originalWidth, float minimum, float maximum) {
+        return Math.clamp(originalWidth * 2.0F, minimum, maximum);
+    }
+
+    static float centeredTextX(float x, float width, float textWidth) {
+        return x + Math.max(0.0F, (width - textWidth) * 0.5F);
     }
 
     public long lastEventSequence() {
@@ -220,7 +234,8 @@ public final class DynamicIslandTimeline {
 
     public enum Kind {
         MEDIA,
-        TOGGLE
+        TOGGLE,
+        EFFECT
     }
 
     /** Prepared single-row media state; no mutable snapshot is retained here. */
@@ -243,31 +258,40 @@ public final class DynamicIslandTimeline {
         }
     }
 
-    /** Prepared latest-only module interrupt. */
-    public record Notice(long sequence, String moduleName, boolean enabled, float desiredWidth) {
+    /** A module toggle or an expired effect, ready for the shared transition. */
+    public record Notice(long sequence, String moduleName, boolean enabled, float desiredWidth,
+                         String effectTexture) {
+        public Notice(long sequence, String moduleName, boolean enabled, float desiredWidth) {
+            this(sequence, moduleName, enabled, desiredWidth, "");
+        }
+
         public Notice {
             if (sequence <= 0L) {
                 throw new IllegalArgumentException("sequence must be positive");
             }
             moduleName = moduleName == null ? "" : moduleName;
             desiredWidth = Math.max(1.0F, finiteOr(desiredWidth, 76.0F));
+            effectTexture = effectTexture == null ? "" : effectTexture;
         }
 
+        boolean effect() { return !effectTexture.isEmpty(); }
+
         Notice clamped(float lower, float upper) {
-            return new Notice(sequence, moduleName, enabled, Math.clamp(desiredWidth, lower, upper));
+            return new Notice(sequence, moduleName, enabled, Math.clamp(desiredWidth, lower, upper), effectTexture);
         }
     }
 
     public record Layer(String key, String text, Kind kind, boolean enabled, float highlight,
-                        boolean paused, boolean artwork, float desiredWidth) {
+                        boolean paused, boolean artwork, float desiredWidth, String effectTexture) {
         static Layer from(Media media) {
             return new Layer(media.key(), media.text(), Kind.MEDIA, false, media.highlight(),
-                media.paused(), media.artwork(), media.desiredWidth());
+                media.paused(), media.artwork(), media.desiredWidth(), "");
         }
 
         static Layer from(Notice notice) {
-            return new Layer("toggle:" + notice.sequence(), notice.moduleName(), Kind.TOGGLE,
-                notice.enabled(), 1.0F, false, false, notice.desiredWidth());
+            return new Layer("notice:" + notice.sequence(), notice.moduleName(),
+                notice.effect() ? Kind.EFFECT : Kind.TOGGLE,
+                notice.enabled(), 1.0F, false, false, notice.desiredWidth(), notice.effectTexture());
         }
     }
 }

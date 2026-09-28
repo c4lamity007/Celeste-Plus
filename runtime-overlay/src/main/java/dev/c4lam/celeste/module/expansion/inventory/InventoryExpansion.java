@@ -20,7 +20,6 @@ public final class InventoryExpansion {
         modules.register(new AutoExtinguishFeature());
         modules.register(new AutoDoubleHandFeature());
         modules.register(new ElytraSwapFeature());
-        modules.register(new ReBuffNotifierFeature());
         modules.register(new HoverTotemFeature());
         modules.register(new LegitAutoTotemFeature());
         modules.register(new AutoWebFeature());

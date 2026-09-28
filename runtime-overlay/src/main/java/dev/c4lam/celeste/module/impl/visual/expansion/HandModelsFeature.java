@@ -85,7 +85,13 @@ public final class HandModelsFeature implements ModuleFeature {
     public static void transform(AbstractClientPlayerEntity player, Hand hand, ItemStack renderedItem, MatrixStack matrices) {
         MinecraftClient client = MinecraftClient.getInstance();
         boolean editing = isEditing();
-        if ((!enabled && !editing) || player != client.player || client.world == null) return;
+        if (player != client.player || client.world == null) return;
+        if (enabled || editing) applyPlacement(player, hand, renderedItem, matrices, client, editing);
+        SwingAnimationFeature.transform(player, hand, renderedItem, matrices);
+    }
+
+    private static void applyPlacement(AbstractClientPlayerEntity player, Hand hand, ItemStack renderedItem,
+                                       MatrixStack matrices, MinecraftClient client, boolean editing) {
         Arm arm = hand == Hand.MAIN_HAND ? player.getMainArm() : player.getMainArm().getOpposite();
         boolean right = arm == Arm.RIGHT;
         double x = right ? rightX : leftX;

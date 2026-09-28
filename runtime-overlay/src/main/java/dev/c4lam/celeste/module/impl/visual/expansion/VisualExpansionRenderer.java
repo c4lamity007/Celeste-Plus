@@ -7,7 +7,6 @@ import dev.c4lam.celeste.CelesteClient;
 import dev.c4lam.celeste.beta.lifecycle.BetaSubscriptions;
 import dev.c4lam.celeste.auth.AuthBootstrap;
 import dev.c4lam.celeste.module.impl.combat.AnchorAuraFeature;
-import dev.c4lam.celeste.module.expansion.inventory.ReBuffNotifierFeature;
 import dev.c4lam.celeste.render.WorldOverlayPass;
 import net.fabricmc.fabric.api.event.Event;
 import net.fabricmc.fabric.api.client.rendering.v1.RenderStateDataKey;
@@ -67,6 +66,7 @@ public final class VisualExpansionRenderer {
 
     static synchronized void initialize(
         TrajectoriesFeature trajectories,
+        TrailsFeature trails,
         OreEspExpansionFeature ores,
         ArrowEspFeature arrows,
         ItemEspFeature items,
@@ -111,12 +111,13 @@ public final class VisualExpansionRenderer {
             jumps.extract(context, glows);
             // Absolute ceilings reserve complete geometry for later effects at saturation.
             // Earlier unused space remains available; each module keeps its normal detail cap.
-            // After target: at least 24 player / 96 trajectory / 16 ore / 48 loot / 128 lag quads.
+            // After target: at least 24 player / 96 trajectory / 16 ore / 48 loot / 64 trail / 64 lag quads.
             targets.extract(context, boxes, lines, glows, 456);
             players.extract(context, glows, 480);
             trajectories.extract(context, lines, boxes, glows, 576);
             ores.extract(context, boxes, lines, glows, 592);
             items.extract(context, boxes, lines, glows, 640);
+            trails.extract(context, glows, 704);
             PlayerEchoRenderer.Frame echoes = FakeLagVisualRenderer.extract(context, boxes, lines, glows, 768);
             PlayerEchoRenderer.Frame silhouettes = chams.extract(context);
             AmbientEffectsRenderer.Frame atmosphere = ambient.extract(context);
@@ -128,7 +129,7 @@ public final class VisualExpansionRenderer {
                     && silhouettes.echoes().isEmpty() && blockMarkers.isEmpty() && atmosphere.isEmpty()
                     && lyricFrame == SkyLyricsRenderer.Frame.EMPTY
                     ? Frame.EMPTY
-                    : new Frame(List.copyOf(boxes), List.copyOf(lines), List.copyOf(glows), echoes, silhouettes,
+                    : new Frame(List.copyOf(boxes), List.copyOf(lines), List.copyOf(glows), echoes, silhouettes, chams.material(),
                         List.copyOf(blockMarkers), atmosphere, lyricFrame)
             );
         }, WorldRenderEvents.END_EXTRACTION::register);
@@ -147,7 +148,6 @@ public final class VisualExpansionRenderer {
             MinecraftClient client = MinecraftClient.getInstance();
             if (client.currentScreen instanceof dev.c4lam.celeste.gui.HandModelsEditorScreen) return;
             arrows.render(client, context.getScaledWindowWidth(), context.getScaledWindowHeight(), tickCounter.getTickProgress(false));
-            ReBuffNotifierFeature.renderHud(client, context.getScaledWindowWidth(), context.getScaledWindowHeight());
             FakeGambleFeature.renderHud(client, context.getScaledWindowWidth(), context.getScaledWindowHeight());
         }, proxy -> HudElementRegistry.addLast(Identifier.of(CelesteClient.MOD_ID, "arrow_esp"), proxy));
     }
@@ -201,7 +201,7 @@ public final class VisualExpansionRenderer {
         WorldGlowRenderer.draw(context, frame.glows());
         UnifiedVolumeRenderer.draw(context, frame.blockMarkers(), true);
         UnifiedChamsRenderer.draw(context, frame.echoes(), true);
-        UnifiedChamsRenderer.draw(context, frame.chams());
+        UnifiedChamsRenderer.draw(context, frame.chams(), false, frame.chamsMaterial());
     }
 
     private static void drawLyrics(WorldRenderContext context) {
@@ -298,10 +298,10 @@ public final class VisualExpansionRenderer {
 
     private record Frame(List<WorldBox> boxes, List<WorldLineStrip> lineStrips,
                          List<WorldGlowRenderer.Quad> glows, PlayerEchoRenderer.Frame echoes,
-                         PlayerEchoRenderer.Frame chams, List<WorldGlowRenderer.Quad> blockMarkers,
+                         PlayerEchoRenderer.Frame chams, int chamsMaterial, List<WorldGlowRenderer.Quad> blockMarkers,
                          AmbientEffectsRenderer.Frame atmosphere, SkyLyricsRenderer.Frame lyrics) {
         private static final Frame EMPTY = new Frame(List.of(), List.of(), List.of(),
-            PlayerEchoRenderer.Frame.EMPTY, PlayerEchoRenderer.Frame.EMPTY, List.of(), AmbientEffectsRenderer.Frame.EMPTY, SkyLyricsRenderer.Frame.EMPTY);
+            PlayerEchoRenderer.Frame.EMPTY, PlayerEchoRenderer.Frame.EMPTY, 0, List.of(), AmbientEffectsRenderer.Frame.EMPTY, SkyLyricsRenderer.Frame.EMPTY);
     }
 
     private static final List<SolidVisualMesh.Face> ANCHOR_PREVIEW_SHAPE = BlockHighlightMesh.surface(
