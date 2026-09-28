@@ -1,0 +1,29 @@
+[package]
+name = "celeste-plus-mini"
+version = "1.0.0"
+edition = "2024"
+publish = false
+
+[[bin]]
+name = "CelestePlusSetup"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0"
+base64 = "0.22"
+ed25519-dalek = "2.2"
+rand = "0.8"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+ureq = { version = "2.12", default-features = false, features = ["tls"] }
+
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3", features = ["aclapi", "sddl", "securitybaseapi", "processthreadsapi", "winnt", "fileapi", "handleapi", "winbase", "errhandlingapi", "shlobj", "knownfolders", "combaseapi", "libloaderapi", "winuser", "commctrl", "wingdi"] }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = "symbols"

@@ -82,7 +82,7 @@ The fresh signed public manifest and the complete 68,233,216-byte launcher downl
 
 Local Windows/Python 3.14 memory evidence reached 189.8 MiB peak working set with two 64 MiB beta streams plus two public streams. It excludes real HTTP/TLS, Linux behavior and concurrent admin hashing; it is not a 256 MiB VPS guarantee. No billing change is part of this work.
 
-The small launcher's storage/execution architecture still needs the user's choice. No mini-launcher EXE has been built; memory-only execution is not claimed.
+The approved [small Windows launcher](../beta-lab/mini-launcher/README.md) downloads the verified full loader into a private temporary folder and opens it automatically. The full loader retains its current protection, authentication and native policy entry. Temporary files stay available while the loader or its cleanup helper is running, with normal cleanup afterward; forced termination can leave them for later Windows temp cleanup. The 1,639,424-byte build for `celeste-plus-20260928-mini-01` passed 22 release tests and a live public download, automatic open, normal UI rendering and exit cleanup check. Short launch paths use ordinary Windows spelling after canonical verification to preserve native graphics compatibility. No Minecraft QA is claimed.
 
 ## Source publication and line endings
 

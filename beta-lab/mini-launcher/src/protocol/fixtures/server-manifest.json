@@ -1,0 +1,30 @@
+{
+  "claims": {
+    "aud": "celeste-launcher-download",
+    "exp": 2000000120,
+    "iat": 2000000000,
+    "nbf": 2000000000,
+    "platform": "windows-x64",
+    "product": "celeste_plus",
+    "release_id": "public-test-loader-3",
+    "request_nonce": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYX",
+    "sequence": 3,
+    "sha256": "a24c7f3a071fb133fa2f4bd1b05d473440c87ba85010a9c9a0de85fc750ab943",
+    "size": 54,
+    "url": "https://qb0f90cf11f4d1d52.fly.dev/v1/launcher/windows-x64/a24c7f3a071fb133fa2f4bd1b05d473440c87ba85010a9c9a0de85fc750ab943/Celeste+.exe"
+  },
+  "nonce": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYX",
+  "now": 2000000000,
+  "payload_utf8": "Public Celeste mini-launcher fixture; never executed.\n",
+  "public_key": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+  "public_test_seed": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+  "response": {
+    "manifest": "eyJhbGciOiJFZERTQSIsImtpZCI6ImNlbGVzdGUtcmVsZWFzZS0xIiwidHlwIjoiQ1NUIn0.eyJhdWQiOiJjZWxlc3RlLWxhdW5jaGVyLWRvd25sb2FkIiwiZXhwIjoyMDAwMDAwMTIwLCJpYXQiOjIwMDAwMDAwMDAsIm5iZiI6MjAwMDAwMDAwMCwicGxhdGZvcm0iOiJ3aW5kb3dzLXg2NCIsInByb2R1Y3QiOiJjZWxlc3RlX3BsdXMiLCJyZWxlYXNlX2lkIjoicHVibGljLXRlc3QtbG9hZGVyLTMiLCJyZXF1ZXN0X25vbmNlIjoiQUFFQ0F3UUZCZ2NJQ1FvTERBME9EeEFSRWhNVUZSWVgiLCJzZXF1ZW5jZSI6Mywic2hhMjU2IjoiYTI0YzdmM2EwNzFmYjEzM2ZhMmY0YmQxYjA1ZDQ3MzQ0MGM4N2JhODUwMTBhOWM5YTBkZTg1ZmM3NTBhYjk0MyIsInNpemUiOjU0LCJ1cmwiOiJodHRwczovL3FiMGY5MGNmMTFmNGQxZDUyLmZseS5kZXYvdjEvbGF1bmNoZXIvd2luZG93cy14NjQvYTI0YzdmM2EwNzFmYjEzM2ZhMmY0YmQxYjA1ZDQ3MzQ0MGM4N2JhODUwMTBhOWM5YTBkZTg1ZmM3NTBhYjk0My9DZWxlc3RlKy5leGUifQ.S7hwQB25O4qJc8Tkf6qMph9yj5I1-0GDg0pn3r6-SWijD_OI5lR2gC7YqilVpeFrn5rpVd-VM-88oVsLuSi6CQ"
+  },
+  "schema": "celeste-mini-public-download-fixture-1",
+  "scope": "Actual anonymous backend router and GrantSigner, public synthetic key/data only.",
+  "source_sha256": {
+    "app/native_download.py": "248f3ada52f0d65f832f525eb95abd968698faf84a920360515f79790a45c629",
+    "app/security.py": "505dd9ab686c716f6425b68de92887ca95007cb7eb5487c6228304b05a9aaee8"
+  }
+}

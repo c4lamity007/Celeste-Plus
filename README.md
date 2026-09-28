@@ -6,6 +6,14 @@ Push Celeste+ work to **[c4lamity007/Celeste-Plus](https://github.com/c4lamity00
 
 The host and launcher build independently of Minecraft, Fabric Loom, the authentication server, and a local Celeste checkout. A complete remapped Celeste runtime is an explicit packaging input. Authentication remains product-scoped to `celeste_plus`; no special UID or Owner license bypass is provided. Existing `beta` package names and wire schemas are retained for protocol compatibility.
 
+## Small Windows launcher
+
+The [small launcher](beta-lab/mini-launcher/README.md), `Celeste+Setup.exe`, downloads the verified full loader into a private Windows temporary folder and opens it automatically. The full loader keeps its existing authentication and protection. Temporary files remain available while it or its cleanup helper is running, then normal cleanup removes them.
+
+The [Windows download](https://github.com/c4lamity007/Celeste-Plus/releases/tag/celeste-plus-20260928-mini-01) is about **1.6 MB**. The final build passed 22 release tests and a live download, automatic open, UI rendering and normal-exit cleanup check. Windows **Unknown publisher** remains accepted. See the linked README for build instructions and cleanup limits.
+
+The current deployed [September 28 authentication payload](docs/native-auth-20260928.md), `celeste-plus-20260928-native-auth-02`, virtualizes 16 selected methods across three authentication classes. All 41 final native checks and 15 Java continuation stages passed. These are artifact and fixture checks, not Minecraft gameplay QA.
+
 ## Build and test
 
 Use Java 21 (with `JAVA_HOME` set), Python 3.11+, and the included Gradle wrapper. The Windows launcher requires stable Rust with the MSVC toolchain and Visual Studio C++ build tools. Dependency resolution needs network access on the first build; add `--offline` only when the caches are populated.
@@ -83,12 +91,13 @@ The five-file output contains A, B, two payload parts, and `beta-release.json`. 
 
 ## Authentication and publication
 
-The [current authentication audit](docs/auth-short-list-audit-20260927.md)
+The [September 27 authentication audit](docs/auth-short-list-audit-20260927.md)
 checks VM detection, runtime renewal, pinned TLS, integrity, copied-cache claims,
 server authorization and request limits. It distinguishes verified protections
 from the remaining trusted Windows signing requirement. Its two rate-limit race
-repairs are deployed at Fly version **135**; the loader and Java payload are
-unchanged from the release below.
+repairs were deployed at Fly version **135**. The current payload is the
+[September 28 native-auth release](docs/native-auth-20260928.md); the full Windows
+loader remains the protected September 27 executable described below.
 
 The Windows [download-binding and recovery release](docs/releases/20260927-auth-recovery.md)
 is published as `celeste-plus-20260927-auth-recovery-01`, deployed and verified at
