@@ -1,0 +1,41 @@
+{
+  "schema": "celeste-auth-native-producer-policy-1",
+  "scope": "Reviewed isolated source adaptation and executable producer inputs only; not a native protection or production publication approval.",
+  "native_tool_bundle_sha256": "b558f2e5f5741d5541ee80048052a95545708965103081b51856dd4732437369",
+  "adaptation_provenance_sha256": "28688ba39f7208b86a9a3fb826c261ebfb09adc006bfee8b6ef93838f26f6264",
+  "source_patch_sha256": "11010fd2e68060eabfe7b74825dd73682ba3ee98b1960031ca42ac8a1d36b620",
+  "required_properties": {
+    "celeste.prototype.callLocalJni": "true",
+    "celeste.prototype.nativeOnly": "true"
+  },
+  "selected_owners": {
+    "auth": "dev/c4lam/celeste/auth/AuthServiceClient",
+    "signer": "dev/c4lam/celeste/auth/DpopProofSigner",
+    "bootstrap": "dev/c4lam/celeste/auth/AuthBootstrap"
+  },
+  "method_selections": {
+    "auth": {
+      "path": "final-native-auth/auth.methods",
+      "sha256": "b9e68332eecf67475c2d5d185085dec334da9267fd6d4d68cf6c32cd366c8135"
+    },
+    "signer": {
+      "path": "final-native-auth/signer.methods",
+      "sha256": "021a4a2304cbae0c2e159732bc09374ab32b431d16096de3c8252ca2e762d603"
+    },
+    "bootstrap": {
+      "path": "final-native-auth/bootstrap.methods",
+      "sha256": "428520d872ba60310ec9260ad33214f49c3d05236f85ed4996732dcc509f8814"
+    }
+  },
+  "known_checks": {
+    "unselected_method_parity": 88,
+    "selected_full_bodies": 16,
+    "actual_protocol_checks": 956,
+    "lifecycle_process_cases": 40
+  },
+  "limits": [
+    "No foreign Obfuscator source tree is modified.",
+    "Original methods use existing Java-protected input; native-only adaptation preserves unselected methods.",
+    "Final DLL transformation, JNI behavior, lifecycle and exact resource approval must be checked separately for every candidate."
+  ]
+}

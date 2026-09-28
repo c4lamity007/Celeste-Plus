@@ -135,7 +135,9 @@ def test_plus_live_subscription_rechecked_after_slow_artifact_work(v2, monkeypat
     token = auth(v2).json()["grant"]
     signed, path = manifest(v2, token)
     _, request = encrypted_request(v2, token, path, signed)
-    name = "_read_release" if phase == "read" else "encrypt"
+    # Recipient/encryptor setup is synchronous; authorization must be rechecked
+    # before the returned generator may emit its first encrypted byte.
+    name = "_read_release" if phase == "read" else "encrypt_chunks"
     original = getattr(delivery, name)
 
     def revoke(*args, **kwargs):

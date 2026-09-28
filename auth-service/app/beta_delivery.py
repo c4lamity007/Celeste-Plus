@@ -28,13 +28,14 @@ import hashlib
 import hmac
 import json
 import re
+import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from cryptography.exceptions import InvalidSignature
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from .config import Settings
@@ -43,7 +44,8 @@ from .products import PLUS, require_entitlement, require_claim_product
 from .security import GrantSigner, canonical_json
 from .dpop import access_token
 from .token_revocation import require_unrevoked
-from .artifact_envelope import encrypt, recipient
+from .artifact_envelope import encrypt_chunks, recipient, OVERHEAD_BYTES
+from .artifact_transfer import ArtifactResponse, plain_chunks
 from .auth_errors import failure
 from .auth_lifecycle import require_artifact_hardware
 
@@ -54,6 +56,7 @@ MANIFEST_TTL_SECONDS = 120
 MAX_ARTIFACT_BYTES = 64 * 1024 * 1024
 MAX_RELEASE_BYTES = 128 * 1024 * 1024
 MAX_CATALOG_BYTES = 16_384
+TRANSFER_WAIT_SECONDS = 2
 ARTIFACT_ROLES = {
     "bootstrap-a": "bootstrap",
     "bootstrap-b": "bootstrap",
@@ -206,6 +209,9 @@ def create_beta_router(
     apply_limit: Callable[[Request, str, int, int], None],
 ) -> APIRouter:
     router = APIRouter(prefix="/v1/beta")
+    # Per process (the deployment runs one worker). Admission precedes the
+    # selected immutable allocation and remains held through ASGI backpressure.
+    transfer_slots = threading.BoundedSemaphore(2)
 
     def enabled() -> None:
         if not beta_enabled(settings):
@@ -322,20 +328,36 @@ def create_beta_router(
             raise HTTPException(401, "invalid grant")
         if not _IDENTIFIER.fullmatch(release_id) or artifact_id not in ARTIFACT_ROLES:
             raise HTTPException(404, "beta artifact not found")
-        catalog, content = _read_release(settings, artifact_id)
-        if (manifest.get("catalog_sha256") != hashlib.sha256(canonical_json(catalog)).hexdigest()
-                or any(manifest.get(key) != value for key, value in catalog.items())):
-            raise HTTPException(401, "invalid grant")
-        if release_id != catalog["release_id"] or content is None:
-            raise HTTPException(404, "beta artifact not found")
-        # Do not allow an expired grant to finish a slow integrity-validation pass.
-        if min(installer["exp"], manifest["exp"]) <= int(time.time()):
-            raise HTTPException(401, "invalid grant")
-        plus_installer(request, touch=False)
-        if settings.plus_auth_protocol == 2:
-            client_key, request_nonce = recipient(request)
-            content = encrypt(content, installer_token, request.url.path, client_key, request_nonce)
+        if not transfer_slots.acquire(timeout=TRANSFER_WAIT_SECONDS):
+            raise HTTPException(503, "beta artifact transfers are busy", headers={"Retry-After": "1"})
+        try:
+            # Initial entitlement/HWID/DPoP validation happened before admission.
+            # Waiting must not let a now-revoked or expired grant allocate bytes.
             plus_installer(request, touch=False)
-        return Response(content, media_type="application/octet-stream", headers={"Cache-Control": "no-store"})
+            if min(installer["exp"], manifest["exp"]) <= int(time.time()):
+                raise HTTPException(401, "invalid grant")
+            catalog, content = _read_release(settings, artifact_id)
+            if (manifest.get("catalog_sha256") != hashlib.sha256(canonical_json(catalog)).hexdigest()
+                    or any(manifest.get(key) != value for key, value in catalog.items())):
+                raise HTTPException(401, "invalid grant")
+            if release_id != catalog["release_id"] or content is None:
+                raise HTTPException(404, "beta artifact not found")
+            # Do not allow an expired grant to finish a slow integrity-validation pass.
+            if min(installer["exp"], manifest["exp"]) <= int(time.time()):
+                raise HTTPException(401, "invalid grant")
+            plus_installer(request, touch=False)
+            length = len(content)
+            if settings.plus_auth_protocol == 2:
+                client_key, request_nonce = recipient(request)
+                chunks = encrypt_chunks(content, installer_token, request.url.path, client_key, request_nonce)
+                length += OVERHEAD_BYTES
+                plus_installer(request, touch=False)
+            else:
+                chunks = plain_chunks(content)
+            return ArtifactResponse(chunks, length, transfer_slots)
+        except BaseException:
+            transfer_slots.release()
+            raise
+
 
     return router

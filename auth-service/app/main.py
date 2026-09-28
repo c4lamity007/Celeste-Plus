@@ -27,6 +27,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from .beta_delivery import beta_enabled, beta_runtime_catalog, create_beta_router
 from .api_responses import ApiResponseMiddleware
 from .native_manifest import create_native_manifest_router
+from .native_download import create_native_download_router
 from .token_revocation import require_unrevoked
 from .auth_errors import failure
 from .auth_lifecycle import (record_grant, require_current_grant, require_hwid, complete_hardware_auth, require_artifact_hardware,
@@ -2194,6 +2195,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(create_beta_router(settings, database, signer, require_active_artifact_device, apply_limit))
     app.include_router(create_native_manifest_router(settings, database, signer, apply_limit))
+    app.include_router(create_native_download_router(settings, database, signer, apply_limit))
     app.include_router(create_transport_policy_router(settings, signer, apply_limit, dpop.origin))
     app.include_router(create_grant_router(settings, database, signer, dpop, apply_limit))
     return app

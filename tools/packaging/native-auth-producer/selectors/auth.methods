@@ -1,0 +1,8 @@
+dev/c4lam/celeste/auth/AuthServiceClient#authenticate(Ldev/c4lam/celeste/auth/InstallCredential;Ldev/c4lam/celeste/auth/HardwareFingerprint;)Ldev/c4lam/celeste/auth/AuthServiceClient$Authenticated;
+dev/c4lam/celeste/auth/AuthServiceClient#validateStartupGrant(Ljava/lang/String;Ldev/c4lam/celeste/auth/DpopProofSigner;Ldev/c4lam/celeste/auth/AuthServiceClient$SessionBinding;Lcom/google/gson/JsonObject;)V
+dev/c4lam/celeste/auth/AuthServiceClient#checkSession(Ldev/c4lam/celeste/auth/InstallCredential;Ljava/lang/String;Z)Ljava/lang/String;
+dev/c4lam/celeste/auth/AuthServiceClient#checkSessionResponse(Ldev/c4lam/celeste/auth/InstallCredential;Ljava/lang/String;Z)Ljava/lang/String;
+dev/c4lam/celeste/auth/AuthServiceClient#requireBetaContext(Lcom/google/gson/JsonObject;)V
+dev/c4lam/celeste/auth/AuthServiceClient#sessionValidityNanos(Ljava/lang/String;)J
+dev/c4lam/celeste/auth/AuthServiceClient#requireChallenge(Lcom/google/gson/JsonObject;Ldev/c4lam/celeste/auth/HardwareFingerprint;)V
+dev/c4lam/celeste/auth/AuthServiceClient#verifyToken(Ljava/lang/String;Ljava/lang/String;)Lcom/google/gson/JsonObject;

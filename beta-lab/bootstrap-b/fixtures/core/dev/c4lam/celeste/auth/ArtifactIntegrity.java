@@ -1,6 +1,7 @@
 package dev.c4lam.celeste.auth;
 
 import dev.c4lam.celeste.CelesteClient;
+import dev.c4lam.celeste.beta.memory.NativeResourceBudget;
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
@@ -137,6 +138,8 @@ public final class ArtifactIntegrity {
         private int entryCount;
         private long totalBytes;
         private boolean visiting = true;
+        private NativeResourceBudget nativeBudget = NativeResourceBudget.empty();
+        private boolean indexSeen;
         private IOException failure;
 
         private synchronized void accept(Map<String, byte[]> part) throws IOException {
@@ -157,6 +160,14 @@ public final class ArtifactIntegrity {
             if (part == null || ++parts > MEMORY_PARTS) {
                 throw new IOException("Expected exactly two retained artifact parts");
             }
+            // Packaging pins this declaration to part A. Inspect it before native
+            // snapshots are allocated, while retaining the original one-visit ABI.
+            // The lifecycle has already authenticated these exact two outer parts.
+            if (parts == 1 && part.containsKey(NativeResourceBudget.RESOURCE)) {
+                nativeBudget = NativeResourceBudget.parseTrusted(part.get(NativeResourceBudget.RESOURCE));
+            } else if (part.containsKey(NativeResourceBudget.RESOURCE)) {
+                throw new IOException("Native budget must be in the first retained part");
+            }
             for (Map.Entry<String, byte[]> entry : part.entrySet()) {
                 if (++entryCount > MAX_MEMORY_ENTRIES) {
                     throw new IOException("Retained artifact exceeds entry limit");
@@ -167,11 +178,18 @@ public final class ArtifactIntegrity {
                 if (name == null || name.isEmpty() || name.length() > MAX_MEMORY_NAME_CHARS || content == null) {
                     throw new IOException("Invalid retained artifact entry");
                 }
-                if (content.length > MAX_MEMORY_ENTRY_BYTES
+                int entryLimit = nativeBudget.entryLimit(name, content.length, MAX_MEMORY_ENTRY_BYTES);
+                if (content.length > entryLimit
                     || totalBytes > MAX_MEMORY_TOTAL_BYTES - content.length) {
                     throw new IOException("Retained artifact exceeds byte limit");
                 }
                 totalBytes += content.length;
+                if (name.equals(NativeResourceBudget.RESOURCE)) {
+                    if (indexSeen) throw new IOException("Duplicate retained native index");
+                    nativeBudget.verifyIndex(content);
+                    indexSeen = true;
+                }
+                nativeBudget.verify(name, content);
                 // JarEntry.isDirectory() has the same trailing-slash semantics.
                 if (name.endsWith("/") || !protectedEntry(name)) continue;
                 if (!names.add(name)) {
@@ -188,6 +206,8 @@ public final class ArtifactIntegrity {
         private synchronized void updateDigest(MessageDigest digest) throws IOException {
             if (failure != null) throw failure;
             if (parts != MEMORY_PARTS) throw new IOException("Expected exactly two retained artifact parts");
+            if (!indexSeen) nativeBudget.verifyIndex(null);
+            nativeBudget.requireComplete(names);
             entries.sort(Comparator.comparing(MemoryEntry::name));
             for (MemoryEntry entry : entries) {
                 update(digest, entry.name(), entry.content());

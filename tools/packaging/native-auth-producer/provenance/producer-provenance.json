@@ -1,0 +1,1473 @@
+{
+  "source_receipt_sha256": "7ddc29ca0d8b52ee2aa08616979dcb01a585fa85004ecc9a7db68827e6840f2f",
+  "verified_source_files": [
+    {
+      "path": "pom.xml",
+      "sha256": "f47157a00026b9f0007ff3cdb155b6578042996e0746ef5a24973535dc15ed6b",
+      "bytes": 5580
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/App.java",
+      "sha256": "5b9c7707afe2d1378c9d9c0ecbc261739ff5379b6b212fb065e820003980cae0",
+      "bytes": 3940
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/ArtifactPairPublisher.java",
+      "sha256": "a72a9c83c5e5dd9d3493259fb0a70754d9d10f7c10e35ac6971b1a54298bd093",
+      "bytes": 10723
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/AssetPacker.java",
+      "sha256": "e5ad797dbc2b0f97874a0642ef1e3b039cdfd33896cebad1957591cf7e741ee8",
+      "bytes": 29301
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/AuthApiPolicy.java",
+      "sha256": "07ad1b86225a464d0232e8923c5a3356ecede23575e4fccaab1ce52f988091a7",
+      "bytes": 10984
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/AuthCallGraphAudit.java",
+      "sha256": "01a73e85ea424c136e57bec1c02fcd3775cf2f26e821087557e43be5399e48fa",
+      "bytes": 6499
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/AuthenticationDetector.java",
+      "sha256": "85355f6ff55c729888e42affce0c123b21b3680307dd8a293390a7ab8c0b541e",
+      "bytes": 4633
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/AuthProtectionCoverage.java",
+      "sha256": "45716dd3df9d8cb554284f006555b446270eb554a53aaffb26c0ee15829ef7bf",
+      "bytes": 17223
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/AutoDetector.java",
+      "sha256": "95a0440a6d61e84435588854a3800177a59bfcdf1c0edfdd7c1772462cd29c1c",
+      "bytes": 15635
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/AutoReflectionAnalyzer.java",
+      "sha256": "cdf046e60b67302a796218da0d1330dc108a1172f61e2eb1d51561f7048c239d",
+      "bytes": 30676
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/BytecodeTransformer.java",
+      "sha256": "ff99c8abd3225d6d5b6b47f1583cacc2cb5a54217deed118fc9d885c17003d79",
+      "bytes": 39698
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/ClassClassifier.java",
+      "sha256": "2c97f2adb85dd1a42419f712504bdb1d204ee2320043a73ab8f4023c992deab3",
+      "bytes": 14650
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/ClassInitializationPolicy.java",
+      "sha256": "d07b57380fc37870409920edd70f7edb3864e6b908a22f660496668a458e4003",
+      "bytes": 13531
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/ClassLayoutScrambler.java",
+      "sha256": "37be9271a53fd9174b962915ce2315a9d966cf08f25269cb4212545b17eca627",
+      "bytes": 2164
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/ClassModel.java",
+      "sha256": "dbfa8b4ac5163c9d425738168b910082b14aca11dce7db17c41934ad1c0abbbe",
+      "bytes": 2632
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/CodeHardener.java",
+      "sha256": "d4503f0a26ae7babfc98f9e659e2229a0dbde88aa105e4f744049f0b6eb6f1dd",
+      "bytes": 69949
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/CompatibilityMetadata.java",
+      "sha256": "6d4949f568dc9437e6430c4c346183875e5fbbfd1667ed26e5f6705f93e1befd",
+      "bytes": 89756
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/ControlFlowObfuscator.java",
+      "sha256": "4c1d9327291446bd65f5eb44143c5525b078efef22a4aa84cc27704d6191fa2d",
+      "bytes": 75965
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/CrossClassKeyPlanner.java",
+      "sha256": "d8367e0127f712825a1ebfa1af9dc9ff4c2079e13e84e58c889e3e3c3c3ca87f",
+      "bytes": 64216
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/DependencyReferencePolicy.java",
+      "sha256": "cfbe0ec2a3f6eaac514c70d39cd8ad066d1b9a7225af31f0d12ff24bd3fe7659",
+      "bytes": 16535
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/FlowRegionPolicy.java",
+      "sha256": "55fe576059cdc22798c19fd4b27fd12a070bbfb6282be333e5dcfcc0f85cb535",
+      "bytes": 3440
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/FrameworkAnalyzer.java",
+      "sha256": "c65afa38089cea6fa643e883b0a4e96333c931cac46ca84b8727a2da8600f2d4",
+      "bytes": 11485
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/HotPathAnalyzer.java",
+      "sha256": "a51031ac6d197e9018fb6e8371f8de9c6d9b5cee667579f47190807f86bd15f4",
+      "bytes": 39458
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/IncrementalMapping.java",
+      "sha256": "dc599c59f56f87c580144b3a0e8eb42aac41c6a7f1ec8f59edc9e687baa24acd",
+      "bytes": 10164
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/InvokeConcealer.java",
+      "sha256": "66a087658e02cc7c60ef6c86f472fe8b6955f53704cc4e1b607da71de955c858",
+      "bytes": 87846
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/JarObfuscator.java",
+      "sha256": "8772b4d2bbf1247e2843f2c27f16e6ef41c6a1614f3b9535727548533b997a42",
+      "bytes": 163104
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/KeepMatcher.java",
+      "sha256": "fe09dd008559c1e1f4f0b48994efdb816d27f9129233e25e07a9f65c31f4354e",
+      "bytes": 1611
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/KeyChainGenerator.java",
+      "sha256": "783b4092ff56a3f6057b15b50e2e10349e61aa38dd0ba5f9634c1e6b736a6498",
+      "bytes": 17538
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/LiteralProvenance.java",
+      "sha256": "6a59e58b024558ef218b1b7b8c4eb773ec0da5ef9d43d8837df73e08d601f0ad",
+      "bytes": 1964
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/MainWindow.java",
+      "sha256": "d26ceb1d6cb3da9c5ed27a1164f0e15deae422de4d17659d8c6a5f9793e61b7a",
+      "bytes": 66593
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/ManifestEntries.java",
+      "sha256": "09f56ea235d3788a10e524e25a3fd3588929c1959b9c1886cb68ac518d782649",
+      "bytes": 1588
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/ManifestPackagePolicy.java",
+      "sha256": "6b2d7e22c790b2c5c44b7819be0f14f1ab653496754dcf5853794e31aed63948",
+      "bytes": 3058
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/MinecraftColdMethodPolicy.java",
+      "sha256": "38f544b1963c29dc18e2f498d9b190834ad4688403f8cd6fb5717b1430a03af2",
+      "bytes": 13520
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/ModuleBodyRelocator.java",
+      "sha256": "ca7b0b7026b50c88bd35579b16cd7148b854bef37e057501cd1607453a605b75",
+      "bytes": 42675
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/NameGenerator.java",
+      "sha256": "e7a9665b22bb9a8e3eca95e661c4bce59b016aadbeb749cd4512bfa1087d0c14",
+      "bytes": 7685
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/NameMapping.java",
+      "sha256": "b7b5428c27d5351c78b7c4a6ce7e866c97f0426c395b3f73462e85fb4aab2aa1",
+      "bytes": 49155
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/NativeCompiler.java",
+      "sha256": "64387b785d198575ed01153fe57cfc439bb949245fa1ee684388363cca6747a8",
+      "bytes": 11212
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/NativeRecordHelperPolicy.java",
+      "sha256": "a2fb90d67b2d41e7609332d2bd6e9aca4f3151a221b29c7e0d81d805e0ee6729",
+      "bytes": 4717
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/NativeResourceProtector.java",
+      "sha256": "b849354e0c4cb1b5aa065615a144553f6d1a6006ce7a88fc681efbdb5309101f",
+      "bytes": 14234
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/NativeTranspiler.java",
+      "sha256": "39b886bde81325445b2f7e328399cf3d652ffe0ad32109c94c4cb3c2beba50c1",
+      "bytes": 175470
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/ObfuscationReport.java",
+      "sha256": "6842916db18a416895051f9c878a5519e15196397ea14ce174673fd09d0da7c3",
+      "bytes": 3675
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/ObfuscatorConfig.java",
+      "sha256": "4374b997d84d2b9027e134d46fc854fb59e58e303095abd639f01ca81b5c25f9",
+      "bytes": 23809
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/ObfuscatorProfile.java",
+      "sha256": "1ee1f648ae690d2e56a521f31d83c1039ab703e620ab46c1e894d449ae0248e5",
+      "bytes": 31293
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/OpaqueReferenceProvenance.java",
+      "sha256": "36e729b44511815b32dabafa49c15ef9ef5b619593d1ea0664dba6d1f3a38db5",
+      "bytes": 6153
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/OpaqueStringTransformer.java",
+      "sha256": "128315409155ba734700eb1627a082fc05027b06f9c2906d3ffc7cdf29f0375c",
+      "bytes": 11860
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/OriginalOperandUse.java",
+      "sha256": "0a0bde66a13afc51229a047113ae1a7828c29a2158b5eb6848ef1dd264c55eb0",
+      "bytes": 4843
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/OutputCommitter.java",
+      "sha256": "2d77a519d70eb963b83cef6114b704f583e8c8a916e4464e4c3f3d21725a4679",
+      "bytes": 5123
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/OutputLockedException.java",
+      "sha256": "a50096b8dd14b3ee3721c1f67e7958211a785dc83495a3beac071d25bd31b448",
+      "bytes": 860
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/PackageLayoutPlanner.java",
+      "sha256": "45b1499cdec2871bb63bf7c806aa02c1beee62339110256482365aa1cf4ff675",
+      "bytes": 7470
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/PackageResourceAnalyzer.java",
+      "sha256": "6d593f649b72964d8e7195b5641f6b8c6b855bfab94076446f5dc4f0bb90d796",
+      "bytes": 13895
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/ParameterMorpher.java",
+      "sha256": "350e9014ca4787170c25bc1fb6a95a154f105d34ab304f7c75191d832652a728",
+      "bytes": 61722
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/PlatformReferencePolicy.java",
+      "sha256": "236cbe4111957b53fd78bda2772f7dd1cd7c660a7d9a69e13b3e01433e34767b",
+      "bytes": 22679
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/PlatformReferenceProvenance.java",
+      "sha256": "03417ea148139cda10a56805ffab6aa191cf24556676b312015aad1f710d5e7d",
+      "bytes": 16805
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/ProtectionPreset.java",
+      "sha256": "902e6db1954b81916f0d1f646063bff15dc5bfb4340e4f4f12adf342372df05d",
+      "bytes": 4003
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/RecordNamePolicy.java",
+      "sha256": "dde9f861fe4df1b6d381af2d0f70955abbd53b0586384e0778d2f72a2874879c",
+      "bytes": 33094
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/ReferenceLinkerTemplate.java",
+      "sha256": "3cdbc3fb1abeef0a42bca386b3039bbdf590df1db008d2580314a4c358aed10d",
+      "bytes": 7166
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/ReflectiveModelDetector.java",
+      "sha256": "d83b200c65d8136a56fa3e5c5f690e48245c6fa552f8ce4bf8f062a15b860a88",
+      "bytes": 10168
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/runtime/NativeLoader.java",
+      "sha256": "1dfab7bd2a98a8bcb5506cb8d4f7c9c600f5bd27bcfc449d2fe207d578144b4f",
+      "bytes": 7114
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/runtime/RuntimeCrypto.java",
+      "sha256": "d573804ee7df7f1516e839929863c3fafd32c08d1cc595e4d90d1b13044519d2",
+      "bytes": 69644
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/StackTraceTranslator.java",
+      "sha256": "f1777da45d93bc033ee677a707b13f151f8717415a4ee1ecf78c059c88a8e54a",
+      "bytes": 5568
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/StringUseAnalyzer.java",
+      "sha256": "a8e0f7e8b2053ae8918c56d18ef60097bac920bf99d4bfd9b02786e2d2db4bce",
+      "bytes": 11194
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/StringVaultGenerator.java",
+      "sha256": "0a778cade545020f25483023b6d0ffbda5337da4370600abce4c8edcc5380b72",
+      "bytes": 63874
+    },
+    {
+      "path": "src/main/java/dev/local/obfuscator/VaultCrypto.java",
+      "sha256": "5dd5693406ff4007f00b534c16000e809413cae0671a7fa9e7ef3e78d7420df3",
+      "bytes": 28143
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/AdvancedAnalysisTest.java",
+      "sha256": "17da9d342ffe827a1ca8ed7ffd5cfd246c111e1364c30a69113520c1ed84ead4",
+      "bytes": 19722
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/ApplicationStringKeyTest.java",
+      "sha256": "7ef9e6c22a30362c04f2c51737914791337f4edabe22d0198228ecfc80da3ad5",
+      "bytes": 37223
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/ApplicationStringPipelineTest.java",
+      "sha256": "0b0db3d9e75db774ec81293781804aa1f5858c51de0dd6cd506f75b3622599c2",
+      "bytes": 4847
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/ArchiveIntegrityTest.java",
+      "sha256": "1c0672cd519e3b27d24d077d0c534d37cb0b0fdd49a02e4794e52344afd65e50",
+      "bytes": 14840
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/ArchiveSafetyTest.java",
+      "sha256": "cfa28e8e5e4ec145c7acb453dc0070fbef1c95998412a26529c3dbdd34dbe935",
+      "bytes": 7692
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/ArtifactPairPublisherTest.java",
+      "sha256": "47634f40df00032db1075b07c27790a0999789462b67820315c8d9a30c32c2e1",
+      "bytes": 5476
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/AssetPackerTest.java",
+      "sha256": "1540143cfe0d93cd2291def5cf4e5a4052ffc96e3f06d855828bdc41b0e0a9a9",
+      "bytes": 13063
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/AuthApiBudgetPriorityTest.java",
+      "sha256": "4b19bd87391f4a006ffcd2f18b8c60819eaeb9edf55f83c4f8180aabadc41faa",
+      "bytes": 14293
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/AuthApiColdExpansionTest.java",
+      "sha256": "f9f48dca819754c91a0683d85f820bdbc8bf037fe2573f9fb193af23fc3d11fb",
+      "bytes": 12588
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/AuthApiConcealmentTest.java",
+      "sha256": "eaa72aeb0658f5f9c10fa8fb2b7030ab29cb627f69183ea1a5c71126f1aa66be",
+      "bytes": 20177
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/AuthApiExpandedBodyDispatchTest.java",
+      "sha256": "077f9cbaa9afa282e7ad857de3a54fb37958770504ace19b0df0cd9245b8f7b0",
+      "bytes": 10701
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/AuthApiProvenanceTest.java",
+      "sha256": "d503eceec403714cc01dab02e46c79ea0262fb55270185496b1a80495d72f77b",
+      "bytes": 10219
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/AuthCallGraphAuditTest.java",
+      "sha256": "970b5f3a76ac75b7164113cb7ab0e13837b3c55e8f9ded2826f6bb8f92b7c476",
+      "bytes": 10046
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/AuthCoveragePipelineTest.java",
+      "sha256": "28e043f09bb04c4af327fd0c4490c0cf8e6db92201ca69e859e0fc022bb750d9",
+      "bytes": 7466
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/AuthenticatedReferenceTest.java",
+      "sha256": "2bca0d0d05fb866c109d864c1adc99e9c56800879cc356d1c87fb6d5d9632b5f",
+      "bytes": 10935
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/AuthFlowCoverageTest.java",
+      "sha256": "f8b77b181d63aedcc59573263d2083833f9eeee68e2cb93ba39ed502c0ac918a",
+      "bytes": 4747
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/AuthMaximumPipelineTest.java",
+      "sha256": "96f39b61874091bef7ce5dcc9e784d8f80aaf12d7ebd4bddb985eedf116c75cd",
+      "bytes": 14672
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/AuthProtectionCoverageTest.java",
+      "sha256": "fc8b821009ffbe0468efcd7f1bacd25b4667bedd2016d121d8c835be7cf5ddc4",
+      "bytes": 14144
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/AutoDetectorOwnedReferenceClosureTest.java",
+      "sha256": "eaaf3528117a3fd30cebde61c99be05e8c32b82930c5f2bade01d66aecb4527f",
+      "bytes": 9063
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/AutoReflectionNewIdentityTest.java",
+      "sha256": "bb0d6aaba358a40c2ace6c0803124824eb158fe5ec289f4face3272ffb1b2888",
+      "bytes": 16539
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/BinaryArrayReflectionMappingTest.java",
+      "sha256": "66b47b3046c288b6ef15941941f4cfd097026cce33d35659138accb0afee8a36",
+      "bytes": 712
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/BootstrapStringArtifactAuditTest.java",
+      "sha256": "b8ad0d195f29cf8eafec1a13c7b610278dceaccfc1eec856566a67da2ac4680a",
+      "bytes": 27606
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/BootstrapStringProtectionTest.java",
+      "sha256": "2abbc0bafe833581163f0628eca71a32a20aad3f265016257efad2ed7aafeca0",
+      "bytes": 21515
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/ClassFileResourceLookupTest.java",
+      "sha256": "37a811f5d4d118cee89da0064c34b3fefff8f6d3b9f95be5097c7b61e5909e20",
+      "bytes": 3432
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/ClassInitializationPolicyTest.java",
+      "sha256": "590a0f0b97f8bd9844e7f1a9acbee86486667fe4c0d75f10a6d274bff8062fde",
+      "bytes": 14173
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/ClassLayoutCapacityTest.java",
+      "sha256": "4aba0341813aaa9bfdfa0a5f9ce4b73c048af725675440af129b222c0f2f30f6",
+      "bytes": 2746
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/ClassLayoutScramblerTest.java",
+      "sha256": "e79bac8ea4e26d33efc7c69bdd1e140b6b405d39107f5b81ed27b8600bee1c5d",
+      "bytes": 4338
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/ClassResourceLoaderBoundaryTest.java",
+      "sha256": "c40d281e1536ecc99ed1451e5db43fa2fc2217bd70cda4fac217f57e5a16d206",
+      "bytes": 8930
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/CodeHardenerTest.java",
+      "sha256": "c820ba35f8cbffa81044fa7e489f4ec5b3923f6939d925c3638996e7e65505f0",
+      "bytes": 57159
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/CompatibilityMetadataAccessRulesTest.java",
+      "sha256": "3f76c31a15be1f7d6267a1015fe81f7120b98c4029a9e35896bb1c038f0e09fb",
+      "bytes": 23188
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/ConcatMappingCompatibilityTest.java",
+      "sha256": "e882192e4f3776ed616df467a742f85897922aced31b38c1a81e850128548701",
+      "bytes": 8517
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/ConcatPayloadBoundsTest.java",
+      "sha256": "2e3c724be62c1d0e5c882d4b95f49464cab7d58a2921c0631f9b8c0667a64e71",
+      "bytes": 4556
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/ConstantForkResistanceTest.java",
+      "sha256": "421e910dcee95570b76ea9520c0343be818bc9af3368709c14be0bd166ef0521",
+      "bytes": 23022
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/ControlFlowArithmeticFusionTest.java",
+      "sha256": "80910717320f108453380a5f05319e3f67dd0f6a795bc758474202d46f0f437b",
+      "bytes": 18462
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/ControlFlowConstantLeftFusionTest.java",
+      "sha256": "2530f319aef4d9f45dce0a547535876426fea5522a4d96380e61a4a407b27288",
+      "bytes": 22780
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/ControlFlowExpressionFusionTest.java",
+      "sha256": "57c140c399a34c610e6ed0907e77680c07479cbbd71b6d027301e0189a18fab1",
+      "bytes": 27766
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/ControlFlowFramePreservationTest.java",
+      "sha256": "e71323ca50bee3c620352ac387ab3dd7ca02285613e6041b46705f245d2bbdac",
+      "bytes": 12395
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/ControlFlowFusionObservableUseTest.java",
+      "sha256": "9d4a26956defb3eca3dba0bbfe5879c536e3623cfa3b89fd1a618edefe775be3",
+      "bytes": 17676
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/ControlFlowLongPipelineTest.java",
+      "sha256": "0688dac148dd699f0e0de378bed94affc7b4cd48aa58c7252173747a563d5667",
+      "bytes": 6527
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/ControlFlowLongValueFusionTest.java",
+      "sha256": "19276f349915d592628afd07239f8bcfd315279880a9240d972c4236a4ae0c63",
+      "bytes": 27502
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/ControlFlowResistanceTest.java",
+      "sha256": "d6192da98579fef5748bc3dff5734de9262d8c90bb052f9600cb7d9a4ee8aefa",
+      "bytes": 14255
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/ControlFlowScalingFusionTest.java",
+      "sha256": "7978766a9eafcadd870bc591c1b5869ff22588b01dae34cd9ed4f4aa1a2b0aa9",
+      "bytes": 12044
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/ControlFlowVerifierSafetyTest.java",
+      "sha256": "e3ab8ab2bda30dc92dbb0ae24bc253ea9bdd909a5e3bc90a42869ee3382b6226",
+      "bytes": 10137
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/CrossClassCryptoPipelineTest.java",
+      "sha256": "5af2f3cd5fe39eeceacb85418aa66fc5427ce5835fd15200fb028c2843a5e0ee",
+      "bytes": 6042
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/CrossClassGuardedKeyPipelineTest.java",
+      "sha256": "1b59c16fd0d3f41be6a80fd4ac162341edf7718e51f98f843581e0ac46d3df15",
+      "bytes": 7385
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/CrossClassGuardedKeyPlannerTest.java",
+      "sha256": "fea8d201c6b81a64ea847742acc5e6d7da2e53a209f283671337dc286a442fe4",
+      "bytes": 27849
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/CrossClassIncrementalPipelineTest.java",
+      "sha256": "b0956022a5397993f11a30bc1e6c3e2a7494212edf360a42465deb12016f610a",
+      "bytes": 14344
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/CrossClassKeyArtifactAuditTest.java",
+      "sha256": "27ff819600ed8bb858d4e4568a5d216a2c407455635a11bdd5b675a6ac199dbe",
+      "bytes": 52591
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/CrossClassKeyIntegrationReviewTest.java",
+      "sha256": "fec4bfb5a9eaad4489610af27829413dfe4c54dde462768c9052accf8488d3cc",
+      "bytes": 13887
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/CrossClassKeyPipelineTest.java",
+      "sha256": "6df6711fb8b0247c12fd98fe7070bf73e50a0e1d3ebaa4a454a8cc96ceb3780c",
+      "bytes": 13901
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/CrossClassKeyPlannerTest.java",
+      "sha256": "71547429a1fd1e878dc4367373d9d9e54af59f4d953b97fd04371e234b74917e",
+      "bytes": 36378
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/CrossClassPrivateRelayTest.java",
+      "sha256": "1f4eda3fa44bf886b269e12acc9be8d228d6e42c1304bbc01b73c134db2489f6",
+      "bytes": 24275
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/CrossClassStringKeyPipelineTest.java",
+      "sha256": "24a38af93f612d595ed64264e700ca92a12a340b1027ea5e368279ab21f26d0e",
+      "bytes": 11039
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/CrossClassStringKeyPlannerTest.java",
+      "sha256": "4df11e957242491488f669f27277fb1a5b33e0e09ef2ad3deba1a9f5874c3268",
+      "bytes": 31472
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/CrossClassStringPipelinePerformanceHarnessTest.java",
+      "sha256": "1b2b515dd768237efe03be399c87eac0b5d4a27aa736f02a1508979a26f7b4d7",
+      "bytes": 16445
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/DeclaredReflectionColdScopeTest.java",
+      "sha256": "3956b487d997008f7034ef5ccc2f0d64538c6a42619fb0782d4f8845a8942216",
+      "bytes": 24934
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/DependencyClassDefaultResolutionTest.java",
+      "sha256": "f0442740e98983ed0670bf15aa74f1ef04b3349ca02f6056feedf4f671faad11",
+      "bytes": 12863
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/DependencyClassPrecedenceExecutionTest.java",
+      "sha256": "1805b2de850f3f94aede4c558bc912579b107a80f5c30b54500378d2043a2759",
+      "bytes": 6844
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/DependencyConstantValueTimingTest.java",
+      "sha256": "a2a5b1700960bcac887fa713cfff9a44df660bf891379c5aa27f85b35315c16c",
+      "bytes": 12605
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/DependencyFieldConcealmentTest.java",
+      "sha256": "9a68ca39e312aaa2eca507d7e9aeffb5b900b7d892bece54a076832adeb1c28d",
+      "bytes": 21861
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/DependencyInterfaceResolutionTest.java",
+      "sha256": "016a1e791742d4fb333c51e60c295b65cf99cff0434024ce7f4d8153573483d6",
+      "bytes": 14251
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/DependencyReferenceConcealmentTest.java",
+      "sha256": "37693d6149e960ad9ec890847125dc1811c20b832e86edcd7d5d8a7b775bd6b6",
+      "bytes": 21301
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/EnclosingMethodParameterPipelineTest.java",
+      "sha256": "03fea2879f7d18efa8e09061772d0b0a6fedb669336d451d27f1230003362775",
+      "bytes": 7098
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/EscapedJsonMetadataTest.java",
+      "sha256": "37d6d6a806a1d74dea34449fa2cd27f38621322a36893b1555297e534050c1d6",
+      "bytes": 9102
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/FabricEntrypointMemberScopeTest.java",
+      "sha256": "38526c0a45c13d707d2e2c46088db5057ea821cca4def679c6ba09e976018b80",
+      "bytes": 23229
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/FlowNumericCompositionTest.java",
+      "sha256": "2357ad9f22c47a0afdd6e157369b28efaab49f2ef15e802e3dac3225aa16cd3e",
+      "bytes": 16324
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/FlowPipelineCompositionTest.java",
+      "sha256": "77bf7c3cd87a6507fb3b55d6fcab993f87c7a0932c60860f201b47dd7da9d3b4",
+      "bytes": 13057
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/FlowRegionPolicyTest.java",
+      "sha256": "64e9e42e7b02a578c40317c28ccb8a729824f2b8c636dc59b12323d450401dc8",
+      "bytes": 5316
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/FlowRouteDiversityTest.java",
+      "sha256": "61ea9cbbddbad86a85f4ff4dfaf47eab9125549dfc105c5e16e1cdfe540c29fb",
+      "bytes": 11081
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/FrameworkAnnotationPolicyTest.java",
+      "sha256": "2b122816d11ac32682a34081001823e48919aa5d6767c72558cf1d1d2ea8e998",
+      "bytes": 8755
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/FusedOperandExtractionResistanceTest.java",
+      "sha256": "aa99d14fc24641161866994f712edb9072a0d759d7f9e783e3d3c14d5fad2904",
+      "bytes": 24128
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/FusedOperandPipelineTest.java",
+      "sha256": "15d19c2080962091fe45f4521433c3ed88a4ee08ad80e35656d4def6846f93fd",
+      "bytes": 8318
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/HandlerAwareHardeningTest.java",
+      "sha256": "e362fb9a6b41de540e319d251a8a6bbe2afa2d4625ccf843a3c9a7ac0ff12495",
+      "bytes": 31522
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/HardenedRuntimeCipherModesTest.java",
+      "sha256": "89e2f265377f52dbf2d7115b3830abc6ac3c5b677fa3450f61edf488983c5574",
+      "bytes": 8510
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/HotConstructorReachabilityTest.java",
+      "sha256": "b9692dbc49f3d53987b378e4824e1085d64e5520c3044effc8749d3ba6a28b07",
+      "bytes": 9060
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/HotMethodReferenceDispatchTest.java",
+      "sha256": "6b6c9e095e8bf540ef8a38cfcfe5669570588904dde5319f9b24ca7fe3806ab6",
+      "bytes": 11819
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/HotPathAnalyzerTest.java",
+      "sha256": "cf50bb03a96f6e8632152cf9e751ef5d00abbc9c353356d4072657068dc439d3",
+      "bytes": 35588
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/IncrementalMappingTest.java",
+      "sha256": "cc49d6c35c37f484c817853f43d8c952b2a28de9ab19de8f86e5794be721502a",
+      "bytes": 3364
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/InputAndColdIdentityEvidenceTest.java",
+      "sha256": "13b5b606beb1a0bf643123fb6d40fb8dda9e98d9c08cfa64d7705cce77c4aba2",
+      "bytes": 15789
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/IntegerBranchDispatchTest.java",
+      "sha256": "d4e97e04f9ec4e57858b6c101526709ee04c12c527cb374ed34212efbd781b13",
+      "bytes": 8320
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/InvokeConcealerArityTest.java",
+      "sha256": "486f1ce8d7a5e54c24ce8c1588045bd5d5ca9c3d7c9c1db31677f05567ae9d3d",
+      "bytes": 8415
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/InvokeConcealerCapacityTest.java",
+      "sha256": "6326485177f6cb8aebbad7c5b52d403ffd1411d320e1ea988899c952b0a0893d",
+      "bytes": 15381
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/InvokeConcealerTest.java",
+      "sha256": "34268244dce81b2b05f1ccffe9590ca2a664e94c2784929d5ef306e4919a0091",
+      "bytes": 15039
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/JarObfuscatorIntegrationTest.java",
+      "sha256": "dfad9c8f879d0d85a81c1f3a2177c788f0984b52c0bfc03ec338abc214ba55ca",
+      "bytes": 89087
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/Java25BytecodeCompatibilityTest.java",
+      "sha256": "5d973428e33ab155f23f6b155666e693fb3cd4914da201105972d6ed87beb3c9",
+      "bytes": 10376
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/JvmCompatibilityTest.java",
+      "sha256": "0b3b51f0f9f46afc55add2fa6695fdcee1e59886a21afb3516e298624f29bd0a",
+      "bytes": 19647
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/KeyChainGeneratorTest.java",
+      "sha256": "9ee14a0c6d632ff2e19803dbadf0cd8e39476797bf12e0ccca1f755a4b86c25d",
+      "bytes": 4620
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/LargeConcatProtectionTest.java",
+      "sha256": "93988924637ec22fcaeddceaddfd1d34d3c1fc51c81db43efc70a92ada49c5c6",
+      "bytes": 5634
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/LiteralProvenanceLinkageTest.java",
+      "sha256": "d85ea417e2ef518c608943d0a1e1ce81fac2ef5898e51540e10e58937febff71",
+      "bytes": 7396
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/LiteralProvenanceTest.java",
+      "sha256": "55381fb41dc2ec5d4cb48e87384c665a6a0a6e67239c8c22e35b496d13bede52",
+      "bytes": 7949
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/MainWindowTest.java",
+      "sha256": "baabfd9944ed6115b4df569535fa6068b7ef96bcc1af67cf23db6f019fe0ebc4",
+      "bytes": 13685
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/ManifestEntryCompatibilityTest.java",
+      "sha256": "375a42e06e1ac4b5876a2ec466346a46a014ba883bed87830316b0a6684b1446",
+      "bytes": 14001
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/ManifestPackageCompatibilityTest.java",
+      "sha256": "76cf4d21cc6a0ac15ba26c6f271295dd2b726e765508c01779ee808d7797b276",
+      "bytes": 16781
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/MetadataAndPolicyTest.java",
+      "sha256": "c5e5f624af4ba5fda8aed89d813259a50079757b5b82a28bf43d7bbadcca0909",
+      "bytes": 89084
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/MinecraftAnnotationAndSwitchProtectionTest.java",
+      "sha256": "52586d2cea054acab9476d4d580796405e6b922b356eb94fa80f76c69150cd0a",
+      "bytes": 15027
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/MinecraftColdArtifactAuditTest.java",
+      "sha256": "79085c804fc5dfc5fd8f387d8d385f0637dfd38a23f67094b0af665f3c6f7941",
+      "bytes": 24704
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/MinecraftColdProtectionTest.java",
+      "sha256": "ae29c8f31951e2cd3e1d1d7fc8f09e07ad7440a5a191f0fb35d972c53f74701a",
+      "bytes": 31600
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/MinecraftFlowPolicyIntegrationTest.java",
+      "sha256": "8d6aca86fd4ed8dffe4673b69ada57b7c81df02cd4b77995129cc922607ef0d0",
+      "bytes": 16279
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/MinecraftInheritedHotContractTest.java",
+      "sha256": "4ccc0141701d8704620f5af7b02e34b00bd284fefc065c397c40f3125a3a2c81",
+      "bytes": 17631
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/MinecraftStringLocalPolicyTest.java",
+      "sha256": "4a60aea06bdec7603119f5639c777919a8814fbc5a0e99d9c61c30eb432c81fd",
+      "bytes": 11105
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/MinecraftTargetVersionPolicyTest.java",
+      "sha256": "4ddad827a0fd1cd9119b0b0b7c6dc9d5fa3855e804f50a439471dd064d922d3a",
+      "bytes": 20409
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/MixedConcatBootstrapCompatibilityTest.java",
+      "sha256": "100b8afb48e5321f1a85b1e5751ed22a9ffe72aab8cff44652dc9c526d46d346",
+      "bytes": 10774
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/MixedConcatParserTest.java",
+      "sha256": "8aca321fac0248c60ec7f860ff7b6756786302282e4c943fb98655900a0da6b5",
+      "bytes": 2356
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/MixedConcatProtectionTest.java",
+      "sha256": "1d0beb656dbce29a05e8a8b14b25f05d4d01cb9be6c2a236672e44dda05ef3a0",
+      "bytes": 15623
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/ModuleBodyRelocatorTest.java",
+      "sha256": "428fa48563f551b0e79974fb75a045c0162a22fc8657c9ad32e9d6e89a6bf6b0",
+      "bytes": 22866
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/ModuleRouteDependencyTest.java",
+      "sha256": "03b3de7292ba4e3cf12ef728c4515337be48a55b602ee85b236d2f31ace3f994",
+      "bytes": 24729
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/MultiReleaseHotPathTest.java",
+      "sha256": "9d05938a7abd232b50fd9367783a7a1db5b5cc21f54100b2eba207412d9fb15c",
+      "bytes": 13731
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/MultiReleaseNativePolicyTest.java",
+      "sha256": "e3eca598fbbe07e596a4be5981458c6ab50195627752a7c5aec9abf6e4790e4e",
+      "bytes": 6871
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/NameMappingStrictTextTest.java",
+      "sha256": "661b68e2a5f01abc64822e94bd8f21d37002bf7e54b7f95e1e3de9faff9ad586",
+      "bytes": 5643
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/NativeCompilerTest.java",
+      "sha256": "810314fbfea5c36703044dd97a2f3b36e694cff588684fe50cdd945db3d10449",
+      "bytes": 1016
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/NativeMaximumVirtualizationTest.java",
+      "sha256": "53ef4fe2a660de8aff6630b360b9c6bd42c39918dd18604d313962c59aeae835",
+      "bytes": 20877
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/NativeRecordHelperPolicyTest.java",
+      "sha256": "ba411dc56461c463af304b6221f757e4bcf0d105dc7b1929a22774f90d54c634",
+      "bytes": 11817
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/NativeResourceVirtualizationTest.java",
+      "sha256": "004f124dd9811ef0e68f9c2d2a2d61a2c3fe1dd59ed62cd85206c6547e830443",
+      "bytes": 9014
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/NativeTranspilerDifferentialTest.java",
+      "sha256": "fdf98ca1f18165a2172abcccd83e06b21e9f308ba183b710ce512dd794f5b5ca",
+      "bytes": 37229
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/NativeTranspilerStackOpsTest.java",
+      "sha256": "0b283103d2f80ba7912f1fd37e9ac4f66c719ac0f00ee9a39cf98077b2d0426f",
+      "bytes": 19621
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/NativeTranspilerTest.java",
+      "sha256": "bf6c4331f05c95173f19de16b7b14ebb95bea44da7f4d17a64c2be4ba9570957",
+      "bytes": 39928
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/NumericHolderPipelineTest.java",
+      "sha256": "b42e7e9e17961f899dab0cc2724b9998962560c169e335ec1007a33645f57409",
+      "bytes": 8328
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/NumericInitializationOrderTest.java",
+      "sha256": "ceb7b4a85b90fafe5dda2ea4e369498106148b2c5c7e024a44f16913db5c0724",
+      "bytes": 21405
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/ObfuscatorProfileTest.java",
+      "sha256": "390b7371283bd460ff67fe2499a40c427d577a11f7b2d25ae6b37eb34afb6474",
+      "bytes": 6005
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/OpaqueReferenceProvenanceTest.java",
+      "sha256": "b1d1d1c4a5a194af1ec70daab68bef48d608d6fb3ec042ed9c432ef7eb3a52ff",
+      "bytes": 13669
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/OpaqueRegistrationTest.java",
+      "sha256": "00984c9dd4f4dbc34e9f98d54d384de044c45c3e9a9d8029523f22accff09f03",
+      "bytes": 4413
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/OpaqueStringArrayTypeTest.java",
+      "sha256": "105dcad9c3da87072759b391c2900f660c125439c9c122906f4f92636ca71d27",
+      "bytes": 10219
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/OpaqueStringCapacityTest.java",
+      "sha256": "f04399f42bed2681c346e9a38bb6c5e3d215b2e7e0e127c231eb31e71907209d",
+      "bytes": 15485
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/OpaqueStringLocalCostTest.java",
+      "sha256": "9a4b169095416bfa8359a47c391b363f19258b2d37d783f3b2b4eaf41a47d828",
+      "bytes": 14690
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/OpaqueStringLocalUseTest.java",
+      "sha256": "7b22bac68549a231dadbddf98cfa4a58fb2fe2deaec719beaa26f628d7b02cd6",
+      "bytes": 18045
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/OpaqueStringNullTypeTest.java",
+      "sha256": "0ae439cec6db6b4ad71c1e9b02ed994bc8d5f077d692791f840fed2fd1dc0d13",
+      "bytes": 11442
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/OpaqueStringProvenanceTest.java",
+      "sha256": "be7e08bff886b38a13c8b221b929ef39e2eb61e165e6800638e0bedb1bc3a9fb",
+      "bytes": 7736
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/OpaqueStringRuntimeTest.java",
+      "sha256": "fd5cd143bb3395defa28bfd355dc6c3bcbd5e22d956def03ff94e9bfd2484def",
+      "bytes": 5029
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/OpaqueStringSemanticsTest.java",
+      "sha256": "74802f3b9fbd910f0ee6df03005bd74658751a5be711228fff001e2d91c07519",
+      "bytes": 19029
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/OpaqueStringSharedUseTest.java",
+      "sha256": "afeff556b3309379268e6e9024939897a108422867c798d2a121100418841d27",
+      "bytes": 19059
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/PackageResourceCompatibilityTest.java",
+      "sha256": "aec05c02d4edfc96d5809f61e022d001b0c7133e57b23913ed9d4b4a5c69478c",
+      "bytes": 4180
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/PackageResourcePathProofTest.java",
+      "sha256": "7ab27571e8419bf7262b6c004a3bc388d9ce48841e044e932a4a649a27ba4c9b",
+      "bytes": 7356
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/PackageResourceReceiverProofTest.java",
+      "sha256": "dd324c5b44a8163d8507ced70b3ac9e11c6b51743df78e22572138abfd6acb1a",
+      "bytes": 7084
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/ParameterAcyclicFlowTest.java",
+      "sha256": "d215cc9a209935b906f56ea0db8a1699abbdfd360628e179a2910e6d7d9ead89",
+      "bytes": 28860
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/ParameterAcyclicStringTest.java",
+      "sha256": "8c85d43b6a2944b661cb100905784f36e96484f4252a707f7086fd1cfe29a69d",
+      "bytes": 9046
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/ParameterCallerCapacityTest.java",
+      "sha256": "20882d430c00b5f2967c0dabf9a49f799afc4210001a24fed04bc0efc77954e5",
+      "bytes": 8975
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/ParameterCarrierPropagationTest.java",
+      "sha256": "ee16a7b1594149d4fdc545b0adfd5306923f40cd89b8c196ad25449e88cf366a",
+      "bytes": 17364
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/ParameterConcatAffixKeyTest.java",
+      "sha256": "3f9f650ab31d111901fea91144c5b4d1fb27771a9243401ac533dfb9aa598334",
+      "bytes": 36501
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/ParameterIncrementOperandTest.java",
+      "sha256": "62ebe8b86b490fde7125a0f6a950310b727f8b23cac0f712c3aaf5090dec059f",
+      "bytes": 17316
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/ParameterKeyDependencyTest.java",
+      "sha256": "a0b17c303f9afd5eef72948ab1abccf1a77760fc8864863c4850eef907330c80",
+      "bytes": 16683
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/ParameterKeyExtractionResistanceTest.java",
+      "sha256": "bd79f79aaf4d349d8372dfa79957ae7e39be0d83cbed96cac815fef164e817e1",
+      "bytes": 13491
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/ParameterKeyPropagationTest.java",
+      "sha256": "ea74cf3bdd478a949f107537cfcd07efdc3cab9366191d163df937fc099c71d6",
+      "bytes": 21206
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/ParameterLocalSlotSafetyTest.java",
+      "sha256": "e0ee3eb840f4ddfb3fa6114db2d6b3e1bd30c962b95972df35d3bf6f41f2e835",
+      "bytes": 6849
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/ParameterMorpherCompositionTest.java",
+      "sha256": "ccf2b76e17b339bc3c5631b058e9df8ec4c9513251bb7aa06887a6dc9d0c53c1",
+      "bytes": 5801
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/ParameterOriginalOperandUseTest.java",
+      "sha256": "0967cdc8613d3ffb8d7127370a8c954d2328a25416333d52b1358c9be5ea845a",
+      "bytes": 9407
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/PlatformFieldConcealmentTest.java",
+      "sha256": "5463165c083317f205a24bcd65382aaa53ad32f9b12f7e2f26a587dd266d27c0",
+      "bytes": 11999
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/PlatformFieldPipelineTest.java",
+      "sha256": "9e2dfe09ddae6970cb3e1aec3974923a708f5c1a53c77e59bd37d8a3992ff114",
+      "bytes": 11741
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/PlatformFieldPolicyTest.java",
+      "sha256": "74ec4c234ec0fca3acdadc08b70c2cf67b237ffe3f7b779be1a55fa13268ff5c",
+      "bytes": 14940
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/PlatformFieldProvenanceTest.java",
+      "sha256": "d26ce315efac51b8f4617edec1b4f2b687d6b9cd5cdb26399ec697445bf62d1a",
+      "bytes": 12392
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/PlatformInheritedConcealmentTest.java",
+      "sha256": "666673a80fcafb42bf8465af20a0a85af4c0b854eb4659261f46faae09bbdafb",
+      "bytes": 13539
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/PlatformInheritedPipelineTest.java",
+      "sha256": "4886a66437b5d7e5f20ffdbdb314abbd383cc14ef93fadac8974a902c4c4b0ff",
+      "bytes": 11949
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/PlatformInheritedPolicyTest.java",
+      "sha256": "00da5e8f309f0b3011072c3b41bbe5c17c830d7c60c708f305015ce7b176d24a",
+      "bytes": 22890
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/PlatformInheritedProvenanceTest.java",
+      "sha256": "d7c6d0fc2b0acc373c8ef6b2e2a32f9c50c7871160357156f89684747c3791b4",
+      "bytes": 9015
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/PlatformOpaqueBoundaryTest.java",
+      "sha256": "cb5f417d315979eded35479cc4f65d82407dbdd284463d015483700157bdad2a",
+      "bytes": 6684
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/PlatformOpaquePipelineTest.java",
+      "sha256": "0541ee9b26656c1853d243b916c25abd04afa9b3e46c6d5cbfed544ba46cfaca",
+      "bytes": 7822
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/PlatformOpaqueReconciliationTest.java",
+      "sha256": "7da2ad449244f82dddb3cd556d6323f974a9195ca9379a6d57ab8e19a19f0db6",
+      "bytes": 11579
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/PlatformReferenceConcealmentTest.java",
+      "sha256": "c39c29f449a491e5225ba24924c0a8169d51aaf94eef44506796884d54bf562d",
+      "bytes": 13620
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/PlatformReferenceIntegrationBoundaryTest.java",
+      "sha256": "c91e233c3a74075149b7b9ce59c4cef74e5db2292411fb8bd0ff3d09bcd7a51e",
+      "bytes": 6335
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/PlatformReferencePipelineTest.java",
+      "sha256": "91681f677a982226a9c1d3e36823c4048411a2cda23be52b8711bd1973436fb1",
+      "bytes": 14258
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/PlatformReferencePolicyTest.java",
+      "sha256": "5f160166529adb29054398489f9e15d3ce3d004a39d856b989cb48984cc6869d",
+      "bytes": 16162
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/PlatformReferenceProvenanceTest.java",
+      "sha256": "6c49c263b7d0318346abca4937becd7eabb6bdb8ff6fa5d6d34492fa2bd883c2",
+      "bytes": 18078
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/PrivateCfgPipelinePerformanceHarnessTest.java",
+      "sha256": "ca18faf31bcbcb698b3a9d73766c5c39e796966b4662e56c0476889ddc87e764",
+      "bytes": 16109
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/ProtectionPresetTest.java",
+      "sha256": "cf7f598037f935352ac4c1bf2bba59ac8472f49a433e107e0fa5fe9960e33231",
+      "bytes": 2703
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/ProtectionSoakToolTest.java",
+      "sha256": "76d8e274ce10adfbb9f4dfec6425f41afa1d752566bae56453b4866d3bb67c69",
+      "bytes": 5631
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/RandomizedJavaProtectionPipelineTest.java",
+      "sha256": "02ca6b38f924ac20d4c570bcedf5a7c77024747cbcd8f667eaf76e762dfe1748",
+      "bytes": 9342
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/RecordMetadataPipelineTest.java",
+      "sha256": "a78ae6bee172650b0b2a90ef3dba8c1e14c0e70c1e22e234604a8f432e5dfbdb",
+      "bytes": 13076
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/RecordMetadataRenamingTest.java",
+      "sha256": "b9dbb0572ecbe91a2b1068076fce3fc538b24275102b4f46d723a9a4ca18b41d",
+      "bytes": 19050
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/RecordNamePolicyTest.java",
+      "sha256": "5e9569c2e4c931f08f8e4d6971bb1e2e57d43035e6bbc6309dc3ba256f62151c",
+      "bytes": 19805
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/ReferenceExtractionResistanceTest.java",
+      "sha256": "40b335572fe1fdb2711c166fd74f68a143ac9af2d53bc0ab4b69ea7fd0ab51b2",
+      "bytes": 14351
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/ReferenceKeyArchivePolicyTest.java",
+      "sha256": "4ea240a78336f9fa7a7d1c68f6fa6f66663b37e49890e44df1ae760b16279789",
+      "bytes": 5315
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/ReferenceKeyExtractionResistanceTest.java",
+      "sha256": "96acfe22befb05d0715854f2bbdcb64c8282cd79b26216996dbdf23b5adbca03",
+      "bytes": 23175
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/ReflectionShapeBoundaryIntegrationTest.java",
+      "sha256": "9f82b952a783e9a00f2677bee4220fa34454633dc66cd782a02ac66196d05641",
+      "bytes": 2097
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/ReflectiveModelDetectorTest.java",
+      "sha256": "a83a9542925092ce71a66732c7b902eb9e1ca453c0ff544a886669fb50e222ab",
+      "bytes": 3378
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/ResourceBundleCompatibilityTest.java",
+      "sha256": "c7c8b79a11e4f6138aadab9d8d545ab1fff9910e847a5b5bd21b856d3a419113",
+      "bytes": 9895
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/ResourceClassLocalProofTest.java",
+      "sha256": "c677a83ed5dfb8dfaf6016c600bef1643e6d5893c49be5a218717e1b68b0bff3",
+      "bytes": 9786
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/RuntimeApplicationMacReuseTest.java",
+      "sha256": "5ee5a5b05540425b418556199911cb0e31654fa0d46077ffe30635e2144e00f9",
+      "bytes": 13274
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/RuntimeKeyMaterialLifecycleTest.java",
+      "sha256": "16553b1e6b742e0c3de1f927f08f78fb29d19c1d1cb87f08ecc241a7bf045816",
+      "bytes": 29606
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/RuntimeStringConcealmentTest.java",
+      "sha256": "cb4208a6ad14a81278827c822470848e7bfb043d5971233d9ed62f9ef5a41332",
+      "bytes": 11923
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/StaticStringInitializationOrderTest.java",
+      "sha256": "0faa4c893be9475496aa69f823d15e5e9a47bc8158af27ffd5f517441dc020cb",
+      "bytes": 9253
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/StringContextKeyDerivationTest.java",
+      "sha256": "96c3a919e5e6238b7c03e9ea1e40c0f7afae3ecf1298daaa9fd752b81c358451",
+      "bytes": 10474
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/StringContextPipelineTest.java",
+      "sha256": "30d611fc54fb6dddba33465974b6ba8a0cc58e30e6c23e3f76ddfd79bfec627a",
+      "bytes": 6335
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/StringMetadataLeakTest.java",
+      "sha256": "fabba908c29dbdb3c406714c024f6a1aae4645fd239dbcbd85ba0f2c4e4f5fe7",
+      "bytes": 9906
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/StringProtectionTest.java",
+      "sha256": "8416d33d7b70d0968fa6cb960ea8150404a5da86afa958f4a167456c3a226af3",
+      "bytes": 46313
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/StringSitePurposeBindingTest.java",
+      "sha256": "1743ff49c7f6a57c5aa7647f959257dfdd15910c7e6884469e6aa963a182e713",
+      "bytes": 22468
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/StringSwitchProtectionTest.java",
+      "sha256": "a9c76282901eba7cf0e9e15ac0b360a2c649b3bf4b4287633938f319f5328b3c",
+      "bytes": 14466
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/StringVaultResourceLimitTest.java",
+      "sha256": "164c5510dd9145372906fa80e08f78800d0add04818e468ae196b5e91fab10f3",
+      "bytes": 3122
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/TargetedNativeProtectionTest.java",
+      "sha256": "b3750d4da3a2cec65ebe8c2b0b65331aa88ea129b32b76cfc6a0c1efb7a9d6ce",
+      "bytes": 4490
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/TestJars.java",
+      "sha256": "0e9be3bbc64c3b335bb5bfa23f90b7964e80e8d46c73e87cc7c1180a09ded7c5",
+      "bytes": 4941
+    },
+    {
+      "path": "src/test/java/dev/local/obfuscator/VerificationToolTest.java",
+      "sha256": "fa5b2d9d6bfd410706add3ca8d97182481e20a39ff8e0ad9b8cae0029faad7b9",
+      "bytes": 7924
+    },
+    {
+      "path": "tools/ApplicationStringPerformanceHarness.java",
+      "sha256": "1aeebae5b667d98ef151c507f9a612a1a60cf62cd42ee3702942b9601f237216",
+      "bytes": 7474
+    },
+    {
+      "path": "tools/AuthArtifactAudit.java",
+      "sha256": "fac124005a2e64b8aefc784914be96fbf33b1b6352210aa7244ad330ad626684",
+      "bytes": 7969
+    },
+    {
+      "path": "tools/AuthSmokeBuild.java",
+      "sha256": "694d9961b211bfb2482e664f10ebb758db179ddbad3cb89f71c95256935875fb",
+      "bytes": 2405
+    },
+    {
+      "path": "tools/AuthUpdatePerformanceHarness.java",
+      "sha256": "5d0f010b0762d19f80b8b7f50c16ec8f83629717b63944a930763f04cb8db613",
+      "bytes": 18162
+    },
+    {
+      "path": "tools/BootstrapStringArtifactAudit.java",
+      "sha256": "664c303bcd812537ca793fc1603fac22fa0353cb7fa5e2232e92e12011067590",
+      "bytes": 23383
+    },
+    {
+      "path": "tools/BootstrapStringPerformanceHarness.java",
+      "sha256": "2cc85a6ee5f6843573acdbcd0391f1041a00e0344ab1d2442b3f96d5912028a3",
+      "bytes": 12669
+    },
+    {
+      "path": "tools/comparison/fixture/src/dev/dax/bench/auth/AuthPolicy.java",
+      "sha256": "504f7e5d2697ed8d2fd03b29d1e9434d8dee3d157dbbd38b21e9cf8468b488e3",
+      "bytes": 484
+    },
+    {
+      "path": "tools/comparison/fixture/src/dev/dax/bench/DefaultGreeting.java",
+      "sha256": "2710dfc1fa3d2f3572f505348dd9646230807883a9445f864dc90515a1fcadd0",
+      "bytes": 230
+    },
+    {
+      "path": "tools/comparison/fixture/src/dev/dax/bench/ExceptionCases.java",
+      "sha256": "48b8855b6473aa72c429c3a609371b0a0f907c8116db2e6689d5dd8cffc850db",
+      "bytes": 703
+    },
+    {
+      "path": "tools/comparison/fixture/src/dev/dax/bench/GreetingService.java",
+      "sha256": "db0b73041796197ef337c1603691932e805e1a8c3317cef32c92e6ca5dcace7d",
+      "bytes": 93
+    },
+    {
+      "path": "tools/comparison/fixture/src/dev/dax/bench/Main.java",
+      "sha256": "10e94aaad03a2dbd495e3773d404ddcdbf2ab43b8273b96facde1f911bf39172",
+      "bytes": 14193
+    },
+    {
+      "path": "tools/comparison/fixture/src/dev/dax/bench/MetadataCases.java",
+      "sha256": "a80cc9bb0d15bef7bf35747eda612bc467c6e6f40b60d9710f6803af5997262b",
+      "bytes": 913
+    },
+    {
+      "path": "tools/comparison/fixture/src/dev/dax/bench/MinecraftStyleLifecycle.java",
+      "sha256": "8f7add1fb3db5aa7f19acb4eabcdf856b3a5c5892101daf8221d57ac8995d54a",
+      "bytes": 1000
+    },
+    {
+      "path": "tools/comparison/fixture/src/dev/dax/bench/NumericCases.java",
+      "sha256": "55151ab893157c19c01df00002b096c458e341e09d50f913c95f70430fb7d0db",
+      "bytes": 1510
+    },
+    {
+      "path": "tools/comparison/fixture/src/dev/dax/bench/OwnerChain.java",
+      "sha256": "07393119ab2b48e4b2ca0ca31b574eaa95b826a60a66f6fcfb1e3c5a6ad4b042",
+      "bytes": 410
+    },
+    {
+      "path": "tools/comparison/fixture/src/dev/dax/bench/OwnerLeaf.java",
+      "sha256": "97e3685f0d1ad9ce92da0e2829766042d37e1bf02c6fb93d092bbc74bf1045ae",
+      "bytes": 397
+    },
+    {
+      "path": "tools/comparison/fixture/src/dev/dax/bench/PrivateChain.java",
+      "sha256": "f5224f4c661aad6418f7e2945c49617cfc2f3548b351f9382e2e72197e3955ea",
+      "bytes": 759
+    },
+    {
+      "path": "tools/comparison/fixture/src/dev/dax/bench/ReflectiveTarget.java",
+      "sha256": "e777239cb5f85072020bde0ae6e9b637e730c3fdbc93d7d84ab253d9a17ab837",
+      "bytes": 384
+    },
+    {
+      "path": "tools/comparison/fixture/src/dev/dax/bench/ResourceCases.java",
+      "sha256": "790dc1dd6f5bae031ee987bf22f762baa6ba9799906219e7c60093812301a4af",
+      "bytes": 491
+    },
+    {
+      "path": "tools/comparison/fixture/src/dev/dax/bench/StringCases.java",
+      "sha256": "b446881a635c7caa8daf4847dfd3fd10f60c16a3465166bb1cbc78631a4d0ce0",
+      "bytes": 1424
+    },
+    {
+      "path": "tools/CrossClassKeyArtifactAudit.java",
+      "sha256": "8520c5d67caaba6c0758cbde09de4915e5e69d3d9cbfe7f904f600ff471b6a82",
+      "bytes": 38101
+    },
+    {
+      "path": "tools/CrossClassStringPipelinePerformanceHarness.java",
+      "sha256": "93b476d52d188f43f410463c5d5d75fbf381681b6b6c18a8cb2980d9771587c8",
+      "bytes": 28742
+    },
+    {
+      "path": "tools/FabricEntrypointSmoke.java",
+      "sha256": "c93991dd0f0a1deadd07b4cf2cf47ea00287635d66afb54db4ae724b4c218d54",
+      "bytes": 8740
+    },
+    {
+      "path": "tools/FlowPerformanceHarness.java",
+      "sha256": "8731f6a7e1707cad533fe9901eb663d2270c5a812f8e5c6a8e8740bc21a1cdf3",
+      "bytes": 23547
+    },
+    {
+      "path": "tools/MinecraftColdArtifactAudit.java",
+      "sha256": "1fcc634b3bb4acdc4655a468483133d53732c036cda2cd664b1553868562974d",
+      "bytes": 30741
+    },
+    {
+      "path": "tools/PrivateCfgPipelinePerformanceHarness.java",
+      "sha256": "2ab02dbfbaff3229743652162a083dab027af12d6b41d0161d0988ee92517887",
+      "bytes": 27406
+    },
+    {
+      "path": "tools/ProtectionSoak.java",
+      "sha256": "7b90362511309f7a9a55d3bc6a7101987e5fd6c474fcbfce5d83ddfa75a71817",
+      "bytes": 6635
+    },
+    {
+      "path": "tools/RunCrossClassStringPipelinePerformance.ps1",
+      "sha256": "1e95cd07262450f40588896a40c3ba3aa19cfe08baf47cb2501cad1e2ad0c8e1",
+      "bytes": 7219
+    },
+    {
+      "path": "tools/RunFabricAdapterMatrix.ps1",
+      "sha256": "e37971743e989a5f03d39297ed00186d72a5f063e4086c9904023aae90393887",
+      "bytes": 5973
+    },
+    {
+      "path": "tools/RunFlowPerformance.ps1",
+      "sha256": "933b21cba530072129bf99f0568a6fa98f5c51c8a711df7a9e6cb7d7e52e4632",
+      "bytes": 2665
+    },
+    {
+      "path": "tools/RunPrivateCfgPipelinePerformance.ps1",
+      "sha256": "948f3dc5fc9744400baa4a1330d106061b8620878aad73ba3a93eb42add4be2e",
+      "bytes": 7381
+    },
+    {
+      "path": "tools/StringSwitchPerformanceHarness.java",
+      "sha256": "265cefe1cd0f2aeb5c626ae1fb632b437abdadf8a09c0c20572a6be3d46e7928",
+      "bytes": 14274
+    },
+    {
+      "path": "tools/VerificationRunner.java",
+      "sha256": "01fd15d5a28eaad96aa658e9cdc08446adbec7967a276d980d3bc1e2c80fd8d8",
+      "bytes": 2135
+    },
+    {
+      "path": "tools/Verify.ps1",
+      "sha256": "2eebeb33aa0ffb967041add491c8e730f2cd80800d29175a7728233e36ef4576",
+      "bytes": 4895
+    }
+  ],
+  "producer_files": [
+    {
+      "path": "build/auth-instruction-release-v2-20260926/lib/asm-9.10.1.jar",
+      "sha256": "ed825d10ab1399c8c0cb669e688cf0c8c82629b4c8399b58352b68e92ca10fcb",
+      "bytes": 126151
+    },
+    {
+      "path": "build/auth-instruction-release-v2-20260926/lib/asm-analysis-9.10.1.jar",
+      "sha256": "dede75a21306b65974ecd8f87114ff6970f09fb794157a4ca09ab25c888c2bfc",
+      "bytes": 35140
+    },
+    {
+      "path": "build/auth-instruction-release-v2-20260926/lib/asm-commons-9.10.1.jar",
+      "sha256": "6d0abefb7cbf972ea16edb37ec14835372505063a45f976ab7ea889ed9497895",
+      "bytes": 74840
+    },
+    {
+      "path": "build/auth-instruction-release-v2-20260926/lib/asm-tree-9.10.1.jar",
+      "sha256": "3dfb0d5b6a106cd40b5b250e39935fbf2f927f4477546a5369a3ac609cf0506b",
+      "bytes": 51958
+    },
+    {
+      "path": "build/auth-instruction-release-v2-20260926/lib/asm-util-9.10.1.jar",
+      "sha256": "1bb99d091fba2597dc6d51193e9bbcf0d8447e7ed96bd8f0198b18152f09655c",
+      "bytes": 95628
+    },
+    {
+      "path": "build/auth-instruction-release-v2-20260926/lib/gson-2.11.0.jar",
+      "sha256": "57928d6e5a6edeb2abd3770a8f95ba44dce45f3b23b7a9dc2b309c581552a78b",
+      "bytes": 298435
+    },
+    {
+      "path": "build/auth-instruction-release-v2-20260926/word-obfuscator.jar",
+      "sha256": "6ea089553f06fd1e5d895a338a1cdd59d19a3dd4cbdbc4030e3d1de01551809b",
+      "bytes": 767878
+    }
+  ],
+  "scope": "Isolated prototype only. No foreign source or production profile edits."
+}

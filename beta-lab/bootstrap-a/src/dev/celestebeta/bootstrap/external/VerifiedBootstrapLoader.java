@@ -23,6 +23,7 @@ import org.objectweb.asm.ClassReader;
 final class VerifiedBootstrapLoader extends ClassLoader implements AutoCloseable {
     static final String PREFIX = "dev.celestebeta.bootstrap.internal.";
     static final String LAYOUT = "META-INF/celeste-beta/runtime-layout.json";
+    private static final String NATIVE_BUDGET = dev.c4lam.celeste.beta.memory.NativeResourceBudget.RESOURCE;
     private static final String ENTRY = PREFIX.replace('.', '/') + "MemoryPayloadBootstrap.class";
     private static final String CAPABILITY = PREFIX.replace('.', '/') + "MemoryPayloadBootstrap$PreparedGame.class";
     private static final List<String> PARENT_PACKAGES = List.of("java.", "javax.", "jdk.", "sun.", "com.sun.",
@@ -237,7 +238,7 @@ final class VerifiedBootstrapLoader extends ClassLoader implements AutoCloseable
     }
 
     private boolean ownedResource(String name) {
-        return resourceNames.contains(name) || name.equals(LAYOUT) || name.startsWith(PREFIX.replace('.', '/'));
+        return resourceNames.contains(name) || name.equals(LAYOUT) || name.equals(NATIVE_BUDGET) || name.startsWith(PREFIX.replace('.', '/'));
     }
 
     private static boolean allowedClass(String name) {
@@ -247,7 +248,7 @@ final class VerifiedBootstrapLoader extends ClassLoader implements AutoCloseable
     }
 
     private static boolean allowedResource(String name) {
-        if (name.equals("META-INF/MANIFEST.MF") || name.equals(LAYOUT)) return true;
+        if (name.equals("META-INF/MANIFEST.MF") || name.equals(LAYOUT) || name.equals(NATIVE_BUDGET)) return true;
         // The selected string protector emits opaque vaults here. No service,
         // Fabric, Mixin, native or other root metadata is admitted as helper data.
         if (!name.matches("META-INF/(?:[A-Za-z_$][A-Za-z0-9_$]*/)+[A-Za-z_$][A-Za-z0-9_$]*(?:-[A-Za-z_$][A-Za-z0-9_$]*)?\\.[A-Za-z_$][A-Za-z0-9_$]*")) return false;

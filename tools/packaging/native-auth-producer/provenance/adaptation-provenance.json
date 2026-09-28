@@ -1,0 +1,64 @@
+{
+  "schema": "celeste-auth-native-producer-provenance-1",
+  "baseline_jar_sha256": "6ea089553f06fd1e5d895a338a1cdd59d19a3dd4cbdbc4030e3d1de01551809b",
+  "baseline_bundle_sha256": "4424dca45dab369f27b28f4cc2f22e5ff13d3e11884494f058c6e1718703a644",
+  "baseline_verified_sources": 286,
+  "patch_sha256": "11010fd2e68060eabfe7b74825dd73682ba3ee98b1960031ca42ac8a1d36b620",
+  "adapted_sources": {
+    "src/main/java/dev/local/obfuscator/JarObfuscator.java": "ffa93b7115869220e3dd2bde2774859d0b3084d67c5ff60be1838361e51161e2",
+    "src/main/java/dev/local/obfuscator/NativeCompiler.java": "6f6c27b50e094d88d27f4615055d5be476bd961d1452a86d1c84c4e6358af47f",
+    "src/main/java/dev/local/obfuscator/NativeTranspiler.java": "3a297df0c28d8b0e4120b12d1171ce09be0db7f7075dccdaaa2bd96d13e8f675"
+  },
+  "compiled_overrides": {
+    "dev/local/obfuscator/JarObfuscator$CapturedInput.class": "f6771c32fab2c77e2516b1dedd34dba488faf456144703b97d7b778ea470d760",
+    "dev/local/obfuscator/JarObfuscator$NativeLayout.class": "ac3980a2d48e6a478bf303992b8d69733afc53d25cccf5d50fc72917560cbf3b",
+    "dev/local/obfuscator/JarObfuscator$RuntimeLayout.class": "7d5d320cce1d23cbf953dbf60b75d2d25678982b644aaea3c0a48b2bf59096a6",
+    "dev/local/obfuscator/JarObfuscator.class": "64e6a191e8cc25d02a0f9611ce5b8d30eba41b10ce56de3925b976003e0296fc",
+    "dev/local/obfuscator/NativeCompiler.class": "4556568e8c08cd1073625b398fc5b1b1bc88ae78155d223298e2b0f69330025f",
+    "dev/local/obfuscator/NativeTranspiler$CatchHandler.class": "c0705342de21d2be2820ce056d8919405351ee868d050e96bca2bfdedde656c4",
+    "dev/local/obfuscator/NativeTranspiler$CompiledFunction.class": "c37a1958e3b23703e55bceaeb3c341abeb4ff696ee848b92e045714f1e0f1dc3",
+    "dev/local/obfuscator/NativeTranspiler$ConstructorExtraction.class": "1ad7f56dc6cf1826c0c8907869bb2ce7a073d603143d3eb1065b60d930b8e923",
+    "dev/local/obfuscator/NativeTranspiler$ConstructorState.class": "5d1d1233c405596fa687a77e577d935b8063d510e0c51e678d9222b3ac18fb6b",
+    "dev/local/obfuscator/NativeTranspiler$ExceptionPlan.class": "6501ae52e16dd015dbd21e000ffdeb622038f615d53a3788bea21765d160e2cf",
+    "dev/local/obfuscator/NativeTranspiler$MethodOutcome.class": "854c097767c1166378220d9e2297af24a7f46007cba3502c7431e5233b529ee3",
+    "dev/local/obfuscator/NativeTranspiler$NativeBinding.class": "a9f80aefd13871662ee7b7d29861c48e7c123c425b35b4a43e1e1baa5ee6013f",
+    "dev/local/obfuscator/NativeTranspiler$NativeBlock.class": "6b21af8b4ab0a2cb73b43259b71e53edead5f05c54ac6800ade7e0eaa6a7e50b",
+    "dev/local/obfuscator/NativeTranspiler$NativeMethodKey.class": "d3088f0d63e1e7ffa30e180a98b63b4fa34d559b62e85b4ce590ff34fa34b3aa",
+    "dev/local/obfuscator/NativeTranspiler$NativeMode.class": "cc81d0f87ea7a93b7107b44ce33a3927d722de397492ad6e09fed5976688ce59",
+    "dev/local/obfuscator/NativeTranspiler$NativeVirtualizer.class": "191361aef4f3296ffb8d4a6f747454cf747697c5ee25a4830938b7d3fc5f3d74",
+    "dev/local/obfuscator/NativeTranspiler$Plan$1PendingNative.class": "f91ae45caf0a702434d7e9f97a4e0eba8a431aeff6eea907957c375fe4491e0c",
+    "dev/local/obfuscator/NativeTranspiler$Plan.class": "ca12932e623cabe0a8a0c2df7ad793586c226c85000954afdf03b3c95ec3d643",
+    "dev/local/obfuscator/NativeTranspiler$ReferenceSlots.class": "dc6e045c8170d10fe34e0a24beb2f7f6ad55ef7fb8d4e2381468aca9f9eb9904",
+    "dev/local/obfuscator/NativeTranspiler$StackOperation.class": "95fbf2a5ee5e2e797981b7a7a4b31b4bab83eabcf41dd9fa0802b86f8f2da6f6",
+    "dev/local/obfuscator/NativeTranspiler$StackShapes.class": "231a4fc971dd980263caf5cfdc09c26cd8c4f8bcf9aeb4669313f199cf8ce286",
+    "dev/local/obfuscator/NativeTranspiler$VmMethod.class": "f8ba4092d07a413c708e202fa276f1965c96f00b26e39e23b0a5ce6d25c405db",
+    "dev/local/obfuscator/NativeTranspiler.class": "e74d71cb055c9e9c95568d3a8b2b7b9ea150095464efc31d8ebd62ce27679e74"
+  },
+  "toolchain_files": {
+    "word-obfuscator.jar": "6ea089553f06fd1e5d895a338a1cdd59d19a3dd4cbdbc4030e3d1de01551809b",
+    "lib\\asm-9.10.1.jar": "ed825d10ab1399c8c0cb669e688cf0c8c82629b4c8399b58352b68e92ca10fcb",
+    "lib\\asm-analysis-9.10.1.jar": "dede75a21306b65974ecd8f87114ff6970f09fb794157a4ca09ab25c888c2bfc",
+    "lib\\asm-commons-9.10.1.jar": "6d0abefb7cbf972ea16edb37ec14835372505063a45f976ab7ea889ed9497895",
+    "lib\\asm-tree-9.10.1.jar": "3dfb0d5b6a106cd40b5b250e39935fbf2f927f4477546a5369a3ac609cf0506b",
+    "lib\\asm-util-9.10.1.jar": "1bb99d091fba2597dc6d51193e9bbcf0d8447e7ed96bd8f0198b18152f09655c",
+    "lib\\gson-2.11.0.jar": "57928d6e5a6edeb2abd3770a8f95ba44dce45f3b23b7a9dc2b309c581552a78b"
+  },
+  "required_flags": [
+    "celeste.prototype.methods",
+    "celeste.prototype.callLocalJni=true",
+    "celeste.prototype.nativeOnly=true",
+    "celeste.prototype.export"
+  ],
+  "limits": [
+    "Native body selection is exact and rejects missing bodies; no VMP protection claim is made by this producer.",
+    "These are isolated adaptations, not edits/builds of the foreign Obfuscator checkout."
+  ],
+  "native_only_evidence": {
+    "result": "native-only-check-01/result.json",
+    "sha256": "2ea59502180649d69e5633ead3d093cc92cf14360e7a6fa79d0c1363603def24",
+    "unselected_methods_unchanged": 88,
+    "selected_full_bodies": 16,
+    "includes_existing_clinit": true,
+    "invalid_java_transform_profile_rejected": true
+  }
+}

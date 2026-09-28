@@ -9,10 +9,13 @@ import io
 import json
 import re
 import struct
+import sys
 import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "tools"))
+import native_auth_resources
 AUTH = "META-INF/.r/4d7a9c2e"
 HOST_ROOT = "META-INF/celeste-beta/host-jars/"
 SOURCE_ROOT = "META-INF/celeste-beta/source-root/"
@@ -58,7 +61,7 @@ def validate_media_support(media: dict[str, bytes]) -> None:
                 f"Windows media must use x64 DLLs: {name}")
 
 
-def read_zip(data: bytes, label: str) -> dict[str, bytes]:
+def read_zip(data: bytes, label: str, native_approval=None, artifact="payload") -> dict[str, bytes]:
     require(len(data) <= MAX_PART, f"{label}: compressed input exceeds 64 MiB")
     result: dict[str, bytes] = {}
     total = 0
@@ -73,10 +76,15 @@ def read_zip(data: bytes, label: str) -> dict[str, bytes]:
             if entry.is_dir():
                 require(entry.file_size == 0, f"{label}: nonempty directory")
                 continue
-            require(entry.file_size <= MAX_FILE, f"{label}: entry exceeds integrity 8 MiB limit: {name}")
+            limit = native_auth_resources.entry_limit(name, artifact, native_approval)
+            require(entry.file_size <= limit, f"{label}: entry exceeds approved/default integrity limit: {name}")
             total += entry.file_size
             require(total <= MAX_TOTAL, f"{label}: expanded input exceeds 128 MiB")
-            result[name] = archive.read(entry)  # zipfile verifies CRC and advertised structure.
+            with archive.open(entry) as stream:
+                value = stream.read(limit + 1)  # Bounded even if the ZIP advertises a false size.
+            require(len(value) == entry.file_size, f"{label}: ZIP entry size changed: {name}")
+            native_auth_resources.validate_entry(name, value, artifact, native_approval)
+            result[name] = value
     require(bool(result), f"{label}: empty archive")
     return result
 
@@ -189,9 +197,13 @@ def descriptor(base: str, key: str, release: str, digest: str, version: str, cod
 
 
 def prepare(args: argparse.Namespace) -> None:
+    native_approval = native_auth_resources.from_args(args, args.release_id)
     source_path = args.input.resolve(strict=True)
     source_bytes = source_path.read_bytes()
-    source = read_zip(source_bytes, "client input")
+    source = read_zip(source_bytes, "client input", native_approval)
+    require(native_auth_resources.BUDGET_RESOURCE not in source, "Input must not supply its own native budget")
+    native_budget = native_auth_resources.budget_bytes(native_approval)
+    native_entries = native_auth_resources.validate_entries(source, "payload", native_approval)
     require("fabric.mod.json" in source, "Input must retain its remapped Fabric descriptor, including the actual entrypoint")
     metadata = json.loads(source["fabric.mod.json"])
     entrypoints = metadata.get("entrypoints", {}).get("client", [])
@@ -248,7 +260,7 @@ def prepare(args: argparse.Namespace) -> None:
         else:
             target = SOURCE_ROOT + name if "/" not in name else name
             require(target not in payload, f"Relocated metadata collision: {target}")
-            require(not re.search(r"\.(dll|so|dylib|jnilib)$", target, re.I), f"Unassigned native support entry: {name}")
+            require(name in native_entries or not re.search(r"\.(dll|so|dylib|jnilib)$", target, re.I), f"Unassigned native support entry: {name}")
             require(not target.startswith("META-INF/versions/") and target != "module-info.class", "Client multi-release/module classes require a separate packaging design")
             payload[target] = data
             action = "inert source metadata" if target != name else "retain"
@@ -320,13 +332,16 @@ def prepare(args: argparse.Namespace) -> None:
     key = base64.urlsafe_b64encode(bytes(range(32))).decode().rstrip("=") if args.validation_only else args.server_key
     bootstrap_trust = {"schema": "celeste-plus-bootstrap-trust-1", "origin": base, "server_key": key, "product": "celeste_plus"}
     payload["META-INF/celeste-beta/bootstrap-trust.json"] = canonical(bootstrap_trust)
+    if native_budget is not None:
+        payload[native_auth_resources.BUDGET_RESOURCE] = native_budget
     digest = runtime_digest(payload)
     payload[AUTH] = descriptor(base, key, args.release_id, digest, args.client_version, args.descriptor_module)
     require(runtime_digest(payload) == digest, "Packed auth descriptor changed canonical runtime digest")
-    require(len(payload) <= 65536 and sum(map(len, payload.values())) <= MAX_TOTAL and all(len(data) <= MAX_FILE for data in payload.values()), "Payload exceeds production memory-integrity bounds")
+    require(len(payload) <= 65536 and sum(map(len, payload.values())) <= MAX_TOTAL, "Payload exceeds production memory-integrity bounds")
+    native_auth_resources.validate_entries(payload, "payload", native_approval)
     parts = [{}, {}]
     for name, data in sorted(payload.items()):
-        index = 0 if name == AUTH else hashlib.sha256(name.encode()).digest()[0] & 1
+        index = 0 if name in {AUTH, native_auth_resources.BUDGET_RESOURCE} else hashlib.sha256(name.encode()).digest()[0] & 1
         parts[index][name] = data
     encoded = [zip_bytes(part) for part in parts]
     require(all(parts) and all(len(part) <= MAX_PART for part in encoded), "Expected two nonempty bounded payload parts")
@@ -343,6 +358,8 @@ def prepare(args: argparse.Namespace) -> None:
     (output / "class-prefixes.txt").write_text("\n".join(class_prefixes) + "\n", encoding="utf-8")
     (output / "resource-prefixes.txt").write_text("\n".join(resources) + "\n", encoding="utf-8")
     (output / "runtime-layout.json").write_bytes(canonical(runtime_layout) + b"\n")
+    if native_budget is not None:
+        (output / native_auth_resources.BUDGET_FILENAME).write_bytes(native_budget)
     (output / "bootstrap-trust.json").write_bytes(canonical(bootstrap_trust) + b"\n")
     (output / "parent-classes.txt").write_text("\n".join(sorted(external)) + "\n", encoding="utf-8")
     (output / "host-support.tsv").write_text("".join(f"{entry['filename']}\t{entry['sha256']}\t{entry['payload_backing']}\n" for entry in host_entries), encoding="utf-8")
@@ -357,6 +374,8 @@ def prepare(args: argparse.Namespace) -> None:
         "class_dependency_owners": dict(sorted(owners.items())), "host_support": host_contract, "provenance": provenance,
         "reflection_strings_are_not_a_complete_dependency_graph": True,
         "remaining": ["Real bootstrap-A/B host implementation", "Actual parent-class visibility/linkage", "Complete late hook coverage", "Runtime auth and Minecraft QA"]}
+    if native_approval is not None:
+        manifest["native_auth"] = native_approval.summary()
     (output / "package.json").write_bytes(canonical(manifest) + b"\n")
     print(json.dumps({"status": "packaged-for-local-validation", "output": str(output), "runtime_sha256": digest,
         "application_classes": len(own_classes), "support_libraries": len(support), "parent_classes_to_verify": len(external)}))
@@ -365,6 +384,9 @@ def prepare(args: argparse.Namespace) -> None:
 def assemble(args: argparse.Namespace) -> None:
     package = args.package.resolve(strict=True)
     manifest = json.loads((package / "package.json").read_text(encoding="utf-8"))
+    native_approval = native_auth_resources.from_args(args, manifest["release_id"])
+    require(manifest.get("native_auth") == (None if native_approval is None else native_approval.summary()),
+            "Native auth approval changed or is missing at final assembly")
     require(not manifest["validation_only"], "Fixture auth descriptors cannot be assembled into a server release")
     require((package / "java-validation.json").is_file(), "Run the actual memory-loader/integrity validator before final assembly")
     validation = json.loads((package / "java-validation.json").read_text())
@@ -372,8 +394,17 @@ def assemble(args: argparse.Namespace) -> None:
     require(validation["payload_a_sha256"] == manifest["payloads"][0]["sha256"]
             and validation["payload_b_sha256"] == manifest["payloads"][1]["sha256"], "Payload metadata changed after Java validation")
     bootstraps = {"bootstrap-a": args.bootstrap_a.read_bytes(), "bootstrap-b": args.bootstrap_b.read_bytes()}
-    first = read_zip(bootstraps["bootstrap-a"], "bootstrap-A")
-    second = read_zip(bootstraps["bootstrap-b"], "bootstrap-B")
+    first = read_zip(bootstraps["bootstrap-a"], "bootstrap-A", native_approval, "bootstrap-a")
+    second = read_zip(bootstraps["bootstrap-b"], "bootstrap-B", None, "bootstrap-b")
+    expected_budget = native_auth_resources.budget_bytes(native_approval)
+    budget_file = package / native_auth_resources.BUDGET_FILENAME
+    require((native_auth_resources.read(budget_file, native_auth_resources.MAX_BUDGET) if budget_file.is_file() else None) == expected_budget,
+            "Packaged native budget differs from exact approval")
+    require(second.get(native_auth_resources.BUDGET_RESOURCE) == expected_budget,
+            "Bootstrap-B native budget differs from exact approval")
+    require(native_auth_resources.BUDGET_RESOURCE not in first, "Bootstrap-A must not supply a payload native budget")
+    native_auth_resources.validate_entries(first, "bootstrap-a", native_approval)
+    native_auth_resources.validate_entries(second, "bootstrap-b", native_approval)
     require(first.get("META-INF/celeste-beta/bootstrap-trust.json", b"").strip() == (package / "bootstrap-trust.json").read_bytes().strip(),
             "Bootstrap-A trust profile does not match this payload package")
     require(json.loads(second.get("META-INF/celeste-beta/runtime-layout.json", b"null")) == manifest["runtime_layout"],
@@ -386,10 +417,21 @@ def assemble(args: argparse.Namespace) -> None:
         contents = first.get(library["bootstrap_entry"])
         require(contents is not None and sha(contents) == library["sha256"], f"Bootstrap-A did not embed exact support: {library['filename']}")
     artifacts = dict(bootstraps)
-    for payload in manifest["payloads"]:
+    combined_payload = {}
+    for part_index, payload in enumerate(manifest["payloads"]):
         data = (package / payload["filename"]).read_bytes()
         require(sha(data) == payload["sha256"] and len(data) == payload["size"], "Payload changed after validation")
         artifacts[payload["filename"][:-4]] = data
+        part = read_zip(data, payload["filename"], native_approval)
+        require(part.get(native_auth_resources.BUDGET_RESOURCE) == (expected_budget if part_index == 0 else None),
+                "Native budget must appear exactly in the first payload part")
+        require(not combined_payload.keys() & part.keys(), "Duplicate entry across final payload parts")
+        combined_payload.update(part)
+    native_auth_resources.validate_entries(combined_payload, "payload", native_approval)
+    require(combined_payload.get(native_auth_resources.BUDGET_RESOURCE) == expected_budget,
+            "Payload native budget differs from exact approval")
+    require(len(combined_payload) <= 65536 and sum(map(len, combined_payload.values())) <= MAX_TOTAL,
+            "Combined payload exceeds production memory-integrity bounds")
     require(all(0 < len(data) <= MAX_PART for data in artifacts.values()) and sum(map(len, artifacts.values())) <= MAX_TOTAL, "Release exceeds beta delivery bounds")
     output = args.output.resolve()
     require(not output.exists(), "Final assembly output must be fresh")
@@ -428,6 +470,8 @@ def main() -> None:
     final.add_argument("--bootstrap-a", type=Path, required=True)
     final.add_argument("--bootstrap-b", type=Path, required=True)
     final.add_argument("--output", type=Path, required=True)
+    native_auth_resources.add_arguments(prep)
+    native_auth_resources.add_arguments(final)
     args = parser.parse_args()
     try:
         (prepare if args.operation == "prepare" else assemble)(args)

@@ -1,0 +1,3 @@
+dev/c4lam/celeste/auth/DpopProofSigner#requireBinding(Lcom/google/gson/JsonObject;)V
+dev/c4lam/celeste/auth/DpopProofSigner#proof(Ljava/lang/String;Ljava/net/URI;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
+dev/c4lam/celeste/auth/DpopProofSigner#sign([B)[B

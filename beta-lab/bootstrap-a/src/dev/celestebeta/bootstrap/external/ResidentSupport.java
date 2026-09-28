@@ -29,6 +29,7 @@ final class ResidentSupport {
     private static final Set<String> CLASSES = Set.of("com.sun.jna.", "oshi.", "dev.redstones.mediaplayerinfo.");
     private static final Set<String> RESOURCES = Set.of("com/sun/jna/", "oshi/", "mediaplayerinfo/", "dev/redstones/mediaplayerinfo/");
     private final Path directory;
+    private final Path authNativeRoot;
     private final PreparedDirectory preparedDirectory;
     private final Map<String, Path> libraries;
     private final List<String> bridgeNames;
@@ -40,6 +41,10 @@ final class ResidentSupport {
     private ResidentSupport(PreparedDirectory preparedDirectory, Map<String, Path> libraries, List<String> bridgeNames, Map<String, String> libraryHashes) {
         this.preparedDirectory = preparedDirectory;
         this.directory = preparedDirectory.directory;
+        Path supportRoot = directory.getParent();
+        Path custodyScope = supportRoot.getFileName().toString().matches("[1-9][0-9]{0,19}-[0-9]{1,20}")
+            ? supportRoot.getParent() : supportRoot;
+        this.authNativeRoot = custodyScope.resolve(".celeste-auth-native");
         this.libraries = Map.copyOf(libraries);
         this.bridgeNames = List.copyOf(bridgeNames);
         this.libraryHashes = Map.copyOf(libraryHashes);
@@ -176,6 +181,7 @@ final class ResidentSupport {
         instrumentation.appendToBootstrapClassLoaderSearch(retainedBridge);
         // A bridge append cannot be removed by Java. Keep the file/JarFile alive even on later failure.
         verifyCanonicalBridges(gameLoader, agentLoader);
+        configureAuthNativeCustody();
         List<URL> urls = new ArrayList<>();
         for (var entry : libraries.entrySet()) if (!entry.getKey().equals("celeste-beta-bridges.jar")) urls.add(entry.getValue().toUri().toURL());
         loader = new SupportLoader(urls.toArray(URL[]::new), gameLoader);
@@ -183,6 +189,16 @@ final class ResidentSupport {
             if (Class.forName(name, false, loader).getClassLoader() != loader) throw new IOException("Resident dependency resolved outside the signed support loader");
         }
         installed = true;
+    }
+
+    private void configureAuthNativeCustody() throws ReflectiveOperationException, IOException {
+        String name = "dev.celestebeta.host.AuthNativeBridge";
+        // Older signed support sets contain no auth-native payload. New native
+        // loaders require this canonical bridge and cannot fall back to tmp DLLs.
+        if (!bridgeNames.contains(name)) return;
+        Class<?> canonical = Class.forName(name, true, null);
+        if (canonical.getClassLoader() != null) throw new IOException("Auth native bridge is not canonical");
+        canonical.getMethod("configure", Path.class).invoke(null, authNativeRoot);
     }
 
     private synchronized void retireAtExit() {

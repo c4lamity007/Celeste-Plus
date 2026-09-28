@@ -121,6 +121,16 @@ public final class TwoPartMemoryClassLoader extends ClassLoader implements AutoC
         byte[] secondJar, String secondTrustedSha256,
         Namespaces namespaces, Limits limits, ClassLoader parent
     ) throws IOException {
+        return open(firstJar, firstTrustedSha256, secondJar, secondTrustedSha256,
+            namespaces, limits, parent, NativeResourceBudget.empty());
+    }
+
+    /** Native exceptions must come from the verified bootstrap, never the same unchecked payload. */
+    public static TwoPartMemoryClassLoader open(
+        byte[] firstJar, String firstTrustedSha256, byte[] secondJar, String secondTrustedSha256,
+        Namespaces namespaces, Limits limits, ClassLoader parent, NativeResourceBudget nativeBudget
+    ) throws IOException {
+        Objects.requireNonNull(nativeBudget, "nativeBudget");
         Objects.requireNonNull(firstJar, "firstJar");
         Objects.requireNonNull(secondJar, "secondJar");
         Objects.requireNonNull(namespaces, "namespaces");
@@ -137,9 +147,12 @@ public final class TwoPartMemoryClassLoader extends ClassLoader implements AutoC
             secondSnapshot = secondJar.clone();
             verifyDigest(firstSnapshot, firstTrustedSha256, "first");
             verifyDigest(secondSnapshot, secondTrustedSha256, "second");
-            ParseBudget budget = new ParseBudget(limits);
+            ParseBudget budget = new ParseBudget(limits, nativeBudget);
             parsePart(firstSnapshot, "first", namespaces, budget, parsed, firstPart);
             parsePart(secondSnapshot, "second", namespaces, budget, parsed, secondPart);
+            nativeBudget.verifyIndex(parsed.get(NativeResourceBudget.RESOURCE));
+            if (secondPart.containsKey(NativeResourceBudget.RESOURCE)) throw new IOException("Native budget must be in the first part");
+            nativeBudget.requireComplete(parsed.keySet());
             TwoPartMemoryClassLoader result = new TwoPartMemoryClassLoader(parent, namespaces, parsed, firstPart, secondPart);
             transferred = true;
             return result;
@@ -215,10 +228,11 @@ public final class TwoPartMemoryClassLoader extends ClassLoader implements AutoC
                     continue;
                 }
                 validatePayloadName(name, namespaces);
-                if (entry.getSize() > budget.limits.maxEntryBytes()) {
+                int entryLimit = budget.nativeBudget.entryLimit(name, central.size, budget.limits.maxEntryBytes());
+                if (central.size > entryLimit) {
                     throw new IOException("Entry exceeds maxEntryBytes: " + name);
                 }
-                try (WipingBuffer buffer = new WipingBuffer(budget.limits.maxEntryBytes())) {
+                try (WipingBuffer buffer = new WipingBuffer(entryLimit)) {
                     int count;
                     while ((count = zip.read(scratch)) != -1) {
                         if (budget.totalBytes > budget.limits.maxTotalBytes() - count) {
@@ -230,8 +244,15 @@ public final class TwoPartMemoryClassLoader extends ClassLoader implements AutoC
                     zip.closeEntry(); // also validates CRC/size for streamed entries
                     central.verify(entry);
                     byte[] content = buffer.copy();
-                    parsed.put(name, content);
-                    retainedPart.put(name, content);
+                    boolean accepted = false;
+                    try {
+                        budget.nativeBudget.verify(name, content);
+                        parsed.put(name, content);
+                        retainedPart.put(name, content);
+                        accepted = true;
+                    } finally {
+                        if (!accepted) Arrays.fill(content, (byte) 0);
+                    }
                 }
                 payloadEntries++;
             }
@@ -647,7 +668,11 @@ public final class TwoPartMemoryClassLoader extends ClassLoader implements AutoC
         private final Set<String> names = new HashSet<>();
         private int entryCount;
         private long totalBytes;
-        private ParseBudget(Limits limits) { this.limits = limits; }
+        private final NativeResourceBudget nativeBudget;
+        private ParseBudget(Limits limits, NativeResourceBudget nativeBudget) {
+            this.limits = limits;
+            this.nativeBudget = nativeBudget;
+        }
     }
 
     private static final class WipingBuffer implements AutoCloseable {

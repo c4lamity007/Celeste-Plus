@@ -2,6 +2,7 @@ package dev.celestebeta.bootstrap.internal;
 
 import dev.c4lam.celeste.beta.delivery.BetaDeliveryClient;
 import dev.c4lam.celeste.beta.memory.TwoPartMemoryClassLoader;
+import dev.c4lam.celeste.beta.memory.NativeResourceBudget;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import java.io.IOException;
@@ -65,6 +66,11 @@ public final class MemoryPayloadBootstrap {
 
     public static Session load(BetaDeliveryClient.MemoryRelease release, RuntimeLayout layout,
                                PreparedGame game) throws Exception {
+        NativeResourceBudget nativeBudget;
+        // This class/resource is defined by the already verified bootstrap-B loader.
+        try (InputStream budget = MemoryPayloadBootstrap.class.getResourceAsStream("/" + NativeResourceBudget.RESOURCE)) {
+            nativeBudget = NativeResourceBudget.readTrusted(budget);
+        }
         Objects.requireNonNull(release, "release");
         Objects.requireNonNull(layout, "layout");
         Objects.requireNonNull(game, "game");
@@ -81,7 +87,7 @@ public final class MemoryPayloadBootstrap {
             loader = TwoPartMemoryClassLoader.open(a, first.sha256(), b, second.sha256(),
                 new TwoPartMemoryClassLoader.Namespaces(layout.classPrefixes(), layout.resourcePrefixes()),
                 new TwoPartMemoryClassLoader.Limits(64 * 1024 * 1024, 65_536, 8 * 1024 * 1024, 128L * 1024 * 1024),
-                Objects.requireNonNull(game.runtimeParent(), "game/support parent"));
+                Objects.requireNonNull(game.runtimeParent(), "game/support parent"), nativeBudget);
             try (InputStream stream = loader.getResourceAsStream(LAYOUT_RESOURCE)) {
                 if (!layout.equals(readLayout(stream))) throw new IOException("Bootstrap mapping and retained payload mapping differ");
             }

@@ -18,6 +18,11 @@
       "baseSha256": "cceabac90ffb5cd00b0a2a0acaff416b43ba23ae701a33a4e8851c984fe107af"
     },
     {
+      "path": "src/main/java/dev/c4lam/celeste/auth/ArtifactIntegrity.java",
+      "sha256": "590938348daa3e15b667f79f78cc073a35463c99783d6eff9fd53d5116eb3354",
+      "baseSha256": "a590c13d9bba05f6542a89f42922786d3f27dfb1284a81fc2b7b5d000e560432"
+    },
+    {
       "path": "src/main/java/dev/c4lam/celeste/auth/AuthBootstrap.java",
       "sha256": "fc1584ed4c461f5c8f27d4ce07586551f654cd01a99f47bc34f8788b3b901d7e",
       "baseSha256": "4fd99b1932863ebb17cb99d970ab466b3e3032d267d7fe21d5ec0e8fab369717"
@@ -81,6 +86,11 @@
       "path": "src/main/java/dev/c4lam/celeste/beta/lifecycle/BetaRotationHooks.java",
       "sha256": "03056206d9989d6388a6e51fa616ba40dc236e7f7b134a4bee90133b7fdd8ffb",
       "baseSha256": "d78421b1d0372e370a7421a00223768b981cf8f289ee7318ac47bc9f50710ce0"
+    },
+    {
+      "path": "src/main/java/dev/c4lam/celeste/beta/memory/NativeResourceBudget.java",
+      "sha256": "782506b345db21939862d753e6e4c8cea16dbd8fe3ee40e31c9c25cb7f2a2442",
+      "baseSha256": null
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/beta/visual/BetaVisualHooks.java",
@@ -776,6 +786,11 @@
       "path": "src/main/java/dev/c4lam/celeste/rotation/RotationManager.java",
       "sha256": "a0ced58e3bd01176d8c35b78e67880fc315353674357151366a820dc6fb806bf",
       "baseSha256": "2d5b48424043a66ee56d91015c9e612ac9547723f5103b44d7d7983559f6038b"
+    },
+    {
+      "path": "src/main/java/dev/celestebeta/host/AuthNativeBridge.java",
+      "sha256": "cb78e7a45ff55d76df3d1672af03cb3fad3208d6260df2a34f001fba9a7218f7",
+      "baseSha256": null
     },
     {
       "path": "src/main/java/dev/celestebeta/host/FakeGambleHookBridge.java",

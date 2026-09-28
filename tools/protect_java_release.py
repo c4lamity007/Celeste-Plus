@@ -18,6 +18,7 @@ import sys
 import time
 import zipfile
 import prepare_runtime
+import native_auth_resources
 
 ROOT = Path(__file__).resolve().parents[1]
 PROFILES = ROOT / 'beta-lab/obfuscation/profiles'
@@ -94,7 +95,7 @@ def source_inputs():
     paths = list((ROOT / 'beta-lab').rglob('*.java')) + list(PROFILES.glob('*.json'))
     paths += [ROOT / path for path in ('build.gradle', 'gradle.properties', 'settings.gradle',
         'core.lock.json', 'runtime-overlay/manifest.json',
-        'tools/protect_java_release.py', 'tools/prepare_runtime.py', 'tools/build_media_cleanup.py',
+        'tools/protect_java_release.py', 'tools/prepare_runtime.py', 'tools/build_media_cleanup.py', 'tools/native_auth_resources.py',
         'tools/validate_package.py',
         'beta-lab/obfuscation/check.init.gradle', 'beta-lab/obfuscation/prepare_obfuscation.py',
         'beta-lab/release-package/package_beta.py')]
@@ -103,10 +104,22 @@ def source_inputs():
     return dict(sorted(result.items()))
 
 
-def run(args):
+def run(args, *, payload_mode="full", final_payload=None, final_payload_sha256=None, native_checkpoint=None):
+    # Internal entry points for the separately reviewed native-auth orchestrator.
+    # The normal CLI exposes no native transform flags or arbitrary payload bypass.
+    require(payload_mode in {"full", "checkpoint", "resume-native"}, "Unknown payload mode")
+    require((payload_mode == "resume-native") == (final_payload is not None), "Invalid native continuation")
     output = args.output.resolve()
     require(not output.exists(), 'Use a fresh Java release output directory')
     require(re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,79}', args.release_id), 'Invalid release ID')
+    native_approval = native_auth_resources.from_args(args, args.release_id)
+    native_cli = native_auth_resources.cli_args(args)
+    if payload_mode == "checkpoint":
+        require(native_approval is None, "Java checkpoint precedes native approval")
+    if payload_mode == "resume-native":
+        require(native_approval is not None and isinstance(native_checkpoint, dict)
+                and HEX.fullmatch(final_payload_sha256 or ""), "Native continuation requires approved exact payload")
+
     files, producer = producer_bundle(args.obfuscator)
     require(HEX.fullmatch(args.tool_sha256) and producer['bundle_sha256'] == args.tool_sha256, 'Producer bundle differs from reviewed pin')
     parents = checked_parents(args.parent_classpath)
@@ -133,6 +146,8 @@ def run(args):
               'limits': ['No Minecraft launch, live authentication, FPS measurement, or native protection claim.',
                          'Cold verification timing includes JVM startup and is not a gameplay benchmark.']}
     environment = os.environ.copy()
+    if native_approval is not None:
+        report['native_auth'] = native_approval.summary()
     environment['JAVA_HOME'] = str(java_home)
     def save():
         (output / 'receipt.json').write_text(json.dumps(report, indent=2) + '\n', encoding='utf-8')
@@ -160,14 +175,32 @@ def run(args):
         report['profiles'][profile.name] = digest(bounded(profile))
         step(name, [java, '-Xmx2g', '-jar', toolchain / producer['entry'], '--config', profile])
     try:
-        step('payload-stage', [python, staging, 'stage-payload', '--source', source, '--output', output / 'payload-stage'])
-        protect('payload-protection', '04-payload-protected-v2.json', output / 'payload-stage/payload-thin.jar',
-                output / 'payload-implementation.jar', [output / 'payload-stage/payload-stable.jar', *parents])
-        step('payload-merge', [python, staging, 'merge-payload', '--stage', output / 'payload-stage', '--protected', output / 'payload-implementation.jar',
-                              '--mapping', output / 'payload-implementation.jar.mapping.json', '--output', output / 'payload-protected.jar'])
+        if payload_mode == "resume-native":
+            final_bytes = bounded(final_payload)
+            require(digest(final_bytes) == final_payload_sha256, "Approved native payload changed")
+            (output / 'payload-protected.jar').write_bytes(final_bytes)
+            report['native_checkpoint'] = native_checkpoint
+        else:
+            step('payload-stage', [python, staging, 'stage-payload', '--source', source, '--output', output / 'payload-stage'])
+            protect('payload-protection', '04-payload-protected-v2.json', output / 'payload-stage/payload-thin.jar',
+                    output / 'payload-implementation.jar', [output / 'payload-stage/payload-stable.jar', *parents])
+            step('payload-merge', [python, staging, 'merge-payload', '--stage', output / 'payload-stage', '--protected', output / 'payload-implementation.jar',
+                                  '--mapping', output / 'payload-implementation.jar.mapping.json', '--output', output / 'payload-protected.jar', *native_cli])
+
+        report['payload_merged_sha256'] = digest(bounded(output / 'payload-protected.jar'))
+        if payload_mode == "checkpoint":
+            require(digest(bounded(args.input)) == report['input_sha256'], "Runtime input changed")
+            require(digest(bounded(descriptor)) == report['descriptor_sha256'], "Descriptor changed")
+            require(all(digest(bounded(Path(name))) == value for name, value in parent_hashes.items()), "Parent changed")
+            require(all(digest(bounded(toolchain / name)) == value for name, value in producer['files'].items()), "Producer changed")
+            require(source_inputs() == report['source_inputs'], "Source changed during Java checkpoint")
+            require(all(digest(bounded(output / name)) == value for name, value in report['profiles'].items()), "Profile changed")
+            report['status'] = 'java-payload-checkpoint-not-published'
+            save()
+            return report
         package = output / 'package'
         step('payload-split', [python, packaging, 'prepare', '--input', output / 'payload-protected.jar', '--descriptor-module', descriptor,
-              '--output', package, '--release-id', args.release_id, '--client-version', args.client_version, '--base-url', args.base_url, '--server-key', args.server_key])
+              '--output', package, '--release-id', args.release_id, '--client-version', args.client_version, '--base-url', args.base_url, '--server-key', args.server_key, *native_cli])
         step('payload-validation', [python, ROOT / 'tools/validate_package.py', '--package', package, '--java-home', java_home, '--parent-classpath', dependencies])
         check_cp = output / 'check-classpath.txt'
         step('bootstrap-build', [*gradle, '-I', ROOT / 'beta-lab/obfuscation/check.init.gradle',
@@ -187,10 +220,12 @@ def run(args):
         step('bootstrap-a-stage', [python, staging, 'stage-a', '--source', raw_a, '--output', output / 'a-stage'])
         stable = output / 'a-stage/bootstrap-a-stable.jar'
         protect('bootstrap-a-protection', '02-bootstrap-a-implementation.json', output / 'a-stage/bootstrap-a-thin.jar', output / 'bootstrap-a-implementation.jar', [stable, *parents])
-        step('bootstrap-a-merge', [python, staging, 'merge-a', '--stage', output / 'a-stage', '--protected', output / 'bootstrap-a-implementation.jar', '--output', output / 'bootstrap-a.jar'])
+        step('bootstrap-a-merge', [python, staging, 'merge-a', '--stage', output / 'a-stage', '--protected', output / 'bootstrap-a-implementation.jar', '--output', output / 'bootstrap-a.jar', *native_cli])
         protect('bootstrap-b-protection', '03-bootstrap-b-compatible.json', raw_b, output / 'bootstrap-b.bin', [stable])
         protected = [step('protected-cold-' + str(n), [*check, output / 'bootstrap-a.jar', output / 'bootstrap-b.bin']) for n in range(3)]
-        step('assemble', [python, packaging, 'assemble', '--package', package, '--bootstrap-a', output / 'bootstrap-a.jar', '--bootstrap-b', output / 'bootstrap-b.bin', '--output', output / 'release'])
+        step('assemble', [python, packaging, 'assemble', '--package', package, '--bootstrap-a', output / 'bootstrap-a.jar', '--bootstrap-b', output / 'bootstrap-b.bin', '--output', output / 'release', *native_cli])
+        require(native_auth_resources.from_args(args, args.release_id) == native_approval,
+                'Native auth approval changed during protection')
         require(digest(bounded(args.input)) == report['input_sha256'], 'Runtime input changed during protection')
         require(digest(bounded(descriptor)) == report['descriptor_sha256'], 'Descriptor codec changed during protection')
         require(all(digest(bounded(Path(name))) == value for name, value in parent_hashes.items()), 'Parent dependency changed during protection')
@@ -221,6 +256,7 @@ def main():
     for name in ('tool-sha256', 'release-id', 'client-version', 'base-url', 'server-key'):
         release.add_argument('--' + name, required=True)
     release.add_argument('--offline', action='store_true')
+    native_auth_resources.add_arguments(release)
     args = parser.parse_args()
     try:
         if args.command == 'inspect-tool':

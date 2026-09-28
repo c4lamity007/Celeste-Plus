@@ -6,6 +6,7 @@ import dev.c4lam.celeste.auth.EnvironmentGate;
 import dev.c4lam.celeste.beta.delivery.BetaDeliveryClient;
 import dev.c4lam.celeste.beta.delivery.RuntimeInstallationSigner;
 import dev.c4lam.celeste.beta.memory.TwoPartMemoryClassLoader;
+import dev.c4lam.celeste.beta.memory.NativeResourceBudget;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.instrument.Instrumentation;
@@ -94,6 +95,11 @@ public final class BootstrapHost {
             byte[] b = copy(release.artifact("bootstrap-b"));
             try { internal = new VerifiedBootstrapLoader(b, artifact(catalog, "bootstrap-b").sha256(), BootstrapHost.class.getClassLoader()); }
             finally { Arrays.fill(b, (byte) 0); }
+            NativeResourceBudget nativeBudget;
+            // Internal B has already passed the signed-catalog digest/loader checks.
+            try (InputStream budget = internal.getResourceAsStream(NativeResourceBudget.RESOURCE)) {
+                nativeBudget = NativeResourceBudget.readTrusted(budget);
+            }
             JsonObject layout = resourceObject(VerifiedBootstrapLoader.LAYOUT, internal);
             Set<String> classes = strings(layout, "class_prefixes"), resources = strings(layout, "resource_prefixes");
             byte[] a = copy(release.artifact("payload-a")), second = null;
@@ -101,7 +107,7 @@ public final class BootstrapHost {
                 second = copy(release.artifact("payload-b"));
                 try (TwoPartMemoryClassLoader bytes = TwoPartMemoryClassLoader.open(a, artifact(catalog, "payload-a").sha256(),
                     second, artifact(catalog, "payload-b").sha256(), new TwoPartMemoryClassLoader.Namespaces(classes, resources),
-                    new TwoPartMemoryClassLoader.Limits(64 * 1024 * 1024, 65_536, 8 * 1024 * 1024, 128L * 1024 * 1024), target.loader())) {
+                    new TwoPartMemoryClassLoader.Limits(64 * 1024 * 1024, 65_536, 8 * 1024 * 1024, 128L * 1024 * 1024), target.loader(), nativeBudget)) {
                     if (!resourceObject("META-INF/celeste-beta/bootstrap-trust.json", bytes).equals(trust)) {
                         throw new IOException("First bootstrap and retained payload trust profiles differ");
                     }

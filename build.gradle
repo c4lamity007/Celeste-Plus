@@ -150,6 +150,10 @@ def bootstrapB = tasks.register('betaBootstrapBJar', Jar) {
     if (project.hasProperty('betaLayoutFile')) {
         from(file(project.property('betaLayoutFile'))) { into 'META-INF/celeste-beta'; rename { 'runtime-layout.json' } }
     }
+    if (project.hasProperty('betaPackageDirectory')) {
+        def nativeBudget = new File(file(project.property('betaPackageDirectory')), 'native-auth-resources.txt')
+        if (nativeBudget.isFile()) { from(nativeBudget) { into 'META-INF/celeste-beta' } }
+    }
     archiveFileName = 'bootstrap-b.bin'
     destinationDirectory = layout.buildDirectory.dir('module-qa/bootstrap-b')
     manifest { attributes('Implementation-Title': 'Celeste+ internal bootstrap', 'Celeste-Beta-Bootstrap': 'B') }

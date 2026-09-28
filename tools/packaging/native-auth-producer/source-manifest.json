@@ -1,0 +1,113 @@
+{
+  "schema": "celeste-native-auth-producer-source-1",
+  "historical_native_bundle_sha256": "b558f2e5f5741d5541ee80048052a95545708965103081b51856dd4732437369",
+  "baseline_bundle_sha256": "4424dca45dab369f27b28f4cc2f22e5ff13d3e11884494f058c6e1718703a644",
+  "baseline_jar_sha256": "6ea089553f06fd1e5d895a338a1cdd59d19a3dd4cbdbc4030e3d1de01551809b",
+  "baseline_source_receipt_sha256": "7ddc29ca0d8b52ee2aa08616979dcb01a585fa85004ecc9a7db68827e6840f2f",
+  "baseline_source_file_count": 286,
+  "reconstructed_sources": {
+    "src/main/java/dev/local/obfuscator/JarObfuscator.java": {
+      "original_sha256": "ffa93b7115869220e3dd2bde2774859d0b3084d67c5ff60be1838361e51161e2",
+      "lf_sha256": "ce8b8eff7b97f5568976083925539233da19a3c3d85e78ab09be1db1788212fa"
+    },
+    "src/main/java/dev/local/obfuscator/NativeCompiler.java": {
+      "original_sha256": "6f6c27b50e094d88d27f4615055d5be476bd961d1452a86d1c84c4e6358af47f",
+      "lf_sha256": "6f6c27b50e094d88d27f4615055d5be476bd961d1452a86d1c84c4e6358af47f"
+    },
+    "src/main/java/dev/local/obfuscator/NativeTranspiler.java": {
+      "original_sha256": "3a297df0c28d8b0e4120b12d1171ce09be0db7f7075dccdaaa2bd96d13e8f675",
+      "lf_sha256": "5962470b3b2e133acbeef6640bf0929297680f2cf7983ef32bbc9f3a406b7cec"
+    }
+  },
+  "files": [
+    {
+      "path": "producer.patch",
+      "source_path": "producer-prototype.patch",
+      "original_sha256": "11010fd2e68060eabfe7b74825dd73682ba3ee98b1960031ca42ac8a1d36b620",
+      "sha256": "11010fd2e68060eabfe7b74825dd73682ba3ee98b1960031ca42ac8a1d36b620",
+      "bytes": 15134,
+      "normalization": "UTF-8/LF only"
+    },
+    {
+      "path": "provenance/producer-provenance.json",
+      "source_path": "producer-provenance.json",
+      "original_sha256": "c5b9f0c5daefac1bc8bc0789be4513cc73ce059975cd66120b598e9531217596",
+      "sha256": "32a6c5d1dfa151083354fc2d938b7ca272dfa39a0d64f17475ddf5d4bc226be5",
+      "bytes": 58369,
+      "normalization": "UTF-8/LF only"
+    },
+    {
+      "path": "provenance/adaptation-provenance.json",
+      "source_path": "adaptation-provenance.json",
+      "original_sha256": "28688ba39f7208b86a9a3fb826c261ebfb09adc006bfee8b6ef93838f26f6264",
+      "sha256": "28688ba39f7208b86a9a3fb826c261ebfb09adc006bfee8b6ef93838f26f6264",
+      "bytes": 5275,
+      "normalization": "UTF-8/LF only"
+    },
+    {
+      "path": "provenance/reference-native-tool-bundle.json",
+      "source_path": "native-tool-bundle.json",
+      "original_sha256": "b558f2e5f5741d5541ee80048052a95545708965103081b51856dd4732437369",
+      "sha256": "b558f2e5f5741d5541ee80048052a95545708965103081b51856dd4732437369",
+      "bytes": 95339,
+      "normalization": "UTF-8/LF only"
+    },
+    {
+      "path": "integration/CustodyLoadTemplate.java",
+      "source_path": "integration/CustodyLoadTemplate.java",
+      "original_sha256": "516ace6b11d8da992ea1d0834de960c5a7d136f4525e729937b0ef083017a54f",
+      "sha256": "56b22dbd12db2f5912182a73ada3993774e2115ec6ca7c669914ce46b7e1401f",
+      "bytes": 936,
+      "normalization": "UTF-8/LF only"
+    },
+    {
+      "path": "integration/ReembedWithCustody.java",
+      "source_path": "integration/ReembedWithCustody.java",
+      "original_sha256": "d789b345d6f40158256f48d1ca330846848565e85012db6445077c18ac576bc5",
+      "sha256": "edfdd80ac8fe0ec498dd37fa952b1bd4625e9310ec67af99d70021a68d7d2ce4",
+      "bytes": 5846,
+      "normalization": "UTF-8/LF only"
+    },
+    {
+      "path": "selectors/auth.methods",
+      "source_path": "final-native-auth/auth.methods",
+      "original_sha256": "b9e68332eecf67475c2d5d185085dec334da9267fd6d4d68cf6c32cd366c8135",
+      "sha256": "cc47ef80b168a5796e4a47f43f2d8fa31e36df1a37f06d6cd664f5851e0f096b",
+      "bytes": 1110,
+      "normalization": "UTF-8/LF only"
+    },
+    {
+      "path": "selectors/signer.methods",
+      "source_path": "final-native-auth/signer.methods",
+      "original_sha256": "021a4a2304cbae0c2e159732bc09374ab32b431d16096de3c8252ca2e762d603",
+      "sha256": "7d170734ee25387bd9b26bcdfcc29fe2179f4182f431f758d6963dac8a765994",
+      "bytes": 304,
+      "normalization": "UTF-8/LF only"
+    },
+    {
+      "path": "selectors/bootstrap.methods",
+      "source_path": "final-native-auth/bootstrap.methods",
+      "original_sha256": "428520d872ba60310ec9260ad33214f49c3d05236f85ed4996732dcc509f8814",
+      "sha256": "f4da410572b579b08c48dce0dac9c9e6df5d36a9ed25c271ab511b40365b8b91",
+      "bytes": 574,
+      "normalization": "UTF-8/LF only"
+    },
+    {
+      "path": "README.md",
+      "source_path": null,
+      "original_sha256": null,
+      "sha256": "7842553460e6b8a50aef032e429b4ea00445299fb6d5230f46e4a59cbd37c21d",
+      "bytes": 6840,
+      "normalization": "new UTF-8/LF source"
+    },
+    {
+      "path": "verify_inputs.py",
+      "source_path": null,
+      "original_sha256": null,
+      "sha256": "fc145b4d66b02f102ad7ff456707663449e782fcf2abbe9e1615f89a810b88c7",
+      "bytes": 2311,
+      "normalization": "new UTF-8/LF source"
+    }
+  ],
+  "scope": "Source preservation and rebuild comparison only; no VMP/JNI/publication approval."
+}

@@ -1,0 +1,13 @@
+{
+  "schema": "celeste-native-auth-queue-fixture-source-1",
+  "repository_source_sha256": "d40a85b0588d8e66e06d746f4f9de4e0b3dafa9f0061bf1bc74dfe94ac2af9e2",
+  "remapped_source_sha256": "ee0cfddc911d92ca987cfadbe67947d92e1b30590e9e7dd9df315d71be2f21f3",
+  "exact_text_remapping_confirmed": true,
+  "original_plan_sha256": "e52665b1ed7f9d77ddd5bded39713f176a0415b2a1e5b2117c0738a27971b475",
+  "corrected_plan_sha256": "acdb3ed005c1511e60ee3648bf0ba0b2c8abeb242244b734cfb8fe9a76898b07",
+  "files": {
+    "fixture-source.patch": "f16ed39039482fb720d8763c3e47dec05ef049435033ade97d2b83d58037284a",
+    "README.md": "3bb921513da5e0c3be5d600ea37e489967e8990f0bacfdeefe1e05d1a9b1b152",
+    "rebuild.py": "42408d8dfdfb3ec97ea894fe389236441e35caf48feaed0bfbd3ac6e26e665be"
+  }
+}

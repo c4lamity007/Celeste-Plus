@@ -1,6 +1,7 @@
 package dev.celestebeta.bootstrap.external;
 
 import dev.c4lam.celeste.beta.memory.TwoPartMemoryClassLoader;
+import dev.c4lam.celeste.beta.memory.NativeResourceBudget;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.lang.reflect.Modifier;
@@ -23,6 +24,11 @@ public final class ProtectedPayloadClassCheck {
     public static void main(String[] args) throws Exception {
         if (args.length != 4) throw new IllegalArgumentException("Expected package, two hashes, parent classpath");
         Path root = Path.of(args[0]).toRealPath();
+        NativeResourceBudget nativeBudget;
+        Path budgetPath = root.resolve("native-auth-resources.txt");
+        try (var input = Files.exists(budgetPath) ? Files.newInputStream(budgetPath) : null) {
+            nativeBudget = NativeResourceBudget.readTrusted(input);
+        }
         List<URL> parents = new ArrayList<>();
         for (String line : Files.readAllLines(Path.of(args[3]))) {
             if (!line.isBlank()) parents.add(Path.of(line).toRealPath().toUri().toURL());
@@ -35,7 +41,7 @@ public final class ProtectedPayloadClassCheck {
                  Files.readAllBytes(root.resolve("payload-a.bin")), args[1],
                  Files.readAllBytes(root.resolve("payload-b.bin")), args[2],
                  new TwoPartMemoryClassLoader.Namespaces(lines(root.resolve("class-prefixes.txt")), lines(root.resolve("resource-prefixes.txt"))),
-                 new TwoPartMemoryClassLoader.Limits(64 * 1024 * 1024, 65536, 8 * 1024 * 1024, 128L * 1024 * 1024), parent)) {
+                 new TwoPartMemoryClassLoader.Limits(64 * 1024 * 1024, 65536, 8 * 1024 * 1024, 128L * 1024 * 1024), parent, nativeBudget)) {
             Set<String> names = new HashSet<>();
             byte[][] authentication = {null};
             payload.visitRetainedParts(part -> part.forEach((name, bytes) -> {

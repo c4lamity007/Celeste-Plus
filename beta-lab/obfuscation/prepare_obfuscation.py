@@ -7,8 +7,12 @@ import hashlib
 import json
 import re
 import stat
+import sys
 import zipfile
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
+import native_auth_resources
 
 SCHEMA = "celeste-beta-obfuscation-stage-1"
 PAYLOAD_SCHEMA = "celeste-beta-payload-obfuscation-stage-2"
@@ -98,7 +102,7 @@ def stage_a(source: Path, output: Path) -> dict[str, object]:
     return {"stable_entries": len(frozen), "implementation_classes": len(thin), "staging": str(output)}
 
 
-def merge_a(stage: Path, protected: Path, output: Path) -> dict[str, object]:
+def merge_a(stage: Path, protected: Path, output: Path, native_approval=None) -> dict[str, object]:
     record = json.loads((stage / "stage.json").read_text(encoding="utf-8"))
     require(record.get("schema") == SCHEMA, "Unknown A staging schema")
     source = Path(record["source_jar"])
@@ -114,6 +118,7 @@ def merge_a(stage: Path, protected: Path, output: Path) -> dict[str, object]:
     require(not frozen.keys() & implementation.keys(), "Obfuscator output collides with untouched A entries")
     require(not any(stable(name) and name.endswith(".class") for name in implementation), "Protected A generated a class inside a stable boundary")
     combined = frozen | implementation
+    native_auth_resources.validate_entries(combined, "bootstrap-a", native_approval)
     write_archive(output, combined)
     actual = read_archive(output)
     require(all(actual.get(name) == value for name, value in frozen.items()), "Merged A changed stable bytes")
@@ -185,7 +190,7 @@ def stage_payload(source: Path, output: Path) -> dict[str, object]:
             "implementation_classes": len(thin), "staging": str(output)}
 
 
-def merge_payload(stage: Path, protected: Path, mapping: Path, output: Path) -> dict[str, object]:
+def merge_payload(stage: Path, protected: Path, mapping: Path, output: Path, native_approval=None) -> dict[str, object]:
     record = json.loads((stage / "payload-stage.json").read_text(encoding="utf-8"))
     require(record.get("schema") == PAYLOAD_SCHEMA, "Unknown payload staging schema")
     source = Path(record["source_jar"])
@@ -219,10 +224,11 @@ def merge_payload(stage: Path, protected: Path, mapping: Path, output: Path) -> 
     require(helpers and resources, "Protected payload has no generated helpers and vault resources; inspect actual protection counts")
     require(not any(payload_boundary(name) for name in added), "Protected payload added an entry inside a stable boundary")
     combined = frozen | implementation
+    native_auth_resources.validate_entries(combined, "payload", native_approval)
     write_archive(output, combined)
     actual = read_archive(output)
     require(all(actual.get(name) == value for name, value in frozen.items()), "Merged payload changed stable bytes")
-    check_payload_boundaries(source, output)
+    check_payload_boundaries(source, output, native_approval)
     return {"archive": str(output.resolve()), "sha256": digest(output.read_bytes()),
             "stable_entries_verified": len(frozen), "original_implementation_classes": len(thin),
             "changed_original_classes": len(changed), "generated_helpers": len(helpers),
@@ -230,8 +236,9 @@ def merge_payload(stage: Path, protected: Path, mapping: Path, output: Path) -> 
             "compressed_bytes": output.stat().st_size, "expanded_bytes": sum(map(len, combined.values()))}
 
 
-def check_payload_boundaries(source: Path, protected: Path) -> dict[str, object]:
+def check_payload_boundaries(source: Path, protected: Path, native_approval=None) -> dict[str, object]:
     original, output = read_archive(source), read_archive(protected)
+    native_auth_resources.validate_entries(output, "payload", native_approval)
     kept = {name: value for name, value in original.items() if payload_boundary(name)}
     require(any(name.startswith("dev/celestebeta/host/") for name in kept), "Input has no canonical bridges")
     require(any(name.startswith("dev/redstones/mediaplayerinfo/") for name in kept), "Input has no native-media wrappers")
@@ -265,20 +272,22 @@ def main() -> None:
     boundaries = commands.add_parser("check-payload-boundaries")
     boundaries.add_argument("--source", type=Path, required=True)
     boundaries.add_argument("--protected", type=Path, required=True)
+    for command in (merge, payload_merge, boundaries):
+        native_auth_resources.add_arguments(command)
     args = parser.parse_args()
     try:
         if args.command == "stage-a":
             print(json.dumps(stage_a(args.source, args.output)))
         elif args.command == "merge-a":
-            print(json.dumps(merge_a(args.stage, args.protected, args.output)))
+            print(json.dumps(merge_a(args.stage, args.protected, args.output, native_auth_resources.from_args(args))))
         elif args.command == "stage-payload":
             print(json.dumps(stage_payload(args.source, args.output)))
         elif args.command == "merge-payload":
-            print(json.dumps(merge_payload(args.stage, args.protected, args.mapping, args.output)))
+            print(json.dumps(merge_payload(args.stage, args.protected, args.mapping, args.output, native_auth_resources.from_args(args))))
         elif args.command == "payload-entrypoint":
             print(payload_entrypoint(args.mapping, args.archive))
         else:
-            print(json.dumps(check_payload_boundaries(args.source, args.protected)))
+            print(json.dumps(check_payload_boundaries(args.source, args.protected, native_auth_resources.from_args(args))))
     except (OSError, ValueError, KeyError, zipfile.BadZipFile) as failure:
         parser.exit(1, f"Beta obfuscation preparation rejected: {failure}\n")
 

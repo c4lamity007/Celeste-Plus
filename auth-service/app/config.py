@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import os
+from pathlib import Path
 from dataclasses import dataclass
 
 
@@ -64,6 +65,9 @@ class Settings:
     runtime_kill_switch: bool = False
     plus_auth_protocol: int = 2
     tls_leaf_sha256: tuple[str, ...] = ()
+    public_native_dir: str = ""
+    plus_download_sha256: str = ""
+    public_native_max_bytes: int = 128 * 1024 * 1024
 
     def accepts_installer_identity(self, release_id: object, digest: object) -> bool:
         if not isinstance(release_id, str) or not isinstance(digest, str):
@@ -132,6 +136,19 @@ class Settings:
         if (len(pins) > 4 or len(set(pins)) != len(pins)
                 or any(len(pin) != 64 or any(c not in "0123456789abcdef" for c in pin) for pin in pins)):
             raise RuntimeError("CELESTE_TLS_LEAF_SHA256 must contain one to four unique lowercase SHA-256 hashes")
+        public_native_dir = os.getenv("CELESTE_PUBLIC_NATIVE_DIR", "").strip()
+        plus_download_sha256 = os.getenv("CELESTE_PLUS_DOWNLOAD_SHA256", "").strip()
+        if (bool(public_native_dir) != bool(plus_download_sha256)
+                or (public_native_dir and not Path(public_native_dir).is_absolute())
+                or (plus_download_sha256 and (len(plus_download_sha256) != 64
+                    or any(c not in "0123456789abcdef" for c in plus_download_sha256)))):
+            raise RuntimeError("Public launcher requires an absolute CELESTE_PUBLIC_NATIVE_DIR and lowercase CELESTE_PLUS_DOWNLOAD_SHA256")
+        try:
+            public_native_max_bytes = int(os.getenv("CELESTE_PUBLIC_NATIVE_MAX_BYTES", str(128 * 1024 * 1024)))
+        except ValueError as exc:
+            raise RuntimeError("CELESTE_PUBLIC_NATIVE_MAX_BYTES must be an integer") from exc
+        if not 0 < public_native_max_bytes <= 256 * 1024 * 1024:
+            raise RuntimeError("CELESTE_PUBLIC_NATIVE_MAX_BYTES must be between 1 and 268435456")
         return cls(
             database_path=os.getenv("CELESTE_DATABASE_PATH", "/data/auth.sqlite3"),
             signing_private_key=_decode_32("CELESTE_SIGNING_PRIVATE_KEY"),
@@ -168,6 +185,9 @@ class Settings:
             runtime_kill_switch=runtime_kill_switch in {"true", "1"},
             plus_auth_protocol=int(protocol),
             tls_leaf_sha256=pins,
+            public_native_dir=public_native_dir,
+            plus_download_sha256=plus_download_sha256,
+            public_native_max_bytes=public_native_max_bytes,
             beta_release_dir=os.getenv("CELESTE_BETA_RELEASE_DIR", "").strip(),
             public_origin=os.getenv("CELESTE_PUBLIC_ORIGIN", "").strip(),
             native_release_public_key=(

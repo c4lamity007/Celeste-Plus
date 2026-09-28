@@ -535,3 +535,11 @@ GitHub release secrets. See the [September 27 run record](../../docs/protection-
 for receipt, deployment and artifact hashes. The [native publication contract](NATIVE-RELEASE.md)
 remains enforced for future releases; no unsigned fallback or blanket protection
 approval has been added.
+
+## Native authentication payload flow (September 28 deployed release)
+
+Use `tools/protect_auth_native_release.py` for the separate checkpoint/resume flow. It runs existing Java protection first, then converts 16 selected methods in three auth classes without replacing protected helper bodies. The deployed release is `celeste-plus-20260928-native-auth-02`. All 16 selected entry paths have exact-byte virtualization review; this does not mean every method or complete class was virtualized. Payload settings are Virtualization/type 0, complexity 10, two VM instances. The second resume passed all 41 final native checks and 15 Java continuation stages using approval-02 and the corrected queue-publication fixture plan. The matched rollout is deployed and verified: 28 backend source hashes, 48 game artifacts, unchanged native policy sequence 3 and the complete public launcher download. Local catalog checks passed 82 tests with one Windows privilege skip. No real-license or Minecraft QA is claimed. The published max-protected Windows launcher remains unchanged.
+
+Only exact approved native entries may exceed 8 MiB: 32 MiB each, 64 MiB total, up to four resources. An approval-derived index in authenticated bootstrap B must match payload part A; arbitrary/self-declared entries retain the 8 MiB cap. Delivery parts and expanded archives retain their existing totals. Canonical parent custody preserves child-owned JNI loading and stop/reload cleanup.
+
+See [the native-auth runbook](../../docs/native-auth-20260928.md) for current checkpoint pins, resume command, final-artifact tests and matched backend rollout. The anonymous public launcher endpoint does not authorize game artifacts. The mini launcher's storage/execution architecture choice remains pending; no mini-launcher EXE has been built. The [fixture recipe](native-auth-producer/lifecycle-fixture-queue/README.md) preserves the bounded test synchronization correction without changing production DLLs.

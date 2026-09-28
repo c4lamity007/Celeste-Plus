@@ -1,6 +1,7 @@
 package dev.c4lam.celeste.auth;
 
 import dev.c4lam.celeste.beta.memory.TwoPartMemoryClassLoader;
+import dev.c4lam.celeste.beta.memory.NativeResourceBudget;
 import java.io.IOException;
 import java.net.URL;
 import java.net.URLClassLoader;
@@ -23,6 +24,11 @@ public final class ActualPayloadCheck {
     public static void main(String[] args) throws Exception {
         if (args.length < 4 || args.length > 5 || Runtime.version().feature() != 21) throw new IllegalArgumentException("Expected package, two SHA-256 values, runtime digest, optional parent classpath file; Java 21 required");
         Path root = Path.of(args[0]).toRealPath();
+        NativeResourceBudget nativeBudget;
+        Path budgetPath = root.resolve("native-auth-resources.txt");
+        try (var input = Files.exists(budgetPath) ? Files.newInputStream(budgetPath) : null) {
+            nativeBudget = NativeResourceBudget.readTrusted(input);
+        }
         Set<String> classes = lines(root.resolve("class-prefixes.txt"));
         Set<String> resources = lines(root.resolve("resource-prefixes.txt"));
         byte[] first = Files.readAllBytes(root.resolve("payload-a.bin"));
@@ -34,7 +40,7 @@ public final class ActualPayloadCheck {
         TwoPartMemoryClassLoader loader = TwoPartMemoryClassLoader.open(first, args[1], second, args[2],
             new TwoPartMemoryClassLoader.Namespaces(classes, resources),
             new TwoPartMemoryClassLoader.Limits(64 * 1024 * 1024, 65536, 8 * 1024 * 1024, 128L * 1024 * 1024),
-            ClassLoader.getPlatformClassLoader());
+            ClassLoader.getPlatformClassLoader(), nativeBudget);
         try {
             loader.visitRetainedParts(part -> {
                 partCount.incrementAndGet();

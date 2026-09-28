@@ -1,0 +1,11 @@
+--- a/beta-lab/auth-lifecycle/src/dev/c4lam/celeste/auth/AuthBootstrapLifecycleTest.java
++++ b/beta-lab/auth-lifecycle/src/dev/c4lam/celeste/auth/AuthBootstrapLifecycleTest.java
+@@ -425,6 +425,8 @@
+         AuthServiceClient.fatalChecks.set(100);
+         worker().shutdownNow();
+         await(() -> AuthBootstrap.locked(), 9_000, "bounded recovery exhaustion");
++        // Revocation publishes before the supervisor queues owner-thread cleanup.
++        await(() -> CLIENT.queuedCount() > 0, 2_000, "queued exhaustion cleanup");
+         CLIENT.drain();
+         assertClosedSession();
+         require(AuthServiceClient.checks.get() == 4, "Only three failed replacement heartbeats after startup");

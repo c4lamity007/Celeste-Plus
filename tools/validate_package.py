@@ -26,6 +26,7 @@ def main():
     sources = [ROOT / path for path in (
         'beta-lab/release-package/src/dev/c4lam/celeste/auth/ActualPayloadCheck.java',
         'beta-lab/memory-runtime/src/main/java/dev/c4lam/celeste/beta/memory/TwoPartMemoryClassLoader.java',
+        'beta-lab/memory-runtime/src/main/java/dev/c4lam/celeste/beta/memory/NativeResourceBudget.java',
         'beta-lab/integrity-adapter/src/test/java/dev/c4lam/celeste/CelesteClient.java',
         'beta-lab/bootstrap-b/fixtures/core/dev/c4lam/celeste/auth/ArtifactIntegrity.java',
         'beta-lab/bootstrap-b/fixtures/core/dev/c4lam/celeste/auth/Crypto.java')]

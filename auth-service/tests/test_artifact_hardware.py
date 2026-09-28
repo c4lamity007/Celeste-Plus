@@ -84,7 +84,7 @@ def test_hardware_binding_rechecked_after_slow_artifact_work(v2, monkeypatch, ph
     token = auth(v2).json()["grant"]
     signed, path = manifest(v2, token)
     _, request = encrypted_request(v2, token, path, signed)
-    name = "_read_release" if phase == "read" else "encrypt"
+    name = "_read_release" if phase == "read" else "encrypt_chunks"
     original = getattr(module, name)
 
     def changed(*args, **kwargs):

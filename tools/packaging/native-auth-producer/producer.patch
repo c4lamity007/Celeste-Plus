@@ -1,0 +1,241 @@
+--- a/src/main/java/dev/local/obfuscator/NativeCompiler.java
++++ b/src/main/java/dev/local/obfuscator/NativeCompiler.java
+@@ -45,7 +45,9 @@
+             throw new IOException("The active Java runtime does not provide JNI headers: " + include);
+         }
+         Consumer<String> log = progress == null ? ignored -> { } : progress;
+-        Path directory = Files.createTempDirectory("word-obfuscator-native-");
++        String export = System.getProperty("celeste.prototype.export");
++        Path directory = export == null ? Files.createTempDirectory("word-obfuscator-native-")
++                : Files.createDirectory(Path.of(export).toAbsolutePath().normalize());
+         Path cpp = directory.resolve("native.cpp");
+         Path dll = directory.resolve("native.dll");
+         Path script = directory.resolve("build.cmd");
+@@ -61,7 +63,8 @@
+                     + "if errorlevel 1 exit /b 1\r\n"
+                     + "cl.exe /nologo /std:c++20 /O2 /bigobj " + virtualizationFlags + "/LD /GS /guard:cf "
+                     + "/I" + quote(include) + " /I" + quote(win32) + " " + quote(cpp)
+-                    + " /link /OUT:" + quote(dll) + " /DYNAMICBASE /NXCOMPAT /GUARD:CF\r\n";
++                    + " /link /OUT:" + quote(dll) + " /MAP:" + quote(directory.resolve("native.map"))
++                    + " /MAPINFO:EXPORTS /DYNAMICBASE /NXCOMPAT /GUARD:CF\r\n";
+             Files.writeString(script, command, StandardCharsets.UTF_8);
+             Process process = new ProcessBuilder("cmd.exe", "/d", "/c", script.toString())
+                     .directory(directory.toFile())
+@@ -98,7 +101,7 @@
+             log.accept("Native C++ sidecar compiled: " + library.length + " bytes (Windows x64). ");
+             return library;
+         } finally {
+-            cleanup(directory);
++            if (export == null) cleanup(directory);
+         }
+     }
+ 
+--- a/src/main/java/dev/local/obfuscator/NativeTranspiler.java
++++ b/src/main/java/dev/local/obfuscator/NativeTranspiler.java
+@@ -61,6 +61,8 @@
+     private static final String LOADER_DESCRIPTOR = "(Ljava/lang/Class;Ljava/lang/String;Ljava/lang/String;"
+             + "Ljava/lang/invoke/MethodType;I)V";
+ 
++    private static boolean callLocalJni() { return Boolean.getBoolean("celeste.prototype.callLocalJni"); }
++
+     private NativeTranspiler() {
+     }
+ 
+@@ -101,6 +103,7 @@
+         private final List<String> functions = new ArrayList<>();
+         private final List<String> prototypes = new ArrayList<>();
+         private final List<NativeBinding> bindings = new ArrayList<>();
++        private final List<Map<String, Object>> prototypeSymbols = new ArrayList<>();
+         private final Map<NativeMethodKey, String> directFunctions = new HashMap<>();
+         private final Set<Integer> issuedBindingTokens = new HashSet<>();
+         private final SecureRandom bindingRandom = new SecureRandom();
+@@ -156,6 +159,32 @@
+             this.bindingKey = nextBindingToken();
+         }
+ 
++        private final Set<String> prototypeSelection = readPrototypeSelection();
++        private static Set<String> readPrototypeSelection() {
++            String path = System.getProperty("celeste.prototype.methods");
++            if (path == null) return null;
++            try {
++                Set<String> selected = new java.util.LinkedHashSet<>();
++                for (String line : java.nio.file.Files.readAllLines(java.nio.file.Path.of(path))) {
++                    String value = line.trim();
++                    if (value.isEmpty()) continue;
++                    if (!value.matches("[A-Za-z0-9_$/]+#[A-Za-z0-9_$]+\\(.*\\).+") || !selected.add(value))
++                        throw new IllegalArgumentException("Invalid/duplicate exact native method selection");
++                }
++                if (selected.isEmpty()) throw new IllegalArgumentException("Empty native method selection");
++                return Set.copyOf(selected);
++            } catch (java.io.IOException failure) { throw new IllegalArgumentException("Cannot read native method selection", failure); }
++        }
++        void validatePrototypeSelection() {
++            if (prototypeSelection == null) return;
++            Set<String> actual = new HashSet<>();
++            for (Map<String, Object> row : prototypeSymbols) actual.add(row.get("owner") + "#" + row.get("method") + row.get("descriptor"));
++            if (!actual.equals(prototypeSelection)) {
++                Set<String> missing = new HashSet<>(prototypeSelection); missing.removeAll(actual);
++                throw new IllegalStateException("Native selection was not completely translated: " + missing);
++            }
++        }
++
+         byte[] rewrite(byte[] input) {
+             return rewrite(input, nativeVirtualization ? NativeMode.VIRTUALIZED : NativeMode.NATIVE, Set.of());
+         }
+@@ -205,6 +234,10 @@
+                 if ((method.access & (Opcodes.ACC_ABSTRACT | Opcodes.ACC_NATIVE)) == 0) {
+                     concreteMethods++;
+                     concreteInstructions += instructionCount;
++                }
++                if (prototypeSelection != null && !prototypeSelection.contains(node.name + "#" + method.name + method.desc)) {
++                    recordSkipped(node.name, method, mode, "outside exact prototype auth selection");
++                    continue;
+                 }
+                 String retainedReason = retainedReasons.get(method.name + method.desc);
+                 if (retainedReason != null) {
+@@ -314,6 +347,12 @@
+                 prototypes.add(functionPrototype(item.nativeFunctionName(), item.compilation()));
+                 functions.add(compiled.source());
+                 bindings.add(new NativeBinding(item.bindingToken(), item.nativeFunctionName()));
++                Map<String, Object> identity = new java.util.LinkedHashMap<>();
++                identity.put("owner", node.name); identity.put("method", item.original().name);
++                identity.put("descriptor", item.original().desc); identity.put("native_symbol", item.nativeFunctionName());
++                identity.put("native_method", item.nativeName()); identity.put("binding_token", item.bindingToken());
++                identity.put("actual_mode", actualMode); identity.put("constructor_tail", item.constructor() != null);
++                prototypeSymbols.add(identity);
+                 nativeInstructions += item.movedInstructionCount();
+                 runtimeDispatchUnits += compiled.runtimeDispatchUnits();
+                 if (compiled.directCfg()) {
+@@ -340,6 +379,8 @@
+             node.accept(writer);
+             return writer.toByteArray();
+         }
++
++        List<Map<String, Object>> prototypeSymbols() { return List.copyOf(prototypeSymbols); }
+ 
+         int methodCount() {
+             return functions.size();
+@@ -413,6 +454,7 @@
+                     .append("#include <string>\n")
+                     .append("#include <vector>\n")
+                     .append("#include <initializer_list>\n\n");
++            if (callLocalJni()) source.append("struct j_scoped_class { JNIEnv* env; jclass value; ~j_scoped_class() { if (value != nullptr) env->DeleteLocalRef(value); } };\n");
+             source.append(virtualizer.sharedSource());
+             source.append("static inline jint j_i32(std::uint64_t v) { return static_cast<jint>(static_cast<std::uint32_t>(v)); }\n")
+                     .append("static inline jlong j_i64(std::uint64_t v) { return static_cast<jlong>(v); }\n")
+@@ -1175,7 +1217,7 @@
+             }
+         }
+         StringBuilder source = new StringBuilder(4096);
+-        source.append(primitiveLeaf ? "static " : "static __declspec(noinline) ")
++        source.append("static __declspec(noinline) ")
+                 .append(cppType(result)).append(" JNICALL ")
+                 .append(nativeFunctionName).append("(JNIEnv* env, ")
+                 .append(isStatic ? "jclass owner_class" : "jobject self");
+@@ -2539,6 +2581,12 @@
+         String site = "c" + pc;
+         out.append("std::string ").append(site).append("_name = ").append(vm.stdString(method.name)).append("; ");
+         out.append("std::string ").append(site).append("_desc = ").append(vm.stdString(method.desc)).append("; ");
++        if (callLocalJni()) {
++            out.append("jmethodID ").append(site).append("_id = env->Get")
++                    .append(isStatic ? "Static" : "").append("MethodID(call_class, ")
++                    .append(site).append("_name.c_str(), ").append(site).append("_desc.c_str()); if (")
++                    .append(site).append("_id == nullptr) { ");
++        } else {
+         out.append("static std::atomic<jmethodID> ").append(site).append("_cache{nullptr}; jmethodID ")
+                 .append(site).append("_id = ").append(site)
+                 .append("_cache.load(std::memory_order_acquire); if (").append(site)
+@@ -2552,6 +2600,7 @@
+                 .append(site).append("_id = ").append(site).append("_resolved; else ")
+                 .append(site).append("_id = ").append(site).append("_expected; } } if (")
+                 .append(site).append("_id == nullptr) { ");
++        }
+         appendExceptionExit(out, methodResult, pc, exceptionPlan);
+         out.append(" } ");
+ 
+@@ -2835,6 +2884,12 @@
+     private static void emitCachedClassLookup(StringBuilder out, String variable, String binaryName,
+                                               String currentOwner, Type methodResult,
+                                               int pc, ExceptionPlan exceptionPlan, VmMethod vm) {
++        if (callLocalJni()) {
++            emitClassLookup(out, variable, binaryName, currentOwner, methodResult, pc, exceptionPlan, vm);
++            out.append("j_scoped_class ").append(variable).append("_scope{env, ")
++                    .append(binaryName.equals(currentOwner) ? "nullptr" : variable).append("}; ");
++            return;
++        }
+         if (binaryName.equals(currentOwner)) {
+             out.append("jclass ").append(variable).append(" = owner_class; ");
+         } else {
+@@ -2918,6 +2973,12 @@
+         String site = "f" + pc;
+         out.append("std::string ").append(site).append("_name = ").append(vm.stdString(field.name)).append("; ");
+         out.append("std::string ").append(site).append("_desc = ").append(vm.stdString(field.desc)).append("; ");
++        if (callLocalJni()) {
++            out.append("jfieldID ").append(site).append("_id = env->Get")
++                    .append(isStatic ? "Static" : "").append("FieldID(field_class, ")
++                    .append(site).append("_name.c_str(), ").append(site).append("_desc.c_str()); if (")
++                    .append(site).append("_id == nullptr) { ");
++        } else {
+         out.append("static std::atomic<jfieldID> ").append(site).append("_cache{nullptr}; jfieldID ")
+                 .append(site).append("_id = ").append(site)
+                 .append("_cache.load(std::memory_order_acquire); if (").append(site)
+@@ -2931,6 +2992,7 @@
+                 .append(site).append("_id = ").append(site).append("_resolved; else ")
+                 .append(site).append("_id = ").append(site).append("_expected; } } if (")
+                 .append(site).append("_id == nullptr) { ");
++        }
+         appendExceptionExit(out, methodResult, pc, exceptionPlan);
+         out.append(" } ");
+         if (get) {
+--- a/src/main/java/dev/local/obfuscator/JarObfuscator.java
++++ b/src/main/java/dev/local/obfuscator/JarObfuscator.java
+@@ -983,6 +983,17 @@
+                         || config.stripDebugInfo() || nativePlan != null || !assets.isEmpty()
+                         || nativeResourceChanged || packageResourceChanged || hasColdMethods)) {
+                     try {
++                        if (Boolean.getBoolean("celeste.prototype.nativeOnly")) {
++                            if (config.renameClasses() || config.renamePrivateMembers() || config.encryptStrings()
++                                    || config.stripDebugInfo() || config.crazyObfuscation()
++                                    || config.nativeVirtualization() || config.targetedNativeVirtualization()
++                                    || config.virtualizeExistingNativeLibraries() || config.relocateAssets()
++                                    || nativePlan == null || nativeFrameworkBoundary || nativeMode == NativeTranspiler.NativeMode.NONE) {
++                                throw new IllegalStateException("Native-only prototype requires stable names, existing Java protection, direct native mode and an eligible boundary");
++                            }
++                            bytes = nativePlan.rewrite(bytes, nativeMode,
++                                    nativeExclusions(manualPriorityClasses.contains(binaryName), hotPathExclusions), Map.of());
++                        } else {
+                         BytecodeTransformer.Transformation literalTransform = BytecodeTransformer.transformWithLiteralProvenance(
+                                 bytes, mapping, table, encrypt, config.stripDebugInfo(),
+                                 kind == ClassClassifier.Kind.GUI_VISUAL
+@@ -1272,6 +1283,7 @@
+                                 }
+                             }
+                         }
++                        }
+                     } catch (RuntimeException failure) {
+                         throw new IOException("Transformation failed for " + name + ": " + failure.getMessage(), failure);
+                     }
+@@ -1441,6 +1453,7 @@
+                     .forEach(name -> log.accept("Targeted native protection found no safely translatable methods in: "
+                             + name.replace('/', '.')));
+         }
++        if (nativePlan != null) nativePlan.validatePrototypeSelection();
+         if (nativePlan != null) authCoverage.recordNativeOutcomes(nativePlan.methodOutcomes());
+         authCoverage.summaryLines().forEach(log);
+         authCoverage.requireVirtualized(config.requiredAuthMethods());
+@@ -1488,6 +1501,15 @@
+                 putUnique(output, nativeLoader + ".class", remapClass(
+                         nativeLayout.bytes(), nativeLayout.mapping(), Map.of()));
+                 putUnique(output, nativeResource, library);
++                String prototypeExport = System.getProperty("celeste.prototype.export");
++                if (prototypeExport != null) {
++                    com.google.gson.JsonObject prototype = new com.google.gson.JsonObject();
++                    prototype.addProperty("scope", "isolated prototype; mapped names equal original names only when both renamers are disabled");
++                    prototype.addProperty("resource", nativeResource); prototype.addProperty("loader", nativeLoader);
++                    prototype.add("functions", new com.google.gson.Gson().toJsonTree(nativePlan.prototypeSymbols()));
++                    java.nio.file.Files.writeString(java.nio.file.Path.of(prototypeExport).resolve("native-symbols.json"),
++                        new com.google.gson.GsonBuilder().setPrettyPrinting().create().toJson(prototype));
++                }
+             }
+         }
+         if (existingNativeLibraries.hasProtectedResources()) {
