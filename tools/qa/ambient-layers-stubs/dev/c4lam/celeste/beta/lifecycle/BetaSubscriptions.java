@@ -1,0 +1,1 @@
+package dev.c4lam.celeste.beta.lifecycle; public class BetaSubscriptions { public static <T> void register(Object event,String key,Class<T> type,T callback,java.util.function.Consumer<T> registration){} }

@@ -1,0 +1,1 @@
+package net.fabricmc.fabric.api.client.rendering.v1.world; public class WorldRenderEvents { public interface StartMain{void render(Object c);} public static class Event<T>{public void register(T callback){}} public static final Event<StartMain> START_MAIN=new Event<>(); }

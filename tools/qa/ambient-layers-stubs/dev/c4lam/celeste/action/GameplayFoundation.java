@@ -1,0 +1,1 @@
+package dev.c4lam.celeste.action; public class GameplayFoundation { public static void beginTick(Object c){} public static void resolveRotations(Object c){} public static void executeActions(Object c){} public static void afterTick(Object c){} public static void releaseOwner(Object c){} }

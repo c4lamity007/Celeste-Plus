@@ -1,0 +1,1 @@
+package net.minecraft.client; public class MinecraftClient { public Object world,player,currentScreen; public Object getWindow(){return null;} public Object getOverlay(){return null;} public boolean isWindowFocused(){return false;} public static MinecraftClient getInstance(){return new MinecraftClient();} }

@@ -45,6 +45,7 @@ public sealed interface GuiSetting permits GuiSetting.Action, GuiSetting.Toggle,
         private final String label;
         private final String description;
         private boolean value;
+        private boolean visibleInMenu = true;
 
         public Toggle(String label, String description, boolean value) {
             this.label = label;
@@ -61,6 +62,10 @@ public sealed interface GuiSetting permits GuiSetting.Action, GuiSetting.Toggle,
         public String description() {
             return description;
         }
+
+        public Toggle hidden() { visibleInMenu = false; return this; }
+
+        @Override public boolean visibleInMenu() { return visibleInMenu; }
 
         public boolean value() {
             return value;

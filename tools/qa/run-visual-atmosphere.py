@@ -21,6 +21,7 @@ stubs = {
     'dev/c4lam/celeste/hud/ModuleToggleSoundQueue.java': 'public class ModuleToggleSoundQueue { public static ModuleToggleSoundQueue getInstance(){return new ModuleToggleSoundQueue();} public void publish(boolean enabled) {} }',
     'dev/c4lam/celeste/module/impl/visual/BlockEspSettings.java': 'public class BlockEspSettings { public static dev.c4lam.celeste.gui.model.GuiModule storage(){ return new dev.c4lam.celeste.gui.model.GuiModule("Storage ESP","stub",dev.c4lam.celeste.gui.model.CelestePage.VISUALS,false); } public static dev.c4lam.celeste.gui.model.GuiModule blocks(){ return new dev.c4lam.celeste.gui.model.GuiModule("Block ESP","stub",dev.c4lam.celeste.gui.model.CelestePage.VISUALS,false); } }',
     'dev/c4lam/celeste/gui/HandModelsEditorScreen.java': 'public class HandModelsEditorScreen { public static void open() {} }',
+    'dev/c4lam/celeste/gui/AmbientEffectsEditorScreen.java': 'public class AmbientEffectsEditorScreen { public static void open() {} }',
     'dev/c4lam/celeste/gui/ModelImportScreen.java': 'public class ModelImportScreen { public static void open() {} }',
     'dev/c4lam/celeste/render/model/BundledPlayerModel.java': 'public class BundledPlayerModel { public static boolean available() { return false; } }',
     'dev/c4lam/celeste/module/impl/visual/PlayerModelsFeature.java': 'public class PlayerModelsFeature { public static void loadSahur() {} }',
@@ -36,6 +37,7 @@ for relative, body in stubs.items():
     sources.append(path)
 relative_sources = [
     'gui/model/GuiCatalog.java', 'gui/model/GuiSetting.java', 'gui/model/GuiModule.java', 'gui/model/CelestePage.java',
+    'gui/model/AmbientEffectsSettings.java',
     'module/ModuleContext.java', 'module/ModuleFeature.java',
     *('module/impl/visual/expansion/' + name + '.java' for name in ['VisualAtmosphere', 'AtmosphereFeature', 'CustomFogFeature', 'CustomFogMath', 'HandShadersFeature']),
 ]

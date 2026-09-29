@@ -94,6 +94,7 @@ public final class ModuleManager implements AutoCloseable {
         if (properties == null) {
             return;
         }
+        properties = dev.c4lam.celeste.gui.model.AmbientEffectsSettings.prepare(properties);
         for (GuiModule module : GuiCatalog.modules()) {
             String prefix = "module." + key(module.name());
             String enabled = properties.getProperty(prefix + ".enabled");
@@ -301,6 +302,7 @@ public final class ModuleManager implements AutoCloseable {
             LOGGER.error("Could not load module configuration from {}", configPath, ignored);
             return;
         }
+        properties = dev.c4lam.celeste.gui.model.AmbientEffectsSettings.prepare(properties);
         for (GuiModule module : GuiCatalog.modules()) {
             String prefix = "module." + key(module.name());
             String enabled = properties.getProperty(prefix + ".enabled");
