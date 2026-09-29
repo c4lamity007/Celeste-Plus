@@ -1,6 +1,8 @@
 package dev.c4lam.celeste.module.impl.visual.expansion;
 
 import java.util.List;
+import java.util.HashSet;
+import java.util.Set;
 
 /** Deterministic event, lifetime, capacity and floor-path regressions; no Minecraft launch. */
 public final class HitEffectsCheck {
@@ -46,53 +48,107 @@ public final class HitEffectsCheck {
         state.clear(); check(state.accept(2,17),"reset clears duplicate guard");
     }
     private static void ground() {
-        for(int seed=0;seed<96;seed++) {
+        for(int seed=0;seed<512;seed++) {
             int[] reads={0};
             List<HitGroundPath.Branch> paths=HitGroundPath.build(.14,64,.31,seed,(x,z,y,r,d)-> {reads[0]++;return 64;});
-            check(paths.size()==4,"four outward branches");
+            check(paths.size()==9,"nine outward branches on open floor: "+seed);
+            check(new HashSet<>(paths).size()==9,"all nine routes distinct");
             check(reads[0]<=HitGroundPath.MAX_SURFACE_SAMPLES,"strict probe budget");
+            Set<String> sharedStarts=new HashSet<>(),secondSteps=new HashSet<>();
             for(var path:paths) {
-                check(path.segments().size()==28,"seven one-block decisions");
+                check(path.segments().size()==7,"seven one-block decisions");
+                sharedStarts.add(edgeKey(path.segments().getFirst().from(),path.segments().getFirst().to()));
+                secondSteps.add(edgeKey(path.segments().get(1).from(),path.segments().get(1).to()));
                 double previous=0;
                 for(var edge:path.segments()) {
                     var a=edge.from(); var b=edge.to();
                     check(Math.abs(a.y()-64.018)<1e-7 && Math.abs(b.y()-64.018)<1e-7,"surface lift");
-                    check(Math.abs(a.x()-Math.rint(a.x()))<1e-7 || Math.abs(a.z()-Math.rint(a.z()))<1e-7,"block seam");
-                    check(Math.abs(Math.abs(b.x()-a.x())+Math.abs(b.z()-a.z())-.25)<1e-7,"cardinal quarter sample");
+                    check(integer(a.x()) && integer(a.z()) && integer(b.x()) && integer(b.z()),"all endpoints at integer seams");
+                    check(Math.abs(Math.abs(b.x()-a.x())+Math.abs(b.z()-a.z())-1)<1e-7,"exactly one cardinal block");
+                    check(a.y()==b.y(),"strict flat 2D");
                     double radial=b.x()*b.x()+b.z()*b.z();
                     check(radial>previous,"continuously away, no backtracking"); previous=radial;
                     check(edge.end()>edge.start(),"growth time ordered");
                 }
             }
+            check(sharedStarts.size()==4,"four shared initial exits");
+            check(secondSteps.size()==9,"nine paths diverge at second node");
+            // Emulate exactly which block columns the real seam sampler touches on a full-block floor.
+            Set<String> columns=new HashSet<>();
+            for(var path:paths)for(var edge:path.segments())for(int sample=0;sample<=4;sample++)for(int side=0;side<4;side++) {
+                double t=sample*.25,x=edge.from().x()+(edge.to().x()-edge.from().x())*t,z=edge.from().z()+(edge.to().z()-edge.from().z())*t;
+                columns.add((int)Math.floor(x+((side&1)==0?-.012:.012))+","+(int)Math.floor(z+((side&2)==0?-.012:.012)));
+            }
+            check(columns.size()*3+16<=384,"actual flat collision read budget supports all nine routes");
         }
         var noFloor=HitGroundPath.build(0,64,0,0,(x,z,y,r,d)->Double.NaN);
         check(noFloor.isEmpty(),"airborne target without nearby floor");
         var gap=HitGroundPath.build(0,64,0,0,(x,z,y,r,d)->Math.abs(x)>.76?Double.NaN:64);
         for(var p:gap) for(var s:p.segments()) check(Math.abs(s.to().x())<=.76,"does not bridge missing floor");
         var stair=HitGroundPath.build(0,64,0,0,(x,z,y,r,d)-> {
-            double top=64+Math.max(0,Math.floor(x*2))*.5;
+            double top=64+(x>=.5?.5:0);
             return top>y+r || top<y-d?Double.NaN:top;
         });
-        boolean rise=false;
-        for(var p:stair) for(var s:p.segments()) if(s.to().y()!=s.from().y()) {
-            rise=true;check(s.to().x()==s.from().x() && s.to().z()==s.from().z(),"stair riser attached vertically");
+        for(var p:stair) for(var s:p.segments()) {
+            check(s.to().y()==s.from().y() && s.from().y()==64.018,"height changes never get risers");
+            check(s.to().x()<.5 && s.from().x()<.5,"path stops before stair transition");
         }
-        check(rise,"slab and stair height supported");
+        var slab=HitGroundPath.build(.2,64.5,.2,19,(x,z,y,r,d)->64.5);
+        check(slab.size()==9,"flat slab floor supported");
+        for(var p:slab)for(var s:p.segments())check(s.from().y()==64.518 && s.to().y()==64.518,"slab anchored flat");
         int[] pathological={0};
         HitGroundPath.build(0,0,0,0,(x,z,y,r,d)-> {pathological[0]++;return x==0&&z==0?0:Double.NaN;});
         check(pathological[0]<=256,"failed alternatives bounded");
         var flat=HitGroundPath.build(0,64,0,9,(x,z,y,r,d)->64);
+        var compatible=new HitEffectsState.GroundPulse(flat,0,1,0x2244AA);
+        check(compatible.color()==compatible.endColor(),"existing ground pulse constructor retained");
         HitEffectsState state=new HitEffectsState();
-        for(int i=0;i<10;i++) state.ground(flat,0,1,0x45CEEC);
+        for(int i=0;i<10;i++) state.ground(flat,0,1,0x2244AA,0x66EEFF);
         check(state.groundCount()==4,"independent ground capacity");
         check(state.frame(0).ground().isEmpty(),"ground starts empty");
         var early=state.frame(.07).ground();var grown=state.frame(.28).ground();
         check(!early.isEmpty() && grown.size()>early.size(),"progressive head movement");
+        check(early.size()==4,"shared prefixes drawn only once even with four simultaneous pulses");
+        for(var frame:List.of(early,grown,state.frame(.5).ground(),state.frame(.8).ground(),state.frame(1.1).ground())) {
+            Set<String> edges=new HashSet<>();
+            for(var beam:frame) {
+                check(edges.add(edgeKey(beam.from(),beam.to())),"no repeated edge overdraw");
+                check(integer(beam.from().x())&&integer(beam.from().z())&&integer(beam.to().x())&&integer(beam.to().z()),"whole block fade keeps grid endpoints");
+                check(Math.abs(Math.abs(beam.to().x()-beam.from().x())+Math.abs(beam.to().z()-beam.from().z())-1)<1e-8,"fade never shortens segment");
+                check(beam.color()!=beam.endColor(),"gradient has both endpoints");
+            }
+        }
+        HitEffectsState fade=new HitEffectsState();fade.ground(flat,0,1,0x2244AA,0x66EEFF);
+        var enter=fade.frame(.015).ground().getFirst();var full=fade.frame(.075).ground().getFirst();
+        check(enter.from().equals(full.from()) && enter.to().equals(full.to()) && enter.opacity()<full.opacity(),"block fades in without growing");
+        var leaving=fade.frame(.75).ground().stream().filter(b->b.from().equals(enter.from())&&b.to().equals(enter.to())).findFirst().orElseThrow();
+        check(leaving.opacity()<full.opacity() && leaving.to().equals(full.to()),"block fades out without shrinking");
         double earlyDistance=early.stream().mapToDouble(s->distance(s.to(),new HitEffectsState.Point(0,64.018,0))).max().orElse(0);
         double grownDistance=grown.stream().mapToDouble(s->distance(s.to(),new HitEffectsState.Point(0,64.018,0))).max().orElse(0);
         check(grownDistance>earlyDistance,"growth advances outward");
         state.clearGround(); check(state.frame(.3).isEmpty(),"ground toggle clears");
         state.ground(flat,0,1,0);check(state.frame(2).isEmpty(),"ground fades completely");
+        palette();
+    }
+    private static void palette() {
+        for(var preset:VisualAtmosphere.Preset.values()) {
+            VisualAtmosphere.configure(true,preset.sky(),false);
+            int start=VisualAtmosphere.tint(0x4BD2FF,0,.75),end=VisualAtmosphere.tint(0x7799BB,0,.25);
+            check(start==preset.primary() && end==preset.accent(),"actual atmosphere gradient endpoints "+preset);
+            check(HitEffectsState.gradient(start,end,0)==start && HitEffectsState.gradient(start,end,1)==end,"gradient preserves palette endpoints");
+            for(int shift=0;shift<=16;shift+=8) {
+                int a=start>>shift&255,b=end>>shift&255,m=HitEffectsState.gradient(start,end,.5)>>shift&255;
+                check(m>=Math.min(a,b)&&m<=Math.max(a,b),"gradient stays inside palette");
+            }
+        }
+        VisualAtmosphere.configure(true,"Sunset",true);
+        int manual=0x24689A,light=HitEffectsState.gradient(manual,0xFFFFFF,.22);
+        check(VisualAtmosphere.tint(manual,0,.75)==manual && VisualAtmosphere.tint(light,0,.25)==light,"advanced mode honors manual gradient");
+        VisualAtmosphere.clear();check(VisualAtmosphere.tint(manual,0,.75)==manual,"disabled atmosphere honors manual color");
+    }
+    private static boolean integer(double x){return Math.abs(x-Math.rint(x))<1e-8;}
+    private static String edgeKey(HitEffectsState.Point a,HitEffectsState.Point b) {
+        String first=a.toString(),second=b.toString();return first.compareTo(second)<=0?first+"/"+second:second+"/"+first;
     }
     private static void clocks() {
         var clock=new HitEffectsState.Clock();

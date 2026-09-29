@@ -72,7 +72,9 @@ public final class HitEffectsFeature implements ModuleFeature {
         if(settings.ground) {
             // A fresh, tightly capped collision snapshot exists only during this call.
             Surface surface=new Surface(client.world,ShapeContext.of(target));
-            state.ground(HitGroundPath.build(position.x,position.y,position.z,seed,surface),now,settings.size,color);
+            int start=VisualAtmosphere.tint(settings.color,0,.75);
+            int end=VisualAtmosphere.tint(HitEffectsState.gradient(settings.color,0xFFFFFF,.22),0,.25);
+            state.ground(HitGroundPath.build(position.x,position.y,position.z,seed,surface),now,settings.size,start,end);
         }
         if(settings.displacement) HitDisplacementRenderer.pulse(client,color,settings.size);
     }
@@ -121,9 +123,9 @@ public final class HitEffectsFeature implements ModuleFeature {
         try { HitDisplacementRenderer.reset(); } catch(RuntimeException | LinkageError ignored) { }
     }
 
-    /** Cached read-only collision probes: at most 192 loaded block states per accepted hit. */
+    /** Cached read-only collision probes: at most 384 loaded block states per accepted hit. */
     private static final class Surface implements HitGroundPath.Surface {
-        private static final int MAX_BLOCK_READS=192;
+        private static final int MAX_BLOCK_READS=384;
         private final ClientWorld world;
         private final ShapeContext shapeContext;
         private final Map<BlockPos,List<Box>> cells=new HashMap<>();

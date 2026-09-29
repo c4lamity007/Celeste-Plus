@@ -44,7 +44,7 @@ public final class AmbientTronGpuCheck extends ImpactCheck {
         BufferedImage image=new BufferedImage(W*2,H+header+footer,BufferedImage.TYPE_INT_RGB);Graphics2D g=image.createGraphics();
         g.setColor(new Color(17,22,30));g.fillRect(0,0,image.getWidth(),image.getHeight());g.setColor(Color.WHITE);g.setFont(new Font("SansSerif",Font.BOLD,18));
         g.drawString("AMBIENT TRON TRAILS - production geometry and glow shader",14,25);g.setFont(new Font("SansSerif",Font.PLAIN,13));
-        g.drawString("Independent planar paths, one-block turns, moving heads and fading tails. GPU fixture, not Minecraft.",14,47);
+        g.drawString("Integer XYZ edges, flat XY/XZ/YZ ribbons, 90-degree turns and fading tails. GPU fixture, not Minecraft.",14,47);
         g.drawImage(AtmosphereCheck.image(first),0,header,null);g.drawImage(AtmosphereCheck.image(second),W,header,null);
         g.drawString("Same world-anchored field: t = 0.0s",14,H+header+18);g.drawString("t = 0.5s",W+14,H+header+18);g.dispose();
         ImageIO.write(image,"PNG",output.resolve("ambient-tron-gpu-preview.png").toFile());
@@ -68,7 +68,7 @@ public final class AmbientTronGpuCheck extends ImpactCheck {
             for(float v:draw(initial,1,.5f,40,false))check(v==0,"terrain occludes both core and bloom");
             for(float v:draw(List.of(),1,1,40,false))check(v==0,"empty frame has no stale lines");
             // Explicit nearby beam: full fog removes it, wide glow remains distinct from its bright core.
-            var detail=List.of(new AmbientTronField.Segment(1,-.8,0,-3,.8,0,-3,.18,.8f,.8f,.5));
+            var detail=List.of(new AmbientTronField.Segment(1,-1,0,-3,1,0,-3,.18,.8f,.8f,.5,2,-1,-1));
             for(float v:draw(detail,1,1,1,false))check(v==0,"native fog hides distant trail");
             float[] line=draw(detail,1,1,40,false);float peak=0;int halo=0;
             for(int i=0;i<line.length;i+=4)peak=Math.max(peak,line[i+1]);

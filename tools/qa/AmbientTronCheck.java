@@ -13,11 +13,11 @@ public final class AmbientTronCheck {
         return out;
     }
     public static void main(String[] args) {
-        paths(); lifecycle(); air(); geometry(); clock();
+        paths(); lifecycle(); air(); edgeCells(); geometry(); joints(); clock();
         System.out.println("PASS ambient-tron " + checks + " production behavior assertions");
     }
     private static void paths() {
-        int turns = 0, bothAxes = 0;
+        int turns=0,bothAxes=0;Set<Integer> directions=new HashSet<>(),planes=new HashSet<>();
         Set<Double> elevations = new HashSet<>();
         for (int seed = 1; seed <= 24; seed++) {
             var field = new AmbientTronField(seed);
@@ -29,28 +29,45 @@ public final class AmbientTronCheck {
                 check(groups.size() <= AmbientTronField.MAX_TRAILS, "bounded trails");
                 for (var segments : groups.values()) {
                     check(segments.size() <= AmbientTronField.MAX_SEGMENTS_PER_TRAIL, "bounded trail length");
-                    boolean xAxis = false, zAxis = false;
+                    Set<Integer> axes=new HashSet<>();
                     var prev = segments.getFirst();
                     for (var s : segments) {
-                        double dx = s.bx()-s.ax(), dz = s.bz()-s.az(), length = Math.abs(dx)+Math.abs(dz);
+                        double[] a={s.ax(),s.ay(),s.az()},b={s.bx(),s.by(),s.bz()};
+                        double dx=b[0]-a[0],dy=b[1]-a[1],dz=b[2]-a[2],length=Math.abs(dx)+Math.abs(dy)+Math.abs(dz);
                         check(Double.isFinite(s.ax()+s.ay()+s.az()+s.bx()+s.by()+s.bz()+s.width()+s.startOpacity()+s.endOpacity()), "finite path");
-                        check(s.ay() == s.by() && s.ay() == prev.ay(), "constant planar elevation");
-                        check((dx == 0) != (dz == 0), "one orthogonal axis");
+                        check(s.normalAxis()==prev.normalAxis() && a[s.normalAxis()]==b[s.normalAxis()], "fixed XY/XZ/YZ plane");
+                        check((dx!=0?1:0)+(dy!=0?1:0)+(dz!=0?1:0)==1,"exactly one world axis");
+                        int axis=dx!=0?0:dy!=0?1:2;
+                        for(int coordinate=0;coordinate<3;coordinate++)if(coordinate!=axis)
+                            check(a[coordinate]==Math.rint(a[coordinate]) && b[coordinate]==a[coordinate],"two exact integer block-grid coordinates");
+                        axes.add(axis);directions.add(axis*2+((b[axis]-a[axis])>0?0:1));planes.add(s.normalAxis());
                         check(length > 0 && length <= 1.00000001, "one block maximum per edge");
                         check(s.startOpacity() >= 0 && s.endOpacity() >= 0 && s.endOpacity() <= 1, "finite alpha bounds");
                         check(s.endOpacity() >= s.startOpacity(), "fading tail towards bright head");
                         elevations.add(s.ay());
-                        if (dx != 0) xAxis = true; else zAxis = true;
-                        if (prev.bx() == s.ax() && prev.bz() == s.az()
-                            && ((prev.bx()-prev.ax() == 0) != (dx == 0))) turns++;
+                        if(prev!=s && prev.bx()==s.ax() && prev.by()==s.ay() && prev.bz()==s.az()) {
+                            check(s.ax()==Math.rint(s.ax()) && s.ay()==Math.rint(s.ay()) && s.az()==Math.rint(s.az()),"joints are integer world vertices");
+                            double dot=(prev.bx()-prev.ax())*dx+(prev.by()-prev.ay())*dy+(prev.bz()-prev.az())*dz;
+                            check(dot>=0,"no reversing or diagonal turns");if(dot==0)turns++;
+                        }
                         prev = s;
                     }
-                    if (xAxis && zAxis) bothAxes++;
+                    check(axes.size()<=2,"trail remains two dimensional");if(axes.size()==2)bothAxes++;
                 }
             }
         }
-        check(turns > 1000 && bothAxes > 1000, "many independent right-angle turns on both axes");
-        check(elevations.size() > 200, "varied vertical spawn levels");
+        check(turns>1000 && bothAxes>1000,"independent right-angle turns on each plane");
+        check(directions.size()==6 && planes.size()==3,"positive and negative X/Y/Z travel across all planes");
+        check(elevations.size()>30,"varied integer levels and interpolated vertical heads");
+        for(double far:new double[]{-29999990,-17.75,29999990}) {
+            var output=new AmbientTronField(79).sample(far,64,far,0,1,1,AIR);
+            check(!output.isEmpty(),"negative/far-coordinate paths visible");
+            for(var s:output) {
+                double[] a={s.ax(),s.ay(),s.az()},b={s.bx(),s.by(),s.bz()};int fixed=0;
+                for(int i=0;i<3;i++)if(a[i]==b[i]){fixed++;check(a[i]==Math.rint(a[i]),"far-coordinate grid remains exact");}
+                check(fixed==2,"far-coordinate segment is axis aligned");
+            }
+        }
     }
     private static void lifecycle() {
         var field = new AmbientTronField(20);
@@ -63,7 +80,7 @@ public final class AmbientTronCheck {
         int smooth = 0;
         for (var id : groups0.keySet()) if (groups1.containsKey(id)) {
             var a = groups0.get(id).getLast(); var b = groups1.get(id).getLast();
-            double dist = Math.abs(a.bx()-b.bx())+Math.abs(a.bz()-b.bz());
+            double dist = Math.abs(a.bx()-b.bx())+Math.abs(a.by()-b.by())+Math.abs(a.bz()-b.bz());
             if (dist > 0 && dist <= .0620001) smooth++;
         }
         check(smooth >= 3, "continuous head motion at varied speed");
@@ -105,7 +122,7 @@ public final class AmbientTronCheck {
         check(initial.equals(field.sample(0,64,0,0,1,1,air)), "cached frame matches");
         check(reads[0]==0, "no repeat world queries while paused");
         field.sample(0,64,0,.001,1,1,air);
-        check(reads[0] <= AmbientTronField.MAX_TRAILS*2, "high FPS only checks newly exposed unit edges");
+        check(reads[0] <= AmbientTronField.MAX_TRAILS*4, "high FPS only checks newly exposed unit edges");
         clear[0]=false; reads[0]=0;
         check(field.sample(0,64,0,.051,1,1,air).isEmpty(), "new solid or fluid cells suppress trails on next 20 Hz slice");
         check(reads[0]<=AmbientTronField.MAX_AIR_QUERIES, "blocked probes bounded");
@@ -115,17 +132,48 @@ public final class AmbientTronCheck {
         field.sample(0,64,0,.2,0,1,air);
         check(reads[0]==0, "zero density performs no world reads");
     }
+    private static void edgeCells() {
+        for(int direction=0;direction<6;direction++)for(int start:new int[]{-30000000,-1,0,29999990}) {
+            int[] a={start,64,start},b=a.clone();b[direction/2]+=((direction&1)==0?1:-1);
+            Set<String> touched=new HashSet<>();int[] calls={0};
+            boolean blocked=AmbientTronField.edgeVisible(a[0],a[1],a[2],b[0],b[1],b[2],direction,(x,y,z)->{calls[0]++;touched.add(x+","+y+","+z);return false;});
+            check(!blocked && calls[0]==4 && touched.size()==4,"exactly four neighboring cells of an edge");
+            int axis=direction/2,p=(axis+1)%3,q=(axis+2)%3;Set<String> expected=new HashSet<>();
+            for(int i=-1;i<=0;i++)for(int j=-1;j<=0;j++){int[] cell=a.clone();cell[axis]=Math.min(a[axis],b[axis]);cell[p]+=i;cell[q]+=j;expected.add(cell[0]+","+cell[1]+","+cell[2]);}
+            check(touched.equals(expected),"neighbor cells use mathematical floor at signed coordinates");
+            for(String exposed:expected)check(AmbientTronField.edgeVisible(a[0],a[1],a[2],b[0],b[1],b[2],direction,(x,y,z)->exposed.equals(x+","+y+","+z)),"any exposed neighboring cell can show edge");
+        }
+    }
     private static void geometry() {
         for (var eye : new double[][]{{0,0,0},{.5,0,0},{0,2,0},{1E7,0,1E7},{0,0,2}}) {
             var s = new AmbientTronField.Segment(1,0,0,0,1,0,0,.11,.2f,.6f,.5);
             List<double[]> vertices = new ArrayList<>();
             AmbientTronGeometry.beam(s,eye[0],eye[1],eye[2],(x,y,z,u,v,a)->vertices.add(new double[]{x,y,z,u,v,a}));
-            check(vertices.size()==4, "beam uses one quad");
+            check(vertices.size()==4, "flat ribbon uses one quad");
             for(var v:vertices) check(Double.isFinite(Arrays.stream(v).sum()), "edge-on beam finite");
             check(vertices.get(0)[3]==2 && vertices.get(1)[3]==3, "uses production bright core and glow shader branch");
             check(vertices.get(0)[5]==.2f && vertices.get(3)[5]==.6f, "interpolated tail alpha reaches vertices");
             double[] a=vertices.get(0),b=vertices.get(1);
+            for(var v:vertices)check(v[1]==0,"width stays in world plane, never faces camera");
             check(Math.abs(Math.sqrt((a[0]-b[0])*(a[0]-b[0])+(a[1]-b[1])*(a[1]-b[1])+(a[2]-b[2])*(a[2]-b[2]))-.22)<1E-8, "beam retains configured width");
+        }
+    }
+    private static void joints() {
+        for(int normal=0;normal<3;normal++)for(int first=0;first<6;first++)for(int next=0;next<6;next++) {
+            if(first/2==normal || next/2==normal || (first^1)==next)continue;
+            double[] mid={7,64,-12},a=mid.clone(),b=mid.clone();
+            for(int i=0;i<3;i++){a[i]-=AmbientTronField.component(first,i);b[i]+=AmbientTronField.component(next,i);}
+            var left=new AmbientTronField.Segment(1,a[0],a[1],a[2],mid[0],mid[1],mid[2],.11,.5f,.5f,.5,normal,-1,next);
+            var right=new AmbientTronField.Segment(1,mid[0],mid[1],mid[2],b[0],b[1],b[2],.11,.5f,.5f,.5,normal,first,-1);
+            List<double[]> l=new ArrayList<>(),r=new ArrayList<>(),moved=new ArrayList<>();
+            AmbientTronGeometry.beam(left,0,0,0,(x,y,z,u,v,o)->l.add(new double[]{x,y,z}));
+            AmbientTronGeometry.beam(right,0,0,0,(x,y,z,u,v,o)->r.add(new double[]{x,y,z}));
+            AmbientTronGeometry.beam(left,300,15,-120,(x,y,z,u,v,o)->moved.add(new double[]{x,y,z}));
+            for(int i=0;i<3;i++) {
+                check(l.get(2)[i]==r.get(1)[i] && l.get(3)[i]==r.get(0)[i],"miter joints share identical edge positions");
+                for(int v=0;v<4;v++)check(l.get(v)[i]==moved.get(v)[i],"camera motion cannot rotate flat geometry");
+            }
+            for(var v:l)check(v[normal]==mid[normal],"all corner vertices remain strictly planar");
         }
     }
     private static void clock() {

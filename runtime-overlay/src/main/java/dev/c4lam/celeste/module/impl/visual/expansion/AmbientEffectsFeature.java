@@ -71,11 +71,11 @@ public final class AmbientEffectsFeature implements ModuleFeature {
                     && context.world().getBlockState(block).isAir() && context.world().getFluidState(block).isEmpty();
             };
             for (AmbientTronField.Segment segment : tronTrails.sample(eye.x, eye.y, eye.z, seconds, frameDensity, frameSize, air)) {
-                double bound = segment.width() * 1.1;
+                double bound = segment.width() * 1.5;
                 if (context.frustum() != null && !context.frustum().isVisible(new Box(
-                    Math.min(segment.ax(), segment.bx()) - bound, segment.ay() - bound,
+                    Math.min(segment.ax(), segment.bx()) - bound, Math.min(segment.ay(),segment.by()) - bound,
                     Math.min(segment.az(), segment.bz()) - bound, Math.max(segment.ax(), segment.bx()) + bound,
-                    segment.by() + bound, Math.max(segment.az(), segment.bz()) + bound))) continue;
+                    Math.max(segment.ay(),segment.by()) + bound, Math.max(segment.az(), segment.bz()) + bound))) continue;
                 trails.add(new AmbientEffectsRenderer.TronSegment(segment,
                     VisualAtmosphere.tint(0x57DDEB, seconds, segment.palette())));
             }

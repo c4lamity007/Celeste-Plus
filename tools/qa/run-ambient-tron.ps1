@@ -28,8 +28,10 @@ $tronLibraries=@(rg --files (Join-Path $tronCache 'org.lwjgl') -g '*.jar' | Wher
 })
 if($tronLibraries.Count -ne 8){throw 'Expected eight cached LWJGL Windows jars.'}
 $tronClasspath=$tronLibraries -join ';'
+$tronField=Join-Path $tronHelpers 'AmbientField.java'
+if(-not (Test-Path -LiteralPath $tronField)){$tronField=Join-Path $tronBase 'AmbientField.java'}
 if(-not $MinecraftJar){$MinecraftJar=Join-Path $ProjectRoot '.gradle/loom-cache/minecraftMaven/net/minecraft/minecraft-merged-b00516cda8/1.21.11-net.fabricmc.yarn.1_21_11.1.21.11+build.6-v2/minecraft-merged-b00516cda8-1.21.11-net.fabricmc.yarn.1_21_11.1.21.11+build.6-v2.jar'}
-$tronCompile=@(& (Join-Path $JdkHome 'bin/javac.exe') --release 21 -cp "$tronClasses;$tronClasspath" -d $tronClasses (Join-Path $tronBase 'CustomFogMath.java') (Join-Path $tronHelpers 'AmbientField.java') (Join-Path $tronBase 'AmbientTesseractField.java') (Join-Path $ProjectRoot 'tools/qa/ImpactCheck.java') (Join-Path $ProjectRoot 'tools/qa/AtmosphereCheck.java') (Join-Path $PSScriptRoot 'AmbientTronGpuCheck.java') 2>&1)
+$tronCompile=@(& (Join-Path $JdkHome 'bin/javac.exe') --release 21 -cp "$tronClasses;$tronClasspath" -d $tronClasses (Join-Path $tronBase 'CustomFogMath.java') $tronField (Join-Path $tronBase 'AmbientTesseractField.java') (Join-Path $ProjectRoot 'tools/qa/ImpactCheck.java') (Join-Path $ProjectRoot 'tools/qa/AtmosphereCheck.java') (Join-Path $PSScriptRoot 'AmbientTronGpuCheck.java') 2>&1)
 $tronExit=$LASTEXITCODE
 $tronCompile | Set-Content -LiteralPath (Join-Path $OutputRoot 'gpu-compile.log') -Encoding utf8
 if($tronExit -ne 0){throw "Tron GPU compile failed: $($tronCompile | Select-Object -Last 12 | Out-String)"}

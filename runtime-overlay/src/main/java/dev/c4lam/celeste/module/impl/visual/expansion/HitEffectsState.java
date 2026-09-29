@@ -2,6 +2,8 @@ package dev.c4lam.celeste.module.impl.visual.expansion;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Random;
 
 /** Bounded, world-independent hit animations. No game objects survive an accepted hit. */
@@ -18,8 +20,20 @@ public final class HitEffectsState {
                            double rotation, double spin, int color, Style style) { }
     public record Sprite(Point position, Point tail, double radius, double rotation,
                          double opacity, int color, Style style) { }
-    public record GroundPulse(List<HitGroundPath.Branch> branches, double born, double size, int color) { }
-    public record Beam(Point from, Point to, double width, double opacity, int color) { }
+    public record GroundPulse(List<HitGroundPath.Branch> branches, double born, double size, int color, int endColor) {
+        public GroundPulse(List<HitGroundPath.Branch> branches,double born,double size,int color) {
+            this(branches,born,size,color,color);
+        }
+    }
+    public record Beam(Point from, Point to, double width, double opacity, int color, int endColor) {
+        public Beam(Point from,Point to,double width,double opacity,int color) { this(from,to,width,opacity,color,color); }
+    }
+    private record Edge(Point first,Point second) {
+        static Edge of(Point a,Point b) {
+            boolean before=a.x<b.x || a.x==b.x && (a.z<b.z || a.z==b.z && a.y<=b.y);
+            return before?new Edge(a,b):new Edge(b,a);
+        }
+    }
     public record Frame(List<Sprite> particles, List<Beam> ground) {
         public static final Frame EMPTY = new Frame(List.of(), List.of());
         public boolean isEmpty() { return particles.isEmpty() && ground.isEmpty(); }
@@ -59,9 +73,13 @@ public final class HitEffectsState {
     }
 
     public void ground(List<HitGroundPath.Branch> branches, double now, double size, int color) {
+        ground(branches,now,size,color,color);
+    }
+
+    public void ground(List<HitGroundPath.Branch> branches, double now, double size, int color,int endColor) {
         if (branches == null || branches.isEmpty() || !Double.isFinite(now)) return;
         while (ground.size() >= MAX_GROUND_PULSES) ground.removeFirst();
-        ground.add(new GroundPulse(List.copyOf(branches), now, finite(size,1,.5,2), color & 0xFFFFFF));
+        ground.add(new GroundPulse(List.copyOf(branches), now, finite(size,1,.5,2), color & 0xFFFFFF,endColor & 0xFFFFFF));
     }
 
     public Frame frame(double now) {
@@ -76,22 +94,34 @@ public final class HitEffectsState {
             sprites.add(new Sprite(position(p,age), position(p,Math.max(0,age-.07)),
                 p.radius*(.55+.45*Math.sqrt(alpha)), p.rotation+p.spin*age, alpha,p.color,p.style));
         }
-        List<Beam> beams = new ArrayList<>();
-        for (GroundPulse p : ground) for (int branch = 0; branch < p.branches.size(); branch++) {
-            double age = now-p.born-branch*.025;
+        Map<Edge,Beam> beams = new LinkedHashMap<>();
+        for (GroundPulse p : ground) for (HitGroundPath.Branch branch:p.branches) {
+            double age = now-p.born;
             if (age <= 0) continue;
-            List<HitGroundPath.Segment> segments = p.branches.get(branch).segments();
-            double head = age * 9;
-            for (HitGroundPath.Segment s : segments) {
-                double progress = clamp((head-s.start())/(s.end()-s.start()));
-                if (progress <= 0) continue;
+            for (HitGroundPath.Segment s : branch.segments()) {
+                // A whole block fades together. Neither end crawls through fractional block positions.
                 double revealed = age-s.start()/9;
-                double alpha = smooth(clamp(revealed/.025))*(1-smooth(clamp((revealed-.30)/.62)));
+                double alpha = smooth(clamp(revealed/.075))*(1-smooth(clamp((revealed-.30)/.62)));
                 if (alpha < .002) continue;
-                beams.add(new Beam(s.from(),s.from().lerp(s.to(),progress),.048*p.size,alpha,p.color));
+                int start=gradient(p.color,p.endColor,s.start()/HitGroundPath.STEPS);
+                int end=gradient(p.color,p.endColor,s.end()/HitGroundPath.STEPS);
+                Beam beam=new Beam(s.from(),s.to(),.048*p.size,alpha,start,end);
+                Edge key=Edge.of(s.from(),s.to());
+                Beam previous=beams.get(key);
+                // Shared prefixes and repeated hits draw an edge once, keeping the strongest visible pulse.
+                if(previous==null || alpha>=previous.opacity) beams.put(key,beam);
             }
         }
-        return new Frame(List.copyOf(sprites),List.copyOf(beams));
+        return new Frame(List.copyOf(sprites),List.copyOf(beams.values()));
+    }
+
+    public static int gradient(int start,int end,double progress) {
+        double t=clamp(progress);int result=0;
+        for(int shift=0;shift<=16;shift+=8) {
+            int a=start>>shift&255,b=end>>shift&255;
+            result|=(int)Math.round(a+(b-a)*t)<<shift;
+        }
+        return result;
     }
 
     public void clearParticles() { particles.clear(); }

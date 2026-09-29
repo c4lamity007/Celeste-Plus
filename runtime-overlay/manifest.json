@@ -644,7 +644,7 @@
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/AmbientEffectsFeature.java",
-      "sha256": "bec0dad9460f1c70aedc53cdf5f8acc3153d8bad7c20f29f577a35250ac91781",
+      "sha256": "4098d43cc3c832e1f4fa83ee130287d1b96a657643791c7f7129aca645674aaa",
       "baseSha256": "a9d5098c0e9b8fb711cef546d0ef4d4e285b026148da82a06519270c6dbe7bb6"
     },
     {
@@ -669,12 +669,12 @@
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/AmbientTronField.java",
-      "sha256": "6b3f4915497e56f98a6095bf6752a013440c79404c31548078ef72512ad0e656",
+      "sha256": "26e4288bb76777b5c22e4e57421f8501ecb35c7f051d2a84bab973812f907a8a",
       "baseSha256": null
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/AmbientTronGeometry.java",
-      "sha256": "24722bb857cb4bb02eea7d3a93f7352cd504086e457d48ed6f9beeed0b727d5c",
+      "sha256": "6657bedafd0ba6c64d9860657d940e1e90f821aaee0c907e25ea53a92bda87d8",
       "baseSha256": null
     },
     {
@@ -784,22 +784,22 @@
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/HitEffectsFeature.java",
-      "sha256": "ac4a161435fdf58ff627a78987fe1dc00bdd92b6a28bdaad2220585521eb3f20",
+      "sha256": "0f9d9221ee71435e24bf2875f2cbc53df9453323f7a9a4ea31d27fa0ba1a3693",
       "baseSha256": null
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/HitEffectsRenderer.java",
-      "sha256": "0466bd2b73953b40418ae9062ea118e23b06267662749b42922ed0a11cf92651",
+      "sha256": "1672cf59c77ada1fe6c95b591d51927737271b3c04b0245b0faaa1e1dfa218e5",
       "baseSha256": null
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/HitEffectsState.java",
-      "sha256": "8433d5329aee22cc93c6483be3f660454b9679007864feef3addbf44192ec87b",
+      "sha256": "654b9b8bdca7570cdeff4a7aeb6ce1dc9e00d3e3ea66a81c8dc10ea1ab20de30",
       "baseSha256": null
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/HitGroundPath.java",
-      "sha256": "18d0e33df1149a81e200f2090cd39559fab8ae43cd573815692badde7cd643f3",
+      "sha256": "90e280f15535bb6ce613ecd0551f27189a62be2db5c578189f4c93a81c3c87f0",
       "baseSha256": null
     },
     {

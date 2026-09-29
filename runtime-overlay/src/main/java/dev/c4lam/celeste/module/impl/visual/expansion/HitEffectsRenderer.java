@@ -68,10 +68,9 @@ public final class HitEffectsRenderer {
             if(a.squaredDistanceTo(camera)>64*64) continue;
             Vec3d delta=b.subtract(a);
             Vec3d side=new Vec3d(-delta.z,0,delta.x);
-            if(side.lengthSquared()<1e-10) side=delta.crossProduct(camera.subtract(a));
             if(side.lengthSquared()<1e-10) continue;
             side=side.normalize().multiply(line.width());
-            beam(buffer,matrix,camera,a,b,side,line.color(),line.opacity(),line.opacity());
+            beam(buffer,matrix,camera,a,b,side,line.color(),line.endColor(),line.opacity(),line.opacity());
         }
         for(HitEffectsState.Sprite sprite:frame.effects.particles()) {
             Vec3d center=vec(sprite.position());
@@ -97,7 +96,11 @@ public final class HitEffectsRenderer {
     }
     private static void beam(VertexConsumer buffer,MatrixStack.Entry matrix,Vec3d camera,
                              Vec3d a,Vec3d b,Vec3d side,int rgb,double startAlpha,double endAlpha) {
-        int start=argb(startAlpha,rgb),end=argb(endAlpha,rgb);
+        beam(buffer,matrix,camera,a,b,side,rgb,rgb,startAlpha,endAlpha);
+    }
+    private static void beam(VertexConsumer buffer,MatrixStack.Entry matrix,Vec3d camera,
+                             Vec3d a,Vec3d b,Vec3d side,int rgb,int endRgb,double startAlpha,double endAlpha) {
+        int start=argb(startAlpha,rgb),end=argb(endAlpha,endRgb);
         vertex(buffer,matrix,camera,a.subtract(side),6,0,start);
         vertex(buffer,matrix,camera,a.add(side),7,0,start);
         vertex(buffer,matrix,camera,b.add(side),7,1,end);
