@@ -20,10 +20,10 @@ public final class AmbientTesseractGpuCheck extends ImpactCheck {
     static final int W=AtmosphereCheck.W,H=AtmosphereCheck.H;
     static void check(boolean b,String m){if(!b)throw new AssertionError(m);}
     static List<AmbientField.Mote> samples(double time){
-        List<AmbientField.Mote> list=new ArrayList<>();double ex=2.5,ey=3,ez=2.5;
-        for(int x=-5;x<=5;x++)for(int z=-5;z<=5;z++)for(int y=-3;y<=3;y++){
-            if(!AmbientField.occupied(x,y,z,.6)||!AmbientField.mayBeVisible(x,y,z,ex,ey,ez))continue;
-            var m=AmbientTesseractField.sample(x,y,z,time,71);double alpha=m.opacity()*AmbientField.visibility(m.x()-ex,m.y()-ey,m.z()-ez);
+        double ex=2.5,ey=3,ez=2.5;var candidates=AmbientTesseractField.candidates(ex,ey,ez,time,.6,71);
+        List<AmbientField.Mote> list=new ArrayList<>();
+        for(int rank=0;rank<candidates.size();rank++){
+            var m=candidates.get(rank).mote();double alpha=m.opacity()*AmbientTesseractField.capFade(rank)*AmbientTesseractField.visibility(m.x()-ex,m.y()-ey,m.z()-ez);
             if(alpha>=.01)list.add(new AmbientField.Mote(m.x()-ex,m.y()-ey,m.z()-ez,m.size(),m.yaw(),m.pitch(),alpha,m.color()));
         }
         list.sort(Comparator.comparingDouble(m->m.x()*m.x()+m.y()*m.y()+m.z()*m.z()));
@@ -42,7 +42,7 @@ public final class AmbientTesseractGpuCheck extends ImpactCheck {
         for(var m:particles){AmbientTesseractGeometry.corners(scratch,m.x(),m.y(),m.z(),m.size(),m.yaw(),m.pitch());
             AmbientTesseractGeometry.fill(scratch,(x,y,z,u,v,nx,ny,nz,a)->emit(faces,m,scale,x,y,z,u,v,nx,ny,nz,a));
             AmbientTesseractGeometry.beams(scratch,0,0,0,m.size(),(x,y,z,u,v,nx,ny,nz,a)->emit(beams,m,scale,x,y,z,u,v,nx,ny,nz,a));}
-        check(faces.position()/12<=64*36&&beams.position()/12<=64*112,"bounded batched geometry");
+        check(faces.position()/12<=AmbientTesseractField.MAX_PARTICLES*AmbientTesseractGeometry.FILL_VERTICES&&beams.position()/12<=AmbientTesseractField.MAX_PARTICLES*AmbientTesseractGeometry.BEAM_VERTICES,"bounded batched geometry");
         AtmosphereCheck.drawVertices(mesh,faces);glDisable(GL_CULL_FACE);glBlendFunc(GL_SRC_ALPHA,GL_ONE);
         beams.flip();int count=beams.remaining()/12;IntBuffer indices=BufferUtils.createIntBuffer(count/4*6);
         for(int base=0;base<count;base+=4)for(int i:new int[]{0,1,2,0,2,3})indices.put(base+i);indices.flip();
@@ -55,7 +55,7 @@ public final class AmbientTesseractGpuCheck extends ImpactCheck {
         g.setColor(new Color(17,22,30));g.fillRect(0,0,image.getWidth(),image.getHeight());g.setColor(Color.WHITE);g.setFont(new Font("SansSerif",Font.BOLD,18));g.drawString("AMBIENT TESSERACTS - actual particle geometry and shaders",14,25);
         g.setFont(new Font("SansSerif",Font.PLAIN,13));g.drawString("Nearby world particles; random lifetimes, straight drift, translucent faces and glowing edges. GPU fixture, not Minecraft.",14,48);
         g.drawImage(AtmosphereCheck.image(detail),0,header,null);g.drawImage(AtmosphereCheck.image(field),W,header,null);
-        g.drawString("Material detail: normal particle size, close camera",14,H+header+20);g.drawString("Local field: density .6, size 1, at most 64 particles",W+14,H+header+20);g.dispose();ImageIO.write(image,"PNG",output.resolve("ambient-tesseracts-gpu-preview.png").toFile());
+        g.drawString("Matching corner links; normal size, close camera",14,H+header+20);g.drawString("Open air: density .6, 22-block sphere, cap192",W+14,H+header+20);g.dispose();ImageIO.write(image,"PNG",output.resolve("ambient-tesseracts-gpu-preview.png").toFile());
     }
     public static void main(String[] args)throws Exception{
         resources=Path.of(args[0]);Path staged=Path.of(args[1]);minecraft=new ZipFile(args[2]);output=Path.of(args[3]);Files.createDirectories(output);
@@ -72,7 +72,7 @@ public final class AmbientTesseractGpuCheck extends ImpactCheck {
             var shortStep=AtmosphereCheck.delta(visible,draw(samples(12+1.0/60),1,1,false));var longStep=AtmosphereCheck.delta(visible,draw(samples(12.5),1,1,false));check(shortStep.changed()>20&&longStep.mean()>shortStep.mean()*2,"Smooth frame motion/fade missing");
             for(float v:draw(field,0,1,false))check(v==0,"Zero opacity retains pixels");for(float v:draw(field,1,.5f,false))check(v==0,"Terrain does not block particles/glow");for(float v:draw(List.of(),1,1,false))check(v==0,"Empty batch stale geometry");
             var detail=List.of(new AmbientField.Mote(-.32,.05,-1.45,.12,.55,.3,1,0x48ACFF),new AmbientField.Mote(.27,-.05,-1.6,.12,-.35,.7,.8,0x48ACFF));sheet(draw(detail,1,1,true),draw(field,1,1,true));
-            System.out.println("PASS Ambient tesseracts GPU: "+field.size()+" local field particles, "+coverage+" visible pixels; actual faces/28 beams, sub-frame drift, disabled/empty clear, terrain occlusion, depth unchanged. GPU="+glGetString(GL_RENDERER));
+            System.out.println("PASS Ambient tesseracts GPU: "+field.size()+" local field particles, "+coverage+" visible pixels; actual faces/32 corner-linked beams, sub-frame drift, disabled/empty clear, terrain occlusion, depth unchanged. GPU="+glGetString(GL_RENDERER));
         }finally{minecraft.close();glfwDestroyWindow(window);glfwTerminate();}
     }
 }

@@ -4,7 +4,7 @@ package dev.c4lam.celeste.module.impl.visual.expansion;
 public final class AmbientTesseractGeometry {
     public static final int SCRATCH_SIZE = 48;
     public static final int FILL_VERTICES = 36;
-    public static final int BEAM_VERTICES = 112;
+    public static final int BEAM_VERTICES = 128;
     private static final int[] TRIANGLES = {0,1,2,0,2,3};
     private static final int[][] FACES = {{0,4,6,2},{1,3,7,5},{0,1,5,4},{2,6,7,3},{0,2,3,1},{4,5,7,6}};
     @FunctionalInterface public interface Vertex {
@@ -34,8 +34,8 @@ public final class AmbientTesseractGeometry {
             if((corner&bit)!=0)continue;
             beam(p,(layer*8+corner)*3,(layer*8+(corner|bit))*3,eyeX,eyeY,eyeZ,radius*(layer==0?.15:.10),layer==0?1:.68f,sink);
         }
-        // Four full body diagonals contain the eight outer-to-inner corner links.
-        for(int corner=0;corner<4;corner++)beam(p,corner*3,(corner^7)*3,eyeX,eyeY,eyeZ,radius*.085,.42f,sink);
+        // Matching outer/inner corners only; the center remains clear.
+        for(int corner=0;corner<8;corner++)beam(p,corner*3,(corner+8)*3,eyeX,eyeY,eyeZ,radius*.085,.42f,sink);
     }
     private static void beam(double[] p,int a,int b,double ex,double ey,double ez,double width,float opacity,Vertex sink) {
         double dx=p[b]-p[a],dy=p[b+1]-p[a+1],dz=p[b+2]-p[a+2];

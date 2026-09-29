@@ -51,47 +51,91 @@ public final class AmbientEffectsFeature implements ModuleFeature {
         double seconds = clock.sample(System.nanoTime(), client.isPaused());
         Vec3d eye = context.camera().getCameraPos();
         if (!Double.isFinite(eye.x) || !Double.isFinite(eye.y) || !Double.isFinite(eye.z)) return AmbientEffectsRenderer.Frame.EMPTY;
+        AmbientField.Style frameStyle = style;
+        boolean cubes = frameStyle == AmbientField.Style.TESSERACTS;
         int cx = MathHelper.floor(eye.x / AmbientField.CELL), cy = MathHelper.floor(eye.y / AmbientField.CELL);
         int cz = MathHelper.floor(eye.z / AmbientField.CELL);
-        AmbientField.Style frameStyle = style;
         double frameDensity = density, frameSize = size;
         double skySeconds = skyMotion.sample(System.nanoTime(), client.isPaused() || !skyLines, skySpeed);
         SkyLinesRenderer.Frame sky = skyLines && skyIntensity > 0
-            ? new SkyLinesRenderer.Frame(SkyLinesMath.sample(skyPattern, skySeconds, skyIntensity))
+            ? new SkyLinesRenderer.Frame(atmosphere(SkyLinesMath.sample(skyPattern, skySeconds, skyIntensity), seconds))
             : SkyLinesRenderer.Frame.EMPTY;
         List<AmbientEffectsRenderer.Particle> particles = new ArrayList<>(96);
         BlockPos.Mutable block = new BlockPos.Mutable();
-        if (frameDensity > 0) for (int x = cx - 5; x <= cx + 5; x++) for (int z = cz - 5; z <= cz + 5; z++) {
+        if (cubes) {
+            AmbientTesseractField.AirCell air = (x, y, z) -> {
+                block.set(x, y, z);
+                return !context.world().isOutOfHeightLimit(block) && context.world().isChunkLoaded(block)
+                    && context.world().getBlockState(block).isAir() && context.world().getFluidState(block).isEmpty();
+            };
+            List<AmbientTesseractField.Candidate> candidates = tesseracts.candidates(eye.x, eye.y, eye.z, seconds, frameDensity);
+            for (int rank = 0; rank < candidates.size(); rank++) {
+                AmbientTesseractField.Candidate candidate = candidates.get(rank);
+                AmbientField.Mote mote = candidate.mote();
+                double alpha = mote.opacity() * AmbientTesseractField.capFade(rank)
+                    * AmbientTesseractField.visibility(mote.x() - eye.x, mote.y() - eye.y, mote.z() - eye.z);
+                if (alpha < .01) continue;
+                double radius = mote.size() * frameSize, bound = AmbientTesseractField.bounds(radius);
+                // Slots are already reserved: turning the camera cannot replace unrelated particles.
+                if (context.frustum() != null && !context.frustum().isVisible(new Box(mote.x() - bound,
+                    mote.y() - bound, mote.z() - bound, mote.x() + bound, mote.y() + bound, mote.z() + bound))) continue;
+                alpha *= AmbientTesseractField.airVisibility(mote.x(), mote.y(), mote.z(), radius, air);
+                if (alpha < .01) continue;
+                int color = VisualAtmosphere.tint(mote.color(), seconds, (candidate.priority() >>> 11) * 0x1.0p-53);
+                particles.add(new AmbientEffectsRenderer.Particle(new Vec3d(mote.x(), mote.y(), mote.z()),
+                    radius, mote.yaw(), mote.pitch(), (float)alpha, color));
+            }
+        } else if (frameDensity > 0) for (int x = cx - 5; x <= cx + 5; x++) for (int z = cz - 5; z <= cz + 5; z++) {
             for (int y = cy - 3; y <= cy + 3; y++) {
                 if (!AmbientField.occupied(x, y, z, frameDensity)
                     || !AmbientField.mayBeVisible(x, y, z, eye.x, eye.y, eye.z)) continue;
-                AmbientField.Mote mote = frameStyle == AmbientField.Style.TESSERACTS
-                    ? tesseracts.sample(x, y, z, seconds) : AmbientField.sample(x, y, z, frameStyle, seconds);
+                AmbientField.Mote mote = AmbientField.sample(x, y, z, frameStyle, seconds);
                 double alpha = mote.opacity() * AmbientField.visibility(mote.x() - eye.x, mote.y() - eye.y, mote.z() - eye.z);
                 if (alpha < .01) continue;
                 double radius = mote.size() * frameSize;
                 // Frustum work is independent of block state; reject it before live world queries.
-                if (context.frustum() != null && !context.frustum().isVisible(new Box(mote.x() - radius * 6,
-                    mote.y() - radius * 6, mote.z() - radius * 6, mote.x() + radius * 6,
-                    mote.y() + radius * 6, mote.z() + radius * 6))) continue;
+                double bound = radius * 6;
+                if (context.frustum() != null && !context.frustum().isVisible(new Box(mote.x() - bound,
+                    mote.y() - bound, mote.z() - bound, mote.x() + bound,
+                    mote.y() + bound, mote.z() + bound))) continue;
                 block.set(mote.x(), mote.y(), mote.z());
                 if (context.world().isOutOfHeightLimit(block) || !context.world().isChunkLoaded(block)
                     || !context.world().getBlockState(block).isAir()
                     || !context.world().getFluidState(block).isEmpty()
                     || !context.world().isSkyVisible(block)) continue;
-                particles.add(new AmbientEffectsRenderer.Particle(new Vec3d(mote.x(), mote.y(), mote.z()),
-                    radius, mote.yaw(), mote.pitch(), (float) alpha, mote.color()));
+                int color = frameStyle == AmbientField.Style.LEAVES ? mote.color()
+                    : VisualAtmosphere.tint(mote.color(), seconds,
+                        (AmbientTesseractField.priority(x, y, z) >>> 11) * 0x1.0p-53);
+                AmbientEffectsRenderer.Particle particle = new AmbientEffectsRenderer.Particle(new Vec3d(mote.x(), mote.y(), mote.z()),
+                    radius, mote.yaw(), mote.pitch(), (float) alpha, color);
+                particles.add(particle);
             }
         }
-        // Stable nearest-first cap only guards pathological inputs; normal maximum density stays below it.
         particles.sort(Comparator.comparingDouble(p -> p.position().squaredDistanceTo(eye)));
-        int cap = frameStyle == AmbientField.Style.TESSERACTS ? AmbientTesseractField.MAX_PARTICLES : 128;
+        int cap = cubes ? AmbientTesseractField.MAX_PARTICLES : 128;
         if (particles.size() > cap) particles.subList(cap, particles.size()).clear();
         java.util.Collections.reverse(particles); // Back-to-front translucent core batches.
         Vector3f right = context.camera().getRotation().transform(new Vector3f(1, 0, 0));
         Vector3f up = context.camera().getRotation().transform(new Vector3f(0, 1, 0));
         return particles.isEmpty() && sky.isEmpty() ? AmbientEffectsRenderer.Frame.EMPTY : new AmbientEffectsRenderer.Frame(
             List.copyOf(particles), frameStyle, new Vec3d(right.x, right.y, right.z), new Vec3d(up.x, up.y, up.z), sky);
+    }
+
+    private static SkyLinesMath.Geometry atmosphere(SkyLinesMath.Geometry geometry, double seconds) {
+        if (!VisualAtmosphere.usesPreset() || geometry.isEmpty()) return geometry;
+        List<SkyLinesMath.Segment> segments = new ArrayList<>(geometry.segments().size());
+        List<SkyLinesMath.Star> stars = new ArrayList<>(geometry.stars().size());
+        for (int i = 0; i < geometry.segments().size(); i++) {
+            SkyLinesMath.Segment segment = geometry.segments().get(i);
+            segments.add(new SkyLinesMath.Segment(segment.from(), segment.to(), segment.opacity(), segment.width(),
+                VisualAtmosphere.tint(segment.color(), seconds, (double)i / geometry.segments().size())));
+        }
+        for (int i = 0; i < geometry.stars().size(); i++) {
+            SkyLinesMath.Star star = geometry.stars().get(i);
+            stars.add(new SkyLinesMath.Star(star.position(), star.opacity(), star.radius(),
+                VisualAtmosphere.tint(star.color(), seconds, (double)i / geometry.stars().size())));
+        }
+        return new SkyLinesMath.Geometry(List.copyOf(segments), List.copyOf(stars));
     }
 
     private void update(ModuleContext context) {

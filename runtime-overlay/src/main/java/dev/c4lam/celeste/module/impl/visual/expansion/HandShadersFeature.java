@@ -16,6 +16,7 @@ public final class HandShadersFeature implements ModuleFeature {
         enabled = true;
         HandShadersRenderer.observeEnvironment();
     }
+    @Override public void onRenderFrame(ModuleContext context) { update(context); }
     @Override public void onDisable(ModuleContext context) { enabled = false; HandShadersRenderer.releaseResources(); }
     @Override public void onWorldChanged(ModuleContext context) { enabled = false; HandShadersRenderer.releaseResources(); }
     static boolean enabled() { return enabled; }
@@ -25,7 +26,7 @@ public final class HandShadersFeature implements ModuleFeature {
         // Old Particles/Outline/Glow presets map to the pre-Flame mist-style Smoke.
         // The clean outline is part of both styles, not a third mode.
         int mode = "Flame".equals(context.mode("Mode", "Smoke")) ? 3 : 2;
-        settings = new Settings(mode, context.colorPick("Color", 0x74DFFF) & 0xFFFFFF,
+        settings = new Settings(mode, VisualAtmosphere.tint(context.colorPick("Color", 0x74DFFF), 0, 0),
             finite(context.slider("Opacity", .85), .85F, .05F, 1F),
             finite(context.slider("Glow strength", .75), .75F, 0F, 2F));
     }

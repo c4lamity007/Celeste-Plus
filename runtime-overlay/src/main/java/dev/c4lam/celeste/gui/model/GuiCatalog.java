@@ -6,6 +6,12 @@ import java.util.List;
 
 /** Click GUI catalog. Card blurbs stay short so two-column rows do not ellipsis. */
 public final class GuiCatalog {
+    private static final GuiSetting.Toggle ATMOSPHERE_ADVANCED = toggle("Advanced",
+        "Use the sky and color settings in each module", false);
+    private static final GuiModule ATMOSPHERE = new GuiModule("Atmosphere",
+        "One palette across enabled visuals", CelestePage.VISUALS, false,
+        mode("Preset", "Match your sky, fog and effects", "Abyss", "Aurora", "Nebula", "Sunset", "Abyss", "Black Hole")
+            .visibleWhen(() -> !ATMOSPHERE_ADVANCED.value()), ATMOSPHERE_ADVANCED);
     private static final List<GuiModule> MODULES = List.of(
         // Sword
         new GuiModule("Sword Aura", "Silent-aims and hits players in range", CelestePage.SWORD, false,
@@ -235,13 +241,15 @@ public final class GuiCatalog {
             slider("Range", "Warning scan radius", 5, 2, 8, 1)),
 
         // Visuals
+        ATMOSPHERE,
         new GuiModule("Fullbright", "Lights up the world", CelestePage.VISUALS, false,
             mode("Mode", "Brightness technique", "Gamma", "Gamma", "Night Vision"),
             slider("Strength", "Amount of additional light", 1, 0, 1, .05),
             slider("Transition", "Brightness fade duration in milliseconds", 300, 0, 1500, 25)),
         playerModels(),
         new GuiModule("Custom Sky", "Seamless celestial skies with luminous atmospheric depth", CelestePage.VISUALS, false,
-            mode("Mode", "Sky atmosphere", "Aurora", "Aurora", "Nebula", "Sunset", "Abyss", "Black Hole"),
+            mode("Mode", "Sky atmosphere", "Aurora", "Aurora", "Nebula", "Sunset", "Abyss", "Black Hole")
+                .visibleWhen(GuiCatalog::individualAtmosphereSettings),
             slider("Brightness", "Sky illumination", .85, .35, 1.4, .05),
             slider("Stars", "Celestial detail", .7, 0, 1, .05)),
         customFog(),
@@ -267,14 +275,16 @@ public final class GuiCatalog {
             slider("Opacity", "Unified block fill visibility", .35, .05, 1, .05)),
         new GuiModule("Player ESP", "Glowing boxes around players", CelestePage.VISUALS, false,
             slider("Range", "Maximum player render distance", 64, 8, 128, 4),
-            mode("Theme", "Box accent palette", "Ice", "Celeste", "Ice", "Sunset", "Mono", "Custom"),
-            colorPick("Color", "Custom box color", 116, 223, 255),
+            mode("Theme", "Box accent palette", "Ice", "Celeste", "Ice", "Sunset", "Mono", "Custom")
+                .visibleWhen(GuiCatalog::individualAtmosphereSettings),
+            atmosphereColor("Color", "Custom box color", 116, 223, 255),
             slider("Opacity", "Box visibility", .72, .1, 1, .05)),
         new GuiModule("Chams", "Animated player silhouettes", CelestePage.VISUALS, false,
             mode("Material", "Surface style", "Pearl", "Pearl", "Flow", "Mist", "Glow"),
             slider("Range", "Maximum silhouette distance", 64, 8, 96, 4),
-            mode("Color mode", "Silhouette palette", "Celeste", "Celeste", "Ice", "Sunset", "Mono", "Custom"),
-            colorPick("Color", "Custom silhouette color", 116, 223, 255),
+            mode("Color mode", "Silhouette palette", "Celeste", "Celeste", "Ice", "Sunset", "Mono", "Custom")
+                .visibleWhen(GuiCatalog::individualAtmosphereSettings),
+            atmosphereColor("Color", "Custom silhouette color", 116, 223, 255),
             slider("Opacity", "Effect visibility", .68, .2, .95, .05),
             toggle("Self", "Show your silhouette in third person", false),
             toggle("Invisible", "Include invisible players", false)),
@@ -293,7 +303,7 @@ public final class GuiCatalog {
             toggle("Pearls", "Show pearl paths", true), toggle("Bows", "Show arrow paths", true),
             toggle("Others", "Show flying pearls and arrows from others", true),
             toggle("Landing", "Mark the predicted landing", true), slider("Steps", "Simulation budget", 80, 40, 160, 10),
-            visualTheme(), colorPick("Color", "Custom path color", 255, 79, 163),
+            visualTheme(), atmosphereColor("Color", "Custom path color", 255, 79, 163),
             slider("Glow", "Path glow", .55, 0, 1, .05),
             slider("Opacity", "Path visibility", .9, .1, 1, .05),
             toggle("Trail fade", "Fade along the path", true)),
@@ -302,7 +312,7 @@ public final class GuiCatalog {
             slider("Size", "Trail width", .2, .05, .45, .01),
             slider("Opacity", "Trail visibility", .8, .1, 1, .05),
             toggle("First person", "Show your trail in first person", false),
-            visualTheme(), colorPick("Color", "Custom trail color", 255, 79, 163)),
+            visualTheme(), atmosphereColor("Color", "Custom trail color", 255, 79, 163)),
         oreEsp(),
         new GuiModule("Arrow ESP", "Arrows toward players", CelestePage.VISUALS, false,
             slider("Range", "Maximum render distance", 64, 16, 128, 4),
@@ -318,7 +328,7 @@ public final class GuiCatalog {
         new GuiModule("Target ESP", "Animated focus around your target", CelestePage.VISUALS, false,
             slider("Range", "Maximum target distance", 64, 8, 128, 4),
             mode("Style", "Target marker", "Box", "Box", "Crystals", "Cubes", "Sparks"),
-            visualTheme(), colorPick("Color", "Custom target color", 255, 79, 163),
+            visualTheme(), atmosphereColor("Color", "Custom target color", 255, 79, 163),
             slider("Speed", "Animation speed", 1, .2, 3, .1),
             slider("Radius", "Marker radius around the target", 1, .7, 1.6, .05),
             slider("Glow", "Soft halo strength", .65, 0, 1, .05),
@@ -343,7 +353,7 @@ public final class GuiCatalog {
             toggle("Affect position", "Move the item from its Hand Models position", true)),
         new GuiModule("Hand Shaders", "Smoke and flame around held items", CelestePage.VISUALS, false,
             mode("Mode", "Effect style", "Smoke", "Smoke", "Flame"),
-            colorPick("Color", "Effect color", 116, 223, 255),
+            atmosphereColor("Color", "Effect color", 116, 223, 255),
             slider("Opacity", "Effect opacity", .85, .05, 1, .01),
             slider("Glow strength", "Glow brightness", .75, 0, 2, .05)),
         swingSpeed(),
@@ -388,19 +398,20 @@ public final class GuiCatalog {
         GuiSetting.Mode style = mode("Style", "Marker style", "Item Highlight", "Box", "Item Highlight", "Both");
         return new GuiModule("Item ESP", "Marks dropped items", CelestePage.VISUALS, false,
             slider("Range", "Maximum render distance", 64, 8, 128, 4), style,
-            visualTheme(), colorPick("Color", "Custom item color", 240, 155, 208),
+            visualTheme(), atmosphereColor("Color", "Custom item color", 240, 155, 208),
             slider("Opacity", "Box marker opacity", .76, .1, 1, .05)
                 .visibleWhen(() -> !style.value().equals("Item Highlight")));
     }
 
     private static GuiModule customFog() {
-        GuiSetting.Mode rendering = mode("Rendering", "Shader atmosphere or classic distance fog", "Shader", "Shader", "Native");
+        GuiSetting.Mode rendering = mode("Rendering", "Shader atmosphere or classic distance fog", "Shader", "Shader", "Native")
+            .visibleWhen(GuiCatalog::individualAtmosphereSettings);
         return new GuiModule("Custom Fog", "Depth-aware shader atmospheres that match your custom sky", CelestePage.VISUALS, false,
             rendering,
             mode("Shader", "Match Custom Sky automatically, or choose a fog shader", "Match Sky", "Match Sky", "Aurora", "Nebula", "Sunset", "Abyss", "Black Hole")
-                .visibleWhen(() -> rendering.value().equals("Shader")),
+                .visibleWhen(() -> individualAtmosphereSettings() && rendering.value().equals("Shader")),
             mode("Style", "Palette when Rendering is Native", "Mist", "Mist", "Dusk", "Frost")
-                .visibleWhen(() -> rendering.value().equals("Native")),
+                .visibleWhen(() -> individualAtmosphereSettings() && rendering.value().equals("Native")),
             slider("Density", "Atmospheric depth", .45, 0, 1, .05),
             slider("Distance", "Fog distance in blocks", 160, 32, 512, 16));
     }
@@ -490,8 +501,15 @@ public final class GuiCatalog {
     private static GuiSetting.Mode mode(String label, String description, String selected, String... values) {
         return new GuiSetting.Mode(label, description, List.of(values), selected);
     }
+    private static boolean individualAtmosphereSettings() {
+        return !ATMOSPHERE.enabled() || ATMOSPHERE_ADVANCED.value();
+    }
+    private static GuiSetting.ColorPick atmosphereColor(String label, String description, int red, int green, int blue) {
+        return colorPick(label, description, red, green, blue).visibleWhen(GuiCatalog::individualAtmosphereSettings);
+    }
     private static GuiSetting.Mode visualTheme() {
-        return mode("Theme", "Visual accent palette", "Celeste", "Celeste", "Ice", "Sunset", "Mono", "Custom");
+        return mode("Theme", "Visual accent palette", "Celeste", "Celeste", "Ice", "Sunset", "Mono", "Custom")
+            .visibleWhen(GuiCatalog::individualAtmosphereSettings);
     }
     private static GuiSetting.Keybind bind() {
         return new GuiSetting.Keybind("Bind", "Toggle this module", GLFW.GLFW_KEY_UNKNOWN);
@@ -506,7 +524,7 @@ public final class GuiCatalog {
         return settings;
     }
 
-    private static GuiSetting colorPick(String label, String description, int red, int green, int blue) {
+    private static GuiSetting.ColorPick colorPick(String label, String description, int red, int green, int blue) {
         return new GuiSetting.ColorPick(label, description, red, green, blue);
     }
 

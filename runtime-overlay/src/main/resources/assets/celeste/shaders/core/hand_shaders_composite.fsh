@@ -41,43 +41,66 @@ float currentFlameCoverage(vec2 uv) {
     return texture(CurrentGlowSampler, uv).a;
 }
 vec2 flowingFlame(vec2 pixel, float scale, float time) {
-    // Large, continuously rising folds. The field travels independently of the hand.
-    vec2 field = pixel / (vec2(48.0, 72.0) * scale) - vec2(time * 0.07, time * 0.62);
-    field.x += sin(field.y * 2.1 + time * 2.8) * 0.22;
-    float fold = smoothNoise(field) * 0.8 + smoothNoise(field * 1.83 + 13.0) * 0.2;
-    return vec2(fold, smoothstep(0.45, 0.9, fold));
+    // Two broad moving folds bend through each other instead of flashing random specks.
+    vec2 field = pixel / (vec2(46.0, 68.0) * scale) - vec2(time * 0.18, time * 0.78);
+    float bend = smoothNoise(field * 0.72 + vec2(7.0, time * 0.13));
+    field += vec2((bend - 0.5) * 1.15, sin(field.x * 1.6 + time * 0.8) * 0.18);
+    float fold = smoothNoise(field) * 0.72 + smoothNoise(field * 1.89 + 13.0) * 0.28;
+    float band = pow(0.5 + 0.5 * sin(field.y * 2.25 + bend * 4.0), 1.5);
+    return vec2(fold, band);
 }
 float flameCoverage(vec2 uv, vec2 pixel, vec2 size, float scale, float time, float nearCoverage) {
-    // Anchor the base to this frame; bend the delayed exterior into one connected plume.
     float root = currentFlameCoverage(uv);
-    float sway = sin(pixel.y / (43.0 * scale) - time * 5.4) * 7.0
-        + sin(pixel.y / (79.0 * scale) + time * 3.7) * 3.5;
-    float rise = 29.0 + sin(pixel.x / (51.0 * scale) + time * 3.1) * 5.0;
+    vec2 fold = flowingFlame(pixel, scale, time);
+    // Advection makes the aura follow fast hand motion; these connected samples curl its edge.
+    float sway = sin(pixel.y / (57.0 * scale) - time * 3.1) * 8.0
+        + (fold.x - 0.5) * 17.0;
+    float rise = 24.0 + fold.x * 14.0;
     vec2 plume = vec2(sway, rise) * scale / size;
-    float lower = glowCoverage(uv - plume * 0.24) * 0.92;
-    float middle = glowCoverage(uv - plume * 0.59) * 0.67;
-    float upper = glowCoverage(uv - plume) * 0.32;
-    // Overlapping offsets keep the moving folds attached, including around narrow blades.
-    return clamp(max(root * 0.86, max(nearCoverage * 0.8,
-        max(lower, max(middle, upper)))), 0.0, 1.0);
+    float lower = glowCoverage(uv - plume * 0.22) * 0.94;
+    float middle = glowCoverage(uv - plume * 0.56) * 0.65;
+    float upper = glowCoverage(uv - plume) * 0.25;
+    float density = max(root * 0.90, max(nearCoverage * 0.86, max(lower, max(middle, upper))));
+    return clamp(density * (0.77 + fold.x * 0.40), 0.0, 1.0);
 }
 vec4 attachedFlame(vec4 material, vec2 size) {
     float scale = clamp(size.y / 540.0, 1.0, 3.0);
+    vec2 fold = flowingFlame(gl_FragCoord.xy, scale, HandEffect.w);
     float density = flameCoverage(texCoord, gl_FragCoord.xy, size, scale,
         HandEffect.w, glowCoverage(texCoord));
-    vec2 fold = flowingFlame(gl_FragCoord.xy, scale, HandEffect.w);
     float opacity = clamp(HandColor.a, 0.05, 1.0);
     float strength = clamp(HandEffect.y, 0.0, 2.0);
+    float amount = opacity * min(1.0, strength);
     vec3 tint = clamp(HandColor.rgb, 0.0, 1.0);
-    float envelope = smoothstep(0.0005, 0.018, density);
-    float flameAlpha = (1.0 - exp(-density * (7.0 + fold.x * 2.6)))
-        * envelope * opacity * min(1.0, strength);
-    float core = smoothstep(0.08, 0.5, density);
-    vec3 energy = mix(tint, vec3(1.0), core * 0.16);
-    energy *= 0.76 + fold.x * 0.24;
-    // The aura surrounds the current item; it never paints over its texture.
-    float alpha = material.a + flameAlpha * (1.0 - material.a);
-    vec3 premul = material.rgb + energy * flameAlpha * (1.0 - material.a);
+    vec3 deepTint = tint * tint;
+    ivec2 pixel = ivec2(gl_FragCoord.xy);
+    ivec2 dimensions = ivec2(size);
+    float body = coverage(pixel, dimensions);
+    float outer = body, inner = body;
+    int radius = int(1.7 * scale + 0.5);
+    for (int y = -1; y <= 1; ++y) for (int x = -1; x <= 1; ++x) {
+        float nearby = coverage(pixel + ivec2(x, y) * radius, dimensions);
+        outer = max(outer, nearby);
+        inner = min(inner, nearby);
+    }
+    // A thin coherent rim is bright; the broad falloff gets darker and more saturated.
+    float rimAlpha = (outer - body) * min(1.0, amount * 1.75);
+    vec3 rimColor = clamp(tint * 1.45 + vec3(0.02), 0.0, 1.0) * (0.94 + fold.y * 0.06);
+    float envelope = smoothstep(0.001, 0.025, density);
+    float hazeAlpha = (1.0 - exp(-density * (4.8 + fold.x * 2.2))) * envelope * amount;
+    float heat = smoothstep(0.015, 0.30, density);
+    vec3 hazeColor = mix(deepTint * 0.22, tint * (0.74 + fold.y * 0.20), heat);
+    // Preserve the captured pixel texture and lighting underneath the moving colored coat.
+    vec3 original = material.a > 0.001 ? clamp(material.rgb / material.a, 0.0, 1.0) : vec3(0.0);
+    float detail = dot(original, vec3(0.2126, 0.7152, 0.0722));
+    vec3 coated = mix(original, deepTint * (0.065 + detail * 0.90), amount * 0.60);
+    float ribbon = pow(fold.y, 4.0);
+    coated += tint * ribbon * (0.33 + detail * 0.55) * amount;
+    coated = mix(coated, rimColor * (0.52 + detail * 0.32), (body - inner) * amount * 0.60);
+    float alpha = material.a + rimAlpha * (1.0 - material.a);
+    vec3 premul = coated * material.a + rimColor * rimAlpha * (1.0 - material.a);
+    premul += hazeColor * hazeAlpha * (1.0 - alpha);
+    alpha += hazeAlpha * (1.0 - alpha);
     return alpha > 0.001 ? vec4(clamp(premul / alpha, 0.0, 1.0), alpha) : vec4(0.0);
 }
 void main() {

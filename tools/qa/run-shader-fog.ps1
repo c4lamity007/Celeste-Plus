@@ -36,7 +36,7 @@ function Invoke-ShaderFogProcess {
 }
 $null=Invoke-ShaderFogProcess (Join-Path $JdkHome 'bin\javac.exe') @('--release','21','-classpath',$classpath,'-d',$classes,
     (Join-Path $helpers 'AmbientField.java'),(Join-Path $helpers 'AmbientTesseractField.java'),(Join-Path $helpers 'CustomFogMath.java'),
-    (Join-Path $helpers 'SkyboxMath.java'),(Join-Path $helpers 'ShaderFogMath.java'),(Join-Path $qa 'ShaderFogRulesCheck.java'),
+    (Join-Path $helpers 'VisualAtmosphere.java'),(Join-Path $helpers 'SkyboxMath.java'),(Join-Path $helpers 'ShaderFogMath.java'),(Join-Path $qa 'ShaderFogRulesCheck.java'),
     (Join-Path $qa 'ShaderFogLifecycleCheck.java'),
     (Join-Path $qa 'ImpactCheck.java'),(Join-Path $qa 'AtmosphereCheck.java'),(Join-Path $qa 'ShaderFogCheck.java')) 'compile'
 $rules=@(Invoke-ShaderFogProcess (Join-Path $JdkHome 'bin\java.exe') @('-classpath',$classes,'ShaderFogRulesCheck') 'rules')

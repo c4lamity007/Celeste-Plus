@@ -339,6 +339,7 @@ public sealed interface GuiSetting permits GuiSetting.Action, GuiSetting.Toggle,
         private final String label;
         private final String description;
         private int rgb;
+        private java.util.function.BooleanSupplier visibilityCondition;
 
         public ColorPick(String label, String description, int rgb) {
             this.label = label;
@@ -358,6 +359,16 @@ public sealed interface GuiSetting permits GuiSetting.Action, GuiSetting.Toggle,
         @Override
         public String description() {
             return description;
+        }
+
+        public ColorPick visibleWhen(java.util.function.BooleanSupplier condition) {
+            visibilityCondition = Objects.requireNonNull(condition, "condition");
+            return this;
+        }
+
+        @Override public boolean hasVisibilityCondition() { return visibilityCondition != null; }
+        @Override public boolean visibleInMenu() {
+            return visibilityCondition == null || visibilityCondition.getAsBoolean();
         }
 
         public int rgb() {

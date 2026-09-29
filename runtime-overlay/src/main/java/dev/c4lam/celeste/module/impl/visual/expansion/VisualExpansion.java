@@ -26,6 +26,7 @@ public final class VisualExpansion {
         AmbientEffectsFeature ambient = new AmbientEffectsFeature();
         SkyLyricsFeature lyrics = new SkyLyricsFeature();
 
+        manager.register(new AtmosphereFeature());
         manager.register(trajectories);
         manager.register(trails);
         manager.register(ores);
