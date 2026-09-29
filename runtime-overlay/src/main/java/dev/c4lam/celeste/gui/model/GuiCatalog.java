@@ -291,6 +291,7 @@ public final class GuiCatalog {
                 .visibleWhen(GuiCatalog::individualAtmosphereSettings),
             atmosphereColor("Color", "Custom silhouette color", 116, 223, 255),
             slider("Opacity", "Effect visibility", .68, .2, .95, .05),
+            toggle("Include armor", "Include armor and items in both hands", false),
             toggle("Self", "Show your silhouette in third person", false),
             toggle("Invisible", "Include invisible players", false)),
         new GuiModule("Entity ESP", "Clean silhouettes around players", CelestePage.VISUALS, false,

@@ -108,6 +108,11 @@
       "baseSha256": "aff6e1d8a5a524ac703e4482b33ef3604b472ff15f40b276d70024d7ad6cf8f7"
     },
     {
+      "path": "src/main/java/dev/c4lam/celeste/compat/ChamsEquipmentAccess.java",
+      "sha256": "ba6b598f5697ce977b6c3861c404ec62ebaf9ba0dbf6e0f6ea611bc3d4e3b56f",
+      "baseSha256": null
+    },
+    {
       "path": "src/main/java/dev/c4lam/celeste/compat/FakeGambleHooks.java",
       "sha256": "5b4a1506b14488b63a84e0f34725caecca8b3f4f90fee00b0a7a4510e85dbf39",
       "baseSha256": "d92c1775610935a3006dd41e10aefca7be282eee68c88e9dfa7ad744465cd0f8"
@@ -244,7 +249,7 @@
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/gui/model/GuiCatalog.java",
-      "sha256": "e6442b0528f8ad39db071e64eb16951533b8b0f254db295fae11ac63434dbb11",
+      "sha256": "d613006fce3560ef2a3adae9b4d5568a3f58edaaf2c9361a45832a59da1e68bd",
       "baseSha256": "11f261cd447bf0307a91732fa8903e3e71f8f9a4ea5638f508abfbcd887a66d6"
     },
     {
@@ -319,7 +324,7 @@
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/hud/HudElementType.java",
-      "sha256": "07e68368fa2b83e0c7c2dc43f2e0533f59745649e207f758d5625ec933585f76",
+      "sha256": "015ffd4d43033bcfd98024b0d8b52ce2b5d4a8261d480d5643a13788e32ec1bb",
       "baseSha256": "fe83223f86dc0550d8c9af1c7c76a284b72e4ceb058e5896766ce90166f638dc"
     },
     {
@@ -334,7 +339,7 @@
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/hud/HudManager.java",
-      "sha256": "86e801024a509fbad60b6af270fc8075472310bc21a18af9d4052a333fc1b600",
+      "sha256": "2ca792aefcdfbca60c9d560e063eacd9434bf2ac3755a13df5a9ea6babe892a3",
       "baseSha256": "22ec3ef541ab19e75e67de111ba536372fdee5618deb314f17024c62ee2c0de6"
     },
     {
@@ -729,13 +734,18 @@
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/ChamsFeature.java",
-      "sha256": "1709a03c55d89f439abc2c868bd7162f3a0bb8a9faf81f92c2583d9b8e5c8d8f",
+      "sha256": "bb9497c0fbf2a76332e260e117349b97d247f84cad8954eeaac5a6697ba9d32a",
       "baseSha256": "eeaaae011427ba88f2c32c316b5d45bc3e6fcabaf1fdb788f410f2eec7f53932"
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/CustomFogFeature.java",
       "sha256": "6326b03671e064e836a44081083158061c0a51d8db2dfb4f55cff0d6205bdfc1",
       "baseSha256": "0a98639e2779fe2ca8813c8ea39bd47996c376ecd7712146ea738358b294ddc1"
+    },
+    {
+      "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/EquipmentCaptureQueue.java",
+      "sha256": "285106c3cee20ec69d7f1e36d32c9d32a0da33c75a2865f51a08bbe11718625b",
+      "baseSha256": null
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/FakeGambleFeature.java",
@@ -883,9 +893,19 @@
       "baseSha256": "0b1f2e7978eebf8b80aab09f012e76eeb9aaec58b1087be7db09f70c08194ff0"
     },
     {
+      "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/PlayerEchoRenderer.java",
+      "sha256": "b80cd2c8c21a538cd73a26858819094a0363eece982626e90db359f46bd716fe",
+      "baseSha256": "c5ea2237b7753cbae76eac4e8e567670e62a1a73a88862179277c70b0a117e0d"
+    },
+    {
       "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/PlayerModelSnapshot.java",
-      "sha256": "fdb82e12a332fdd8ad371295191243286316ed7c2d513418b817f9d2108e7979",
+      "sha256": "54f3dfc6c307d1310a7d95a3834b2049670fbb885cd852f2b5f3418475836057",
       "baseSha256": "96d278139967692acbad9dfef3ec7a272d9edff108cb07a15da359212d2aaa81"
+    },
+    {
+      "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/PlayerPoseTransforms.java",
+      "sha256": "dac6f483ebe9e25d42bc22fc96e617959ef65b609b807e395a6fedf5b364382f",
+      "baseSha256": "40d04a7776d99254640d7cd8638ad4dc3930a7aca40f3ae50010e66680fd91b6"
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/PlayerTrailHistory.java",
@@ -954,7 +974,7 @@
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/UnifiedChamsRenderer.java",
-      "sha256": "9a621a31e920f6d107f5909a75833a475bd25768348e8697e50cabc412067fd9",
+      "sha256": "a2e572f379155fafbf5bf6018f31ace73c00fb79ede430b75ff7b904945713d0",
       "baseSha256": "cbcddc5bb698979ada2821c28122f79e97c0fee3bde252eb3e2e03fbd5131696"
     },
     {

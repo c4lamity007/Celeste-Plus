@@ -48,7 +48,7 @@ import java.util.OptionalInt;
  */
 public final class UnifiedChamsRenderer {
     private static final int MAX_ECHOES = 48;
-    private static final int MAX_VERTEX_BYTES = MAX_ECHOES * PlayerModelSnapshot.MAX_VERTICES
+    private static final int MAX_VERTEX_BYTES = (MAX_ECHOES * PlayerModelSnapshot.MAX_VERTICES + 12 * PlayerModelSnapshot.MAX_EQUIPPED_VERTICES)
         * VertexFormats.POSITION_TEXTURE_COLOR_NORMAL.getVertexSize();
 
     private static final RenderPipeline SILHOUETTE = dev.c4lam.celeste.compat.BetaRenderPipelines.register(
@@ -176,6 +176,7 @@ public final class UnifiedChamsRenderer {
         int width = target.getWidth(0), height = target.getHeight(0);
         if (width < 1 || height < 1) return;
         boolean exteriorGlow = material >= MATERIALS.length - 1;
+        boolean texturedMask = exteriorGlow || frame.echoes().stream().anyMatch(echo -> echo.mesh().hasEquipment());
         GpuTextureView energyTexture = material < 0 ? client.getTextureManager()
             .getTexture(id("textures/visual/plasma_flow.png")).getGlTextureView() : null;
         if (material < 0 && (energyTexture == null || energyTexture.isClosed())) return;
@@ -191,23 +192,29 @@ public final class UnifiedChamsRenderer {
                 VertexFormats.POSITION_TEXTURE_COLOR_NORMAL);
             MatrixStack.Entry matrix = context.matrices().peek();
             int count = Math.min(MAX_ECHOES, frame.echoes().size());
-            int principal = prioritizePrincipal && !exteriorGlow ? principalIndex(frame, count) : -1;
+            int principal = prioritizePrincipal && !texturedMask ? principalIndex(frame, count) : -1;
             int trailVertices = 0;
-            java.util.ArrayList<SkinDraw> skinDraws = exteriorGlow ? new java.util.ArrayList<>(count) : null;
+            java.util.ArrayList<SkinDraw> skinDraws = texturedMask ? new java.util.ArrayList<>(count) : null;
             for (int index = 0; index < count; index++) {
                 if (index == principal) continue;
                 PlayerEchoRenderer.Echo echo = frame.echoes().get(index);
                 if (!drawable(echo)) continue;
                 // Identical endpoint colors deliberately remove any per-part
                 // interpolation differences as well as the old normal-based rim.
-                if (exteriorGlow) {
-                    Identifier skin = echo.mesh().skinTexture();
-                    if (skin == null) continue;
-                    GpuTextureView texture = client.getTextureManager().getTexture(skin).getGlTextureView();
-                    if (texture == null || texture.isClosed()) continue;
+                if (texturedMask) {
+                    var ranges = echo.mesh().textureRanges();
+                    if (ranges.isEmpty()) {
+                        Identifier skin = echo.mesh().skinTexture();
+                        if (skin == null) continue;
+                        ranges = java.util.List.of(new PlayerModelSnapshot.TextureRange(0, echo.mesh().vertexCount(), skin));
+                    }
                     echo.mesh().emitSkinMask(builder, matrix, camera, echo.position(), echo.yaw(),
                         echo.bottomColor(), echo.alpha());
-                    skinDraws.add(new SkinDraw(trailVertices, echo.mesh().vertexCount(), texture));
+                    for (var range : ranges) {
+                        GpuTextureView texture = client.getTextureManager().getTexture(range.texture()).getGlTextureView();
+                        if (texture != null && !texture.isClosed())
+                            skinDraws.add(new SkinDraw(trailVertices + range.firstVertex(), range.vertices(), texture));
+                    }
                 } else {
                     echo.mesh().emit(builder, matrix, camera, echo.position(), echo.yaw(),
                         echo.bottomColor(), echo.bottomColor(), echo.alpha(), echo.age());
@@ -242,13 +249,13 @@ public final class UnifiedChamsRenderer {
                 try (RenderPass pass = encoder.createRenderPass(
                     () -> "Celeste unified chams silhouette", silhouette.getColorAttachmentView(),
                     OptionalInt.of(0), silhouette.getDepthAttachmentView(), OptionalDouble.of(1D))) {
-                    pass.setPipeline(exteriorGlow ? GLOW_MASK : SILHOUETTE);
+                    pass.setPipeline(texturedMask ? GLOW_MASK : SILHOUETTE);
                     RenderSystem.bindDefaultUniforms(pass);
                     pass.setUniform("DynamicTransforms", transforms);
                     pass.setVertexBuffer(0, vertices);
                     pass.setIndexBuffer(indexBuffer, indices.getIndexType());
-                    if (exteriorGlow) {
-                        // One shared mask/depth target and bounded per-skin draws.
+                    if (texturedMask) {
+                        // One shared mask/depth target, bounded skin/equipment draws.
                         // Transparent clothing texels discard before depth writes.
                         for (SkinDraw draw : skinDraws) {
                             pass.bindTexture("SkinSampler", draw.texture(),

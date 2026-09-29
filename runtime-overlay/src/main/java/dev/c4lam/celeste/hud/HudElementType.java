@@ -5,7 +5,7 @@ public enum HudElementType {
     COORDINATES("Coordinates", 132, 20),
     TARGET_HUD("Target HUD", 136, 44),
     EFFECTS("Effects", 116, 27),
-    ARMOR("Armor", 120, 34),
+    ARMOR("Armor", 120, 28),
     KEYBINDS("Keybinds", 122, 27),
     ARRAYLIST("Arraylist", 110, 80),
     WATERMARK("Watermark", 110, 20),

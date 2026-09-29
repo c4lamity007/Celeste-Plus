@@ -1067,11 +1067,17 @@ public final class HudManager {
         MinecraftClient client = MinecraftClient.getInstance();
         EquipmentSlot[] slots = {EquipmentSlot.HEAD, EquipmentSlot.CHEST, EquipmentSlot.LEGS, EquipmentSlot.FEET};
         float itemSize = HudGlyphLayout.ARMOR_ITEM_SIZE;
+        float barWidth = 16.0f;
+        float barHeight = 1.5f;
+        float barGap = 1.5f;
         for (int index = 0; index < slots.length; index++) {
             float itemX = HudGlyphLayout.armorItemX(x, HudElementType.ARMOR.width(), index);
-            float groupHeight = Math.max(itemSize, itemSize - 3 + Fonts.bold().height(6.2f) + .6f);
-            float itemY = y + (34.0f - groupHeight) * 0.5f;
             ItemStack stack = client.player == null ? ItemStack.EMPTY : client.player.getEquippedStack(slots[index]);
+            boolean showDurability = !stack.isEmpty() && stack.isDamageable();
+            float groupHeight = itemSize + (showDurability ? barGap + barHeight : 0.0f);
+            // Account for transparent padding above the item artwork, centering the visible row.
+            float itemY = HudGlyphLayout.centeredY(y, HudElementType.ARMOR.height(), groupHeight)
+                - (showDurability ? 1.0f : 0.0f);
             if (stack.isEmpty()) {
                 RenderUtil.RECT.draw(matrices, itemX, itemY, itemSize, itemSize, 4,
                     color(255, 255, 255, Math.round(18 * opacity)));
@@ -1083,19 +1089,23 @@ public final class HudManager {
             context.getMatrices().scale(scale, scale);
             context.drawItem(stack, 0, 0);
             context.getMatrices().popMatrix();
-            if (!stack.isDamageable()) {
+            if (!showDurability) {
                 continue;
             }
             int remaining = Math.max(0, stack.getMaxDamage() - stack.getDamage());
             float ratio = stack.getMaxDamage() <= 0 ? 1.0f
                 : Math.max(0.0f, Math.min(1.0f, remaining / (float) stack.getMaxDamage()));
-            Color value = ratio > 0.45f ? TEXT : ratio > 0.2f ? color(255, 196, 92, 255) : color(255, 92, 108, 255);
-            float centerX = itemX + itemSize * 0.5f;
-            float labelY = itemY + itemSize - 3.0f;
-            Fonts.bold().drawCenteredText(matrices, Integer.toString(remaining), centerX + 0.6f, labelY + 0.6f, 6.2f,
-                color(0, 0, 0, Math.round(170 * opacity)));
-            Fonts.bold().drawCenteredText(matrices, Integer.toString(remaining), centerX, labelY, 6.2f,
-                withAlpha(value, opacity));
+            Color value = ratio > 0.45f ? color(217, 230, 153, 255)
+                : ratio > 0.2f ? color(244, 194, 103, 255) : color(239, 109, 109, 255);
+            float barX = itemX + (itemSize - barWidth) * 0.5f;
+            float barY = itemY + itemSize + barGap;
+            RenderUtil.RECT.draw(matrices, barX, barY, barWidth, barHeight, barHeight * 0.5f,
+                color(255, 255, 255, Math.round(24 * opacity)));
+            float fillWidth = barWidth * ratio;
+            if (fillWidth > 0.0f) {
+                RenderUtil.RECT.draw(matrices, barX, barY, fillWidth, barHeight,
+                    Math.min(barHeight, fillWidth) * 0.5f, withAlpha(value, opacity));
+            }
         }
     }
 

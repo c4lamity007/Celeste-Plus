@@ -10,6 +10,8 @@ import net.minecraft.util.math.Box;
 import net.minecraft.util.math.Vec3d;
 
 import java.util.Arrays;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 
 /** Immutable, posed vanilla player geometry. Holds no entity, model, item or render-state references. */
@@ -17,6 +19,8 @@ public final class PlayerModelSnapshot {
     // Vanilla wide/slim players including all six clothing parts have 288 vertices.
     // Keep a fixed ceiling even if another mod adds parts to the private player model.
     public static final int MAX_VERTICES = 512;
+    public static final int MAX_EQUIPPED_VERTICES = 8192;
+    public static final int MAX_TEXTURE_RANGES = 32;
     private static final int STRIDE = 9;
     private static final byte[] NO_PART_FLAGS = new byte[0];
     private static final AtomicLong NEXT_MODEL_GENERATION = new AtomicLong();
@@ -27,6 +31,11 @@ public final class PlayerModelSnapshot {
     private final long modelGeneration;
     private final byte[] partFlags;
     private final Identifier skinTexture;
+    private final List<TextureRange> textureRanges;
+
+    public record TextureRange(int firstVertex, int vertices, Identifier texture) { }
+    public List<TextureRange> textureRanges() { return textureRanges; }
+    public boolean hasEquipment() { return !textureRanges.isEmpty(); }
 
     private PlayerModelSnapshot(float[] vertices, Box bounds, float playerYaw, Vec3d position,
                                 long modelGeneration, byte[] partFlags) {
@@ -35,6 +44,13 @@ public final class PlayerModelSnapshot {
 
     private PlayerModelSnapshot(float[] vertices, Box bounds, float playerYaw, Vec3d position,
                                 long modelGeneration, byte[] partFlags, Identifier skinTexture) {
+        this(vertices, bounds, playerYaw, position, modelGeneration, partFlags, skinTexture, List.of());
+    }
+
+    private PlayerModelSnapshot(float[] vertices, Box bounds, float playerYaw, Vec3d position,
+                                long modelGeneration, byte[] partFlags, Identifier skinTexture,
+                                List<TextureRange> textureRanges) {
+        this.textureRanges = List.copyOf(textureRanges);
         this.skinTexture = skinTexture;
         this.vertices = vertices;
         this.bounds = bounds;
@@ -46,6 +62,11 @@ public final class PlayerModelSnapshot {
 
     static PlayerModelSnapshot capture(PlayerPoseTransforms renderer, AbstractClientPlayerEntity player,
                                        float tickDelta, CaptureBuffer buffer) {
+        return capture(renderer, player, tickDelta, buffer, false);
+    }
+
+    static PlayerModelSnapshot capture(PlayerPoseTransforms renderer, AbstractClientPlayerEntity player,
+                                       float tickDelta, CaptureBuffer buffer, boolean equipment) {
         // State is private and transient: never retain vanilla's mutable extracted world state.
         PlayerEntityRenderState state = renderer.createRenderState();
         renderer.updateRenderState(player, state, tickDelta);
@@ -54,9 +75,14 @@ public final class PlayerModelSnapshot {
         renderer.getModel().setAngles(state);
         buffer.reset();
         buffer.captureTopology(renderer.getModel());
-        // This renders only the model root. Renderer features, labels, held items, armor,
-        // capes, ears, parrots, shadows, leashes and fire are never submitted.
+        if (equipment) buffer.textureRange(player.getSkin().body().texturePath());
+        // Body-only callers never submit features. Equipment uses the owned
+        // vanilla armor/hand/head models, with their pose and item transforms.
         renderer.getModel().render(matrices, buffer, 0x00F000F0, 0, 0xFFFFFFFF);
+        if (equipment) {
+            buffer.preserveBody();
+            renderer.captureEquipment(state, matrices, new EquipmentCaptureQueue(buffer));
+        }
         PlayerModelSnapshot result = buffer.finish(player.getLerpedYaw(tickDelta), new Vec3d(state.x, state.y, state.z));
         return result == null ? null : result.withSkinTexture(player.getSkin().body().texturePath());
     }
@@ -65,7 +91,7 @@ public final class PlayerModelSnapshot {
     public Identifier skinTexture() { return skinTexture; }
 
     private PlayerModelSnapshot withSkinTexture(Identifier texture) {
-        return new PlayerModelSnapshot(vertices, bounds, playerYaw, position, modelGeneration, partFlags, texture);
+        return new PlayerModelSnapshot(vertices, bounds, playerYaw, position, modelGeneration, partFlags, texture, textureRanges);
     }
 
     public int vertexCount() { return vertices.length / STRIDE; }
@@ -83,7 +109,7 @@ public final class PlayerModelSnapshot {
         if (other == null) return false;
         if (other == this) return true;
         if (modelGeneration != other.modelGeneration || vertices.length != other.vertices.length
-                || !Arrays.equals(partFlags, other.partFlags)) return false;
+                || !Arrays.equals(partFlags, other.partFlags) || !textureRanges.equals(other.textureRanges)) return false;
         for (int i = 0; i < vertices.length; i += STRIDE) {
             if (Float.floatToRawIntBits(vertices[i + 7]) != Float.floatToRawIntBits(other.vertices[i + 7])
                     || Float.floatToRawIntBits(vertices[i + 8]) != Float.floatToRawIntBits(other.vertices[i + 8])) return false;
@@ -152,7 +178,11 @@ public final class PlayerModelSnapshot {
         Vec3d origin = position.lerp(other.position, t);
         if (!Double.isFinite(origin.x) || !Double.isFinite(origin.y) || !Double.isFinite(origin.z)) return nearer;
         return finishVertices(blended, yaw, origin, modelGeneration, partFlags)
-            .withSkinTexture(nearer.skinTexture);
+            .withSkinTexture(nearer.skinTexture).withTextureRanges(textureRanges);
+    }
+
+    private PlayerModelSnapshot withTextureRanges(List<TextureRange> ranges) {
+        return new PlayerModelSnapshot(vertices, bounds, playerYaw, position, modelGeneration, partFlags, skinTexture, ranges);
     }
 
     private static double wrapDegrees(double degrees) {
@@ -245,7 +275,42 @@ public final class PlayerModelSnapshot {
 
     /** Reused extraction scratch space; each finished snapshot owns its packed array. */
     static final class CaptureBuffer implements VertexConsumer {
-        private final float[] data = new float[MAX_VERTICES * STRIDE];
+        private final float[] data;
+        private final ArrayList<TextureRange> ranges = new ArrayList<>();
+        private Identifier texture;
+        private int rangeStart;
+        private int bodyVertices;
+        private Identifier bodyTexture;
+
+        CaptureBuffer() { this(MAX_VERTICES); }
+        CaptureBuffer(int maxVertices) {
+            if (maxVertices < 4 || maxVertices > MAX_EQUIPPED_VERTICES || (maxVertices & 3) != 0)
+                throw new IllegalArgumentException("Invalid snapshot vertex budget");
+            data = new float[maxVertices * STRIDE];
+        }
+
+        void textureRange(Identifier next) {
+            if (next == null || invalid) { invalid = true; return; }
+            if (next.equals(texture)) return;
+            finishRange();
+            texture = next;
+            rangeStart = count;
+        }
+
+        /** Keep complete body geometry when an oversized resource-pack item exceeds the cap. */
+        void preserveBody() {
+            if (!invalid && count > 0 && (count & 3) == 0) {
+                bodyVertices = count;
+                bodyTexture = texture;
+            }
+        }
+
+        private void finishRange() {
+            if (texture == null || count == rangeStart) return;
+            if (ranges.size() >= MAX_TEXTURE_RANGES || ((count - rangeStart) & 3) != 0) { invalid = true; return; }
+            ranges.add(new TextureRange(rangeStart, count - rangeStart, texture));
+            rangeStart = count;
+        }
         private int count;
         private boolean invalid;
         // Only this bounded scratch object retains its last owned model. Immutable
@@ -257,6 +322,8 @@ public final class PlayerModelSnapshot {
 
         void reset() {
             count = 0; invalid = false;
+            ranges.clear(); texture = null; rangeStart = 0;
+            bodyVertices = 0; bodyTexture = null;
             capturedGeneration = 0L;
             capturedPartFlags = NO_PART_FLAGS;
         }
@@ -277,10 +344,19 @@ public final class PlayerModelSnapshot {
         }
 
         PlayerModelSnapshot finish(float yaw, Vec3d position) {
+            finishRange();
+            if (invalid && bodyVertices > 0) {
+                count = bodyVertices;
+                invalid = false;
+                ranges.clear();
+                texture = bodyTexture;
+                rangeStart = 0;
+                finishRange();
+            }
             if (invalid || count == 0 || (count & 3) != 0 || !Float.isFinite(yaw)) return null;
             if (position == null || !Double.isFinite(position.x) || !Double.isFinite(position.y) || !Double.isFinite(position.z)) return null;
             return finishVertices(Arrays.copyOf(data, count * STRIDE), yaw, position,
-                    capturedGeneration, capturedPartFlags.clone());
+                    capturedGeneration, capturedPartFlags.clone()).withTextureRanges(ranges);
         }
 
         @Override
@@ -292,7 +368,7 @@ public final class PlayerModelSnapshot {
         @Override
         public VertexConsumer vertex(float x, float y, float z) {
             if (invalid) return this;
-            if (count >= MAX_VERTICES || !Float.isFinite(x) || !Float.isFinite(y) || !Float.isFinite(z)) {
+            if (count >= data.length / STRIDE || !Float.isFinite(x) || !Float.isFinite(y) || !Float.isFinite(z)) {
                 invalid = true;
                 return this;
             }

@@ -22,6 +22,7 @@ public final class ChamsFeature implements ModuleFeature {
     private volatile float opacity = 0.68F;
     private volatile String colorMode = "Celeste";
     private volatile int customColor = 0x74DFFF;
+    private volatile boolean includeArmor;
     private volatile boolean includeSelf;
     private volatile boolean includeInvisible;
     private volatile int material;
@@ -74,7 +75,7 @@ public final class ChamsFeature implements ModuleFeature {
             .filter(player -> player.isAlive() && !player.isRemoved() && !player.isSpectator()
                 && (player != client.player || selfVisible) && (includeInvisible || !player.isInvisible())
                 && finite(player.getEntityPos()) && player.squaredDistanceTo(camera) <= rangeSquared
-                && (context.frustum() == null || context.frustum().isVisible(player.getBoundingBox().expand(.35))))
+                && (context.frustum() == null || context.frustum().isVisible(player.getBoundingBox().expand(includeArmor ? 3.0 : .35))))
             .sorted(Comparator.comparingDouble((AbstractClientPlayerEntity player) -> player.squaredDistanceTo(camera))
                 .thenComparingInt(AbstractClientPlayerEntity::getId))
             .limit(budget).toList();
@@ -84,7 +85,7 @@ public final class ChamsFeature implements ModuleFeature {
         int color = VisualEffects.color(colorMode, customColor, 0.0, 0.0);
         for (AbstractClientPlayerEntity player : candidates) {
             float tickDelta = context.tickCounter().getTickProgress(!context.world().getTickManager().shouldSkipTick(player));
-            PlayerModelSnapshot mesh = snapshots.snapshot(player, tickDelta);
+            PlayerModelSnapshot mesh = snapshots.snapshot(player, tickDelta, includeArmor);
             if (mesh == null || !finite(mesh.position())) continue;
             double distance = Math.sqrt(camera.squaredDistanceTo(mesh.position()));
             double edge = MathHelper.clamp((frameRange - distance) / fadeWidth, 0.0, 1.0);
@@ -110,6 +111,7 @@ public final class ChamsFeature implements ModuleFeature {
         opacity = (float) MathHelper.clamp(context.slider("Opacity", 0.68), 0.2, 0.95);
         colorMode = context.mode("Color mode", "Celeste");
         customColor = context.colorPick("Color", 0x74DFFF) & 0xFFFFFF;
+        includeArmor = context.toggle("Include armor", false);
         includeSelf = context.toggle("Self", false);
         includeInvisible = context.toggle("Invisible", false);
     }
