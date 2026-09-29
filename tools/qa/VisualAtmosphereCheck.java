@@ -57,7 +57,7 @@ public final class VisualAtmosphereCheck {
         check(!VisualAtmosphere.usesPreset()&&VisualAtmosphere.tint(0x12ABEF,10,.7)==0x12ABEF,"disabled RGB exact");
         check(VisualAtmosphere.sky("local").equals("local"),"disabled sky exact");
         atmosphere.setEnabled(true);feature.onEnable(ac);hand.onEnable(hc);fog.onEnable(fc);
-        String[][] hidden={{"Custom Sky","Mode"},{"Custom Fog","Rendering"},{"Custom Fog","Shader"},{"Custom Fog","Style"},{"Hand Shaders","Color"},{"Target ESP","Theme"},{"Target ESP","Color"},{"Trails","Theme"},{"Trails","Color"},{"Chams","Color mode"},{"Chams","Color"},{"Player ESP","Theme"},{"Player ESP","Color"}};
+        String[][] hidden={{"Custom Sky","Mode"},{"Custom Fog","Rendering"},{"Custom Fog","Shader"},{"Custom Fog","Style"},{"Hand Shaders","Color"},{"Ground Shaders","Color"},{"Target ESP","Theme"},{"Target ESP","Color"},{"Trails","Theme"},{"Trails","Color"},{"Chams","Color mode"},{"Chams","Color"},{"Player ESP","Theme"},{"Player ESP","Color"}};
         for(String[] row:hidden)check(!visible(row[0],row[1]),"basic hides "+Arrays.toString(row));
         check(visible("Custom Sky","Brightness")&&visible("Custom Fog","Density")&&visible("Target ESP","Style")&&visible("Hand Shaders","Mode"),"geometry and intensity remain editable");
         check(VisualAtmosphere.sky("Black Hole").equals("Abyss"),"effective sky matches preset");

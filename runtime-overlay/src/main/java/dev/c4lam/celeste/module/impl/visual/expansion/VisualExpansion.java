@@ -41,6 +41,7 @@ public final class VisualExpansion {
         manager.register(lyrics);
         manager.register(new SkyboxFeature());
         manager.register(new CustomFogFeature());
+        manager.register(new GroundShadersFeature());
         manager.register(new SwingSpeedFeature());
         manager.register(new HandModelsFeature());
         manager.register(new SwingAnimationFeature());
@@ -53,6 +54,7 @@ public final class VisualExpansion {
         VisualExpansionRenderer.initialize(trajectories, trails, ores, arrows, items, targets, jumps, players, chams, blockHighlight, ambient, lyrics);
         SkyboxRenderer.initialize();
         ShaderFogRenderer.initialize();
+        GroundShadersRenderer.initialize();
         HandShadersRenderer.initialize();
     }
 }

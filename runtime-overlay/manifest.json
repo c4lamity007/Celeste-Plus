@@ -214,7 +214,7 @@
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/gui/model/GuiCatalog.java",
-      "sha256": "35c6f78b0bcfd0f1406aeaa34c5f09374b7700f3522a14b49f0bb6252b8610ba",
+      "sha256": "4a28ba46ca701ed69f249d668bb232752feef861f1ddb41e4609cf345567db0f",
       "baseSha256": "11f261cd447bf0307a91732fa8903e3e71f8f9a4ea5638f508abfbcd887a66d6"
     },
     {
@@ -703,6 +703,21 @@
       "baseSha256": "c812f0e7880158bb2067fb379dfaad90a491578bf2fd6856fb69f604bd995023"
     },
     {
+      "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/GroundShadersFeature.java",
+      "sha256": "ad4abacfcf21643375aa007a0fe82db27256ed32f9021c4ea71fb76de5046d0d",
+      "baseSha256": null
+    },
+    {
+      "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/GroundShadersMath.java",
+      "sha256": "9903a337532d1a4753f636233654385e191fe14b88798abf1114471932d5d147",
+      "baseSha256": null
+    },
+    {
+      "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/GroundShadersRenderer.java",
+      "sha256": "df09fd1ca89550d266369817f33beaef85262f1e2c4a85842aae80c98cad3058",
+      "baseSha256": null
+    },
+    {
       "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/HandFogTiming.java",
       "sha256": "b24d2d4def6b9a1cb4f8a9e065aa52385a22ac2302bdc1debaefdf597ec4291a",
       "baseSha256": null
@@ -844,7 +859,7 @@
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/VisualExpansion.java",
-      "sha256": "ec250e74094402b686e314a1c2f672e45d221b06890a48f8d99b0fef434204d9",
+      "sha256": "4140b75f3245924d4cd9b38ce7d8b7aac14fb3e2798370ae83359d086ecac314",
       "baseSha256": "dec3c4200893fa79860ca061cacb473b5bd10b5c07121cd1517558e528c25d47"
     },
     {
@@ -1010,6 +1025,16 @@
     {
       "path": "src/main/resources/assets/celeste/shaders/core/chams_material.fsh",
       "sha256": "b44292c41a392ccd88496a99a2537337bc90b3d18ead61cd6f4f03be1cdb89ec",
+      "baseSha256": null
+    },
+    {
+      "path": "src/main/resources/assets/celeste/shaders/core/ground_shaders.fsh",
+      "sha256": "c585be7f9e4ce59875c12b3e32ff180a532b2738b415f97d7293fa728f94d32c",
+      "baseSha256": null
+    },
+    {
+      "path": "src/main/resources/assets/celeste/shaders/core/ground_shaders.vsh",
+      "sha256": "bb317cd9a66c85d0da1dd9e97bc4abd8e59aaf393307d8f66ca60443ef143292",
       "baseSha256": null
     },
     {
