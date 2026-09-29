@@ -32,18 +32,9 @@ public final class GroundShadersLifecycleCheck {
         public double slider(String key,double fallback){return sliders.getOrDefault(key,fallback);}
         public int colorPick(String key,int fallback){return color;}
     }
-    public record ProbeMask(ProbeWorld world,int revision) { }
-    public static final class ProbeReachability {
-        static int ticks,resets;static ProbeMask mask;
-        public static void tick(ProbeWorld world,Object player){ticks++;mask=new ProbeMask(world,ticks);}
-        public static ProbeMask snapshot(){return mask;}
-        public static void reset(){resets++;mask=null;}
-        public static void invalidate(){reset();}
-    }
-    public record ProbeOptions(Object worldToken,GroundShadersMath.Settings settings,ProbeMask reachable) { }
+    public record ProbeOptions(Object worldToken,GroundShadersMath.Settings settings) { }
     public static final class ProbeActiveFeature {static ProbeWorld world;static ProbeOptions active;public static ProbeOptions options(ProbeWorld candidate){return candidate==world?active:null;}}
     public static final class ProbeMatrix { }
-    public static final class ProbeVector { }
     public static final class ProbeReset { static int calls; public static void reset(){calls++;} }
     public static final class ProbeRenderSystem {
         public static boolean renderThread=true;
@@ -95,8 +86,6 @@ public final class GroundShadersLifecycleCheck {
             if(!internal.equals(target)&&!internal.startsWith(target+"$"))throw new ClassNotFoundException(name);
             try{
                 Map<String,String> map=new HashMap<>();
-                map.put(ROOT+"GroundReachability","GroundShadersLifecycleCheck$ProbeReachability");
-                map.put(ROOT+"GroundReachability$Mask","GroundShadersLifecycleCheck$ProbeMask");
                 map.put("dev/c4lam/celeste/module/ModuleFeature","GroundShadersLifecycleCheck$ProbeFeature");
                 map.put("dev/c4lam/celeste/module/ModuleContext","GroundShadersLifecycleCheck$ProbeContext");
                 map.put("dev/c4lam/celeste/gui/model/GuiModule","GroundShadersLifecycleCheck$ProbeModule");
@@ -104,7 +93,7 @@ public final class GroundShadersLifecycleCheck {
                 map.put("net/minecraft/client/world/ClientWorld","GroundShadersLifecycleCheck$ProbeWorld");
                 map.put("net/minecraft/client/network/ClientPlayerEntity","java/lang/Object");
                 if(!renderer)map.put(RENDERER,"GroundShadersLifecycleCheck$ProbeReset");
-                else {map.put(FEATURE,"GroundShadersLifecycleCheck$ProbeActiveFeature");map.put(FEATURE+"$Options","GroundShadersLifecycleCheck$ProbeOptions");map.put("org/joml/Matrix4f","GroundShadersLifecycleCheck$ProbeMatrix");map.put("org/joml/Vector3f","GroundShadersLifecycleCheck$ProbeVector");}
+                else {map.put(FEATURE,"GroundShadersLifecycleCheck$ProbeActiveFeature");map.put(FEATURE+"$Options","GroundShadersLifecycleCheck$ProbeOptions");map.put("org/joml/Matrix4f","GroundShadersLifecycleCheck$ProbeMatrix");}
                 map.put("com/mojang/blaze3d/systems/RenderSystem","GroundShadersLifecycleCheck$ProbeRenderSystem");
                 map.put("com/mojang/blaze3d/textures/GpuTexture","GroundShadersLifecycleCheck$ProbeTexture");
                 map.put("com/mojang/blaze3d/textures/GpuTextureView","GroundShadersLifecycleCheck$ProbeView");
@@ -129,13 +118,13 @@ public final class GroundShadersLifecycleCheck {
                 map.put("net/minecraft/util/Identifier","GroundShadersLifecycleCheck$ProbeId");
                 ClassWriter writer=new ClassWriter(0);ClassVisitor remap=new ClassRemapper(writer,new Remapper(){@Override public String map(String value){return map.getOrDefault(value,value);}});
                 ClassVisitor select=renderer&&internal.equals(RENDERER)?new ClassVisitor(Opcodes.ASM9,remap){
-                    @Override public FieldVisitor visitField(int access,String n,String d,String s,Object v){return Set.of("depth","depthView","generation","initialized","reachableTexture","reachableView","uploadedMask").contains(n)?super.visitField(access,n,d,s,v):null;}
+                    @Override public FieldVisitor visitField(int access,String n,String d,String s,Object v){return Set.of("depth","depthView","generation","initialized").contains(n)?super.visitField(access,n,d,s,v):null;}
                     @Override public MethodVisitor visitMethod(int access,String n,String d,String s,String[] exceptions){
                         if(n.equals("<clinit>"))return null;
                         if(n.equals("draw")||n.equals("extract")){
                             MethodVisitor mv=super.visitMethod(access,n,d,s,exceptions);mv.visitCode();mv.visitInsn(Opcodes.RETURN);mv.visitMaxs(0,1);mv.visitEnd();return null;
                         }
-                        return Set.of("initialize","reset","releaseResources","releaseReachability","isCurrent","id").contains(n)||n.startsWith("lambda$initialize$")?super.visitMethod(access,n,d,s,exceptions):null;
+                        return Set.of("initialize","reset","releaseResources","isCurrent","id").contains(n)||n.startsWith("lambda$initialize$")?super.visitMethod(access,n,d,s,exceptions):null;
                     }
                 }:remap;
                 new ClassReader(Files.readAllBytes(classes.resolve(internal+".class"))).accept(select,0);
@@ -146,7 +135,6 @@ public final class GroundShadersLifecycleCheck {
     static Object call(Method m,Object owner,Object...args)throws Exception{return m.invoke(owner,args);}
     static GroundShadersMath.Settings settings(Method method,ProbeWorld world)throws Exception{return (GroundShadersMath.Settings)call(method,null,world);}
     static Object token(Method method,ProbeWorld world)throws Exception{Object options=call(method,null,world);if(options==null)return null;Method token=options.getClass().getDeclaredMethod("worldToken");token.setAccessible(true);return token.invoke(options);}
-    static ProbeMask mask(Method method,ProbeWorld world)throws Exception{Object options=call(method,null,world);if(options==null)return null;Method member=options.getClass().getDeclaredMethod("reachable");member.setAccessible(true);return (ProbeMask)member.invoke(options);}
     static void feature(Path classes)throws Exception{
         Class<?> f=new FixtureLoader(classes,false).loadClass(FEATURE.replace('/','.'));Object module=f.getConstructor().newInstance();
         Method enable=f.getMethod("onEnable",ProbeContext.class),tick=f.getMethod("onStartTick",ProbeContext.class),render=f.getMethod("onRenderFrame",ProbeContext.class),disable=f.getMethod("onDisable",ProbeContext.class),changed=f.getMethod("onWorldChanged",ProbeContext.class);
@@ -155,8 +143,7 @@ public final class GroundShadersLifecycleCheck {
         require(settings(setting,first)==null,"initial settings active");context.client.world=first;context.module.enabled=false;call(tick,module,context);require(settings(setting,first)==null,"disabled tick reactivates effect");
         context.module.enabled=true;int resets=ProbeReset.calls;call(enable,module,context);var initial=settings(setting,first);Object firstToken=token(options,first);
         require(initial!=null&&initial.intensity()==.35f&&initial.color()==0x2EAFD6,"default enable settings");require(ProbeReset.calls==resets+1&&firstToken!=null,"first world token/reset missing");
-        require(ProbeReachability.ticks==1&&mask(options,first).world()==first,"enable did not sample current-world reachability");
-        call(tick,module,context);int graphTicks=ProbeReachability.ticks;ProbeMask graphMask=mask(options,first);for(int i=0;i<20;i++)call(render,module,context);require(ProbeReachability.ticks==graphTicks&&mask(options,first)==graphMask,"render frame queries/rebuilds walkability");require(token(options,first)==firstToken&&ProbeReset.calls==resets+1,"steady frames reset resources/token");require(settings(setting,second)==null,"world identity leaked");
+        call(tick,module,context);for(int i=0;i<20;i++)call(render,module,context);require(token(options,first)==firstToken&&ProbeReset.calls==resets+1,"steady frames reset resources/token");require(settings(setting,second)==null,"world identity leaked");
         context.modes.put("Mode","Veins");context.sliders.put("Range",0.0);context.sliders.put("Scale",Double.NaN);context.sliders.put("Speed",Double.POSITIVE_INFINITY);
         context.sliders.put("Intensity",.7);context.color=0xAA123456;call(render,module,context);var s=settings(setting,first);
         require(s.intensity()==.7f&&s.color()==0x123456,"render-frame settings not updated/sanitized; legacy settings must be ignored");
@@ -173,35 +160,38 @@ public final class GroundShadersLifecycleCheck {
         }
         palette.invoke(null,true,"Abyss",true);call(render,module,context);require(settings(setting,first).color()==0x123456,"Advanced failed to restore saved tint");
         palette.invoke(null,false,"Abyss",false);call(render,module,context);require(settings(setting,first).color()==0x123456,"inactive palette failed to restore saved tint");
-        resets=ProbeReset.calls;graphTicks=ProbeReachability.ticks;context.client.world=second;call(render,module,context);require(ProbeReachability.ticks==graphTicks&&mask(options,second)==null,"world switch retained prior reachability or queried on render");Object renderToken=token(options,second);resets=ProbeReset.calls;call(tick,module,context);Object secondToken=token(options,second);require(settings(setting,first)==null&&secondToken!=firstToken&&secondToken==renderToken&&ProbeReset.calls==resets&&mask(options,second).world()==second,"implicit world change retains stale token/mask");
-        call(changed,module,context);require(settings(setting,second)==null&&ProbeReachability.mask==null,"world-change hook retains settings/reachable mask");call(tick,module,context);require(token(options,second)!=secondToken,"world-change hook reuses token");
+        context.client.world=second;call(render,module,context);Object renderToken=token(options,second);resets=ProbeReset.calls;
+        call(tick,module,context);Object secondToken=token(options,second);
+        require(settings(setting,first)==null&&secondToken!=firstToken&&secondToken==renderToken&&ProbeReset.calls==resets,"implicit world change retains stale token or thrashes resources");
+        call(changed,module,context);require(settings(setting,second)==null,"world-change hook retains settings");call(tick,module,context);require(token(options,second)!=secondToken,"world-change hook reuses token");
         resets=ProbeReset.calls;context.client.player=null;call(tick,module,context);require(settings(setting,second)==null&&ProbeReset.calls==resets+1,"missing player retains settings/resources");call(tick,module,context);require(ProbeReset.calls==resets+1,"empty context thrashes resources");
         context.client.player=new Object();call(tick,module,context);context.client.world=null;resets=ProbeReset.calls;call(render,module,context);require(settings(setting,second)==null&&ProbeReset.calls==resets+1,"disconnect retains settings/resources");
-        context.client.world=first;for(int i=0;i<30;i++){context.module.enabled=true;call(enable,module,context);require(settings(setting,first)!=null,"repeat enable failed");resets=ProbeReset.calls;context.module.enabled=false;call(disable,module,context);require(settings(setting,first)==null&&ProbeReset.calls==resets+1&&ProbeReachability.mask==null,"disable failed to invalidate settings/mask");graphTicks=ProbeReachability.ticks;call(tick,module,context);call(render,module,context);require(settings(setting,first)==null&&ProbeReachability.ticks==graphTicks,"disabled callbacks reactivated or queried terrain");}
+        context.client.world=first;for(int i=0;i<30;i++){context.module.enabled=true;call(enable,module,context);require(settings(setting,first)!=null,"repeat enable failed");resets=ProbeReset.calls;context.module.enabled=false;call(disable,module,context);require(settings(setting,first)==null&&ProbeReset.calls==resets+1,"disable failed to invalidate settings");call(tick,module,context);call(render,module,context);require(settings(setting,first)==null,"disabled callbacks reactivated terrain tint");}
     }
     static Field field(Class<?> c,String name)throws Exception{Field f=c.getDeclaredField(name);f.setAccessible(true);return f;}
     static void renderer(Path classes)throws Exception{
         Class<?> r=new FixtureLoader(classes,true).loadClass(RENDERER.replace('/','.'));Method init=r.getMethod("initialize"),reset=r.getMethod("reset"),release=r.getMethod("releaseResources");
-        Field generation=field(r,"generation"),depth=field(r,"depth"),view=field(r,"depthView"),reachableTexture=field(r,"reachableTexture"),reachableView=field(r,"reachableView"),uploaded=field(r,"uploadedMask");
+        Field generation=field(r,"generation"),depth=field(r,"depth"),view=field(r,"depthView");
         call(init,null);call(init,null);require(ProbeSubscriptions.names.size()==5,"initialize should register exactly five lifecycle listeners once");
         require(ProbeRenderEvents.END_EXTRACTION.listeners.size()==1&&ProbeRenderEvents.BEFORE_ENTITIES.listeners.size()==1,"wrong/repeated render phase registration");
         var active=GroundShadersMath.settings(.35,0x2EAFD6);Object token=new Object();long gen=generation.getLong(null);
         require(GroundShadersMath.currentFrame(gen,gen,token,token,active),"current frame rejected");
-        ProbeWorld world=new ProbeWorld();ProbeClient.INSTANCE.world=world;ProbeActiveFeature.world=world;ProbeMask capturedMask=new ProbeMask(world,1);ProbeActiveFeature.active=new ProbeOptions(token,active,capturedMask);
-        Class<?> frameClass=r.getClassLoader().loadClass(RENDERER.replace('/','.')+"$Frame");Constructor<?> frameConstructor=frameClass.getDeclaredConstructor(Object.class,long.class,GroundShadersMath.Settings.class,ProbeMatrix.class,ProbeMask.class,ProbeVector.class,float.class);frameConstructor.setAccessible(true);
-        Object frame=frameConstructor.newInstance(token,gen,active,new ProbeMatrix(),capturedMask,new ProbeVector(),0f);Method current=r.getDeclaredMethod("isCurrent",frameClass);current.setAccessible(true);
-        require((boolean)call(current,null,frame),"actual current frame rejected");ProbeActiveFeature.active=new ProbeOptions(token,active,new ProbeMask(world,2));require(!(boolean)call(current,null,frame),"actual frame accepts superseded positive mask");
-        ProbeActiveFeature.active=new ProbeOptions(token,active,null);require(!(boolean)call(current,null,frame),"actual frame accepts invalidated reachable mask");ProbeActiveFeature.active=new ProbeOptions(token,active,capturedMask);
+        ProbeWorld world=new ProbeWorld();ProbeClient.INSTANCE.world=world;ProbeActiveFeature.world=world;ProbeActiveFeature.active=new ProbeOptions(token,active);
+        Class<?> frameClass=r.getClassLoader().loadClass(RENDERER.replace('/','.')+"$Frame");Constructor<?> frameConstructor=frameClass.getDeclaredConstructor(Object.class,long.class,GroundShadersMath.Settings.class,ProbeMatrix.class);frameConstructor.setAccessible(true);
+        Object frame=frameConstructor.newInstance(token,gen,active,new ProbeMatrix());Method current=r.getDeclaredMethod("isCurrent",frameClass);current.setAccessible(true);
+        require((boolean)call(current,null,frame),"actual current frame rejected");
+        require(!(boolean)call(current,null,new Object[]{null}),"actual current-frame guard accepts null frame");
+        ProbeActiveFeature.active=null;require(!(boolean)call(current,null,frame),"actual frame accepts disabled feature");
+        ProbeActiveFeature.active=new ProbeOptions(token,GroundShadersMath.settings(0,0x2EAFD6));require(!(boolean)call(current,null,frame),"actual frame accepts zero intensity");
+        ProbeActiveFeature.active=new ProbeOptions(new Object(),active);require(!(boolean)call(current,null,frame),"actual frame accepts superseded world token");
+        ProbeActiveFeature.active=new ProbeOptions(token,active);
         ProbeClient.INSTANCE.player=null;require(!(boolean)call(current,null,frame),"actual frame accepts missing player");ProbeClient.INSTANCE.player=new Object();ProbeClient.INSTANCE.world=new ProbeWorld();require(!(boolean)call(current,null,frame),"actual frame accepts other world");ProbeClient.INSTANCE.world=world;
-        ProbeTexture texture=new ProbeTexture(),maskTexture=new ProbeTexture();ProbeView textureView=new ProbeView(),maskView=new ProbeView();depth.set(null,texture);view.set(null,textureView);reachableTexture.set(null,maskTexture);reachableView.set(null,maskView);uploaded.set(null,new ProbeMask(new ProbeWorld(),1));ProbeRenderSystem.renderThread=false;call(reset,null);
-        require(!(boolean)call(current,null,frame),"actual captured frame survives generation reset");require(generation.getLong(null)==gen+1&&!GroundShadersMath.currentFrame(gen,generation.getLong(null),token,token,active),"reset leaves captured generation valid");require(texture.closes==0&&textureView.closes==0&&maskTexture.closes==0&&maskView.closes==0&&ProbeClient.INSTANCE.pending.size()==1,"off-thread reset closes GPU immediately or loses dispatch");
-        ProbeRenderSystem.renderThread=true;ProbeClient.INSTANCE.pending.remove(0).run();require(texture.closes==1&&textureView.closes==1&&depth.get(null)==null&&view.get(null)==null&&maskTexture.closes==1&&maskView.closes==1&&reachableTexture.get(null)==null&&reachableView.get(null)==null&&uploaded.get(null)==null,"queued cleanup failed or retained uploaded mask");call(release,null);require(texture.closes==1&&textureView.closes==1&&maskTexture.closes==1&&maskView.closes==1,"cleanup not idempotent");
-        for(int failure=0;failure<2;failure++){
-            texture=new ProbeTexture();textureView=new ProbeView();maskTexture=new ProbeTexture();maskView=new ProbeView();textureView.fail=failure==0;maskView.fail=failure==1;
-            depth.set(null,texture);view.set(null,textureView);reachableTexture.set(null,maskTexture);reachableView.set(null,maskView);uploaded.set(null,new ProbeMask(new ProbeWorld(),2));
-            boolean failed=false;try{call(release,null);}catch(InvocationTargetException expected){failed=expected.getCause() instanceof IllegalStateException;}
-            require(failed&&texture.closes==1&&textureView.closes==1&&maskTexture.closes==1&&maskView.closes==1&&depth.get(null)==null&&view.get(null)==null&&reachableTexture.get(null)==null&&reachableView.get(null)==null&&uploaded.get(null)==null,"view-close failure leaks depth/mask or retained handles");
-        }
+        ProbeTexture texture=new ProbeTexture();ProbeView textureView=new ProbeView();depth.set(null,texture);view.set(null,textureView);ProbeRenderSystem.renderThread=false;call(reset,null);
+        require(!(boolean)call(current,null,frame),"actual captured frame survives generation reset");require(generation.getLong(null)==gen+1&&!GroundShadersMath.currentFrame(gen,generation.getLong(null),token,token,active),"reset leaves captured generation valid");require(texture.closes==0&&textureView.closes==0&&ProbeClient.INSTANCE.pending.size()==1,"off-thread reset closes GPU immediately or loses dispatch");
+        ProbeRenderSystem.renderThread=true;ProbeClient.INSTANCE.pending.remove(0).run();require(texture.closes==1&&textureView.closes==1&&depth.get(null)==null&&view.get(null)==null,"queued cleanup failed");call(release,null);require(texture.closes==1&&textureView.closes==1,"cleanup not idempotent");
+        texture=new ProbeTexture();textureView=new ProbeView();textureView.fail=true;depth.set(null,texture);view.set(null,textureView);
+        boolean failed=false;try{call(release,null);}catch(InvocationTargetException expected){failed=expected.getCause() instanceof IllegalStateException;}
+        require(failed&&texture.closes==1&&textureView.closes==1&&depth.get(null)==null&&view.get(null)==null,"view-close failure leaks depth or retains handles");
         gen=generation.getLong(null);ProbeConnections.DISCONNECT.listeners.get(0).onPlayDisconnect(new ProbeHandler(),ProbeClient.INSTANCE);require(generation.getLong(null)==gen+1,"disconnect listener does not reset generation");gen=generation.getLong(null);ProbeResources.INSTANCE.listeners.get(0).reload(new ProbeManager());require(generation.getLong(null)==gen+1,"reload listener does not reset generation");gen=generation.getLong(null);ProbeLifecycle.CLIENT_STOPPING.listeners.get(0).onClientStopping(ProbeClient.INSTANCE);require(generation.getLong(null)==gen+1,"shutdown listener does not reset generation");
         require(!GroundShadersMath.currentFrame(gen,gen,token,new Object(),active)&&!GroundShadersMath.currentFrame(gen,gen,null,null,active)&&!GroundShadersMath.currentFrame(gen,gen,token,token,null),"world/inactive current-frame guard");require(!GroundShadersMath.currentFrame(gen,gen,token,token,GroundShadersMath.settings(0,0)),"zero intensity frame admitted");
     }

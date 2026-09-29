@@ -6,13 +6,13 @@ import net.minecraft.client.world.ClientWorld;
 
 /** Local surface color only; never edits terrain, entities, depth, or saved palette settings. */
 public final class GroundShadersFeature implements ModuleFeature {
-    record Options(Object worldToken, GroundShadersMath.Settings settings, GroundReachability.Mask reachable) { }
+    record Options(Object worldToken, GroundShadersMath.Settings settings) { }
     private record Snapshot(ClientWorld world, Options options) { }
     private static volatile Snapshot active;
 
     @Override public String name() { return "Ground Shaders"; }
-    @Override public void onEnable(ModuleContext context) { tick(context); }
-    @Override public void onStartTick(ModuleContext context) { tick(context); }
+    @Override public void onEnable(ModuleContext context) { update(context); }
+    @Override public void onStartTick(ModuleContext context) { update(context); }
     @Override public void onRenderFrame(ModuleContext context) {
         Snapshot snapshot = active;
         if (snapshot != null && snapshot.world != context.client().world) clear();
@@ -23,14 +23,7 @@ public final class GroundShadersFeature implements ModuleFeature {
 
     private void clear() {
         active = null;
-        GroundReachability.reset();
         GroundShadersRenderer.reset();
-    }
-
-    private void tick(ModuleContext context) {
-        if (context.module().enabled() && context.client().world != null && context.client().player != null)
-            GroundReachability.tick(context.client().world, context.client().player);
-        update(context);
     }
 
     private void update(ModuleContext context) {
@@ -47,7 +40,7 @@ public final class GroundShadersFeature implements ModuleFeature {
         } else token = previous.options.worldToken;
         GroundShadersMath.Settings settings = GroundShadersMath.settings(context.slider("Intensity", .35),
             VisualAtmosphere.tint(context.colorPick("Color", 0x2EAFD6), 0, 0));
-        active = new Snapshot(world, new Options(token, settings, GroundReachability.snapshot()));
+        active = new Snapshot(world, new Options(token, settings));
     }
 
     static Options options(ClientWorld world) {

@@ -703,13 +703,8 @@
       "baseSha256": "c812f0e7880158bb2067fb379dfaad90a491578bf2fd6856fb69f604bd995023"
     },
     {
-      "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/GroundReachability.java",
-      "sha256": "0b72f57514399f9b0686ade0467fb93069abec74cfa3ad767267f6fea0e53812",
-      "baseSha256": null
-    },
-    {
       "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/GroundShadersFeature.java",
-      "sha256": "4594396d99db1886d84b0a3c73e60436c527d521a7b65e7c51c6f004ee9bc46b",
+      "sha256": "18af57547fd971bd0a67f0f3caca0077c857ee087d7336612bdb8bfe0b291e69",
       "baseSha256": null
     },
     {
@@ -719,12 +714,7 @@
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/GroundShadersRenderer.java",
-      "sha256": "3b9a146407c0ae21bbb279c149d8b70525108f5ea61f268c86b6b18335c85f55",
-      "baseSha256": null
-    },
-    {
-      "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/GroundWalkability.java",
-      "sha256": "d37c7edc32d9fbb5fe660d16da867b314c5626388da741702cab5b6ba6d3d0cf",
+      "sha256": "e5808fc629a1132947b7c8961c8247f321c7cd69676ee201fd128bdf3832e8f0",
       "baseSha256": null
     },
     {
@@ -1039,12 +1029,12 @@
     },
     {
       "path": "src/main/resources/assets/celeste/shaders/core/ground_shaders.fsh",
-      "sha256": "8623d6103b994bec37930dfd1f67eaeed64576ee1efb466f12c9b91e6a897519",
+      "sha256": "b83e5e9683b56c90f619e5ada0d8d56a066b84c79d0df9e7f8943bb7591ca7d2",
       "baseSha256": null
     },
     {
       "path": "src/main/resources/assets/celeste/shaders/core/ground_shaders.vsh",
-      "sha256": "105fc202096f6deec2c7d7f87c93d7f9c7fdd8e4128f8243aa74c0f1fdc381d4",
+      "sha256": "a9c4034b3938bb798aecb9c65e5249060cc921d53d20c23383f0ec5078dd7ef7",
       "baseSha256": null
     },
     {

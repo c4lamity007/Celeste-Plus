@@ -19,19 +19,7 @@ import static org.lwjgl.opengl.GL33C.*;
 public final class GroundShadersCheck {
     static int w=640,h=400,checks,program,entity,depthTexture,colorTexture,depthAttachment,frame,dynamic,projection,fog;
     static float[] depths,terrain,pixels,worldY,worldX,worldZ; static int[] faces;
-    static int reachableTexture,maskX=64,maskY=16,maskZ=64,originX=-32,originY=-2,originZ=-32;
-    static boolean fractionalStair; static float feetY; static boolean maskValid=true; static byte[] reachable;
-    static void mask(boolean full){if(reachableTexture==0)reachableTexture=glGenTextures();reachable=new byte[maskX*maskY*maskZ*4];if(full)Arrays.fill(reachable,(byte)255);uploadMask();}
-    static void uploadMask(){ByteBuffer bytes=BufferUtils.createByteBuffer(reachable.length);bytes.put(reachable).flip();glActiveTexture(GL_TEXTURE1);glBindTexture(GL_TEXTURE_2D,reachableTexture);
-        glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA8,maskX,maskY*maskZ,0,GL_RGBA,GL_UNSIGNED_BYTE,bytes);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_NEAREST);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_NEAREST);
-        glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);glActiveTexture(GL_TEXTURE0);}
-    static void reachableCell(int x,int y,int z){x-=originX;y-=originY;z-=originZ;if(x>=0&&x<maskX&&y>=0&&y<maskY&&z>=0&&z<maskZ)Arrays.fill(reachable,(x+(y*maskZ+z)*maskX)*4,(x+(y*maskZ+z)*maskX)*4+4,(byte)255);}
-    static void reachableSurface(int x,double top,int z){int y=(int)Math.floor(top-.015),level=Math.clamp((int)Math.round((top-y)*32)-1,0,31);x-=originX;y-=originY;z-=originZ;
-        int index=(x+(y*maskZ+z)*maskX)*4+(level>>3);reachable[index]=(byte)((reachable[index]&255)|(1<<(level&7)));}
-    static boolean tinted(int i){if(faces[i]==0)return false;if(faces[i]!=1||worldY[i]<=feetY+.125)return true;
-        int x=(int)Math.floor(worldX[i]-originX),y=(int)Math.floor(worldY[i]-originY-.015),z=(int)Math.floor(worldZ[i]-originZ);
-        if(!maskValid||x<0||x>=maskX||y<0||y>=maskY||z<0||z>=maskZ)return false;
-        int level=Math.clamp((int)Math.round((worldY[i]-originY-y)*32)-1,0,31);return ((reachable[(x+(y*maskZ+z)*maskX)*4+(level>>3)]&255)&(1<<(level&7)))!=0;}
+    static boolean fractionalStair;
 
     static final int DEFAULT_COLOR=0x2EAFD6;
     record V(double x,double y,double z) {
@@ -69,8 +57,7 @@ public final class GroundShadersCheck {
     static void matrix(ByteBuffer b,int offset,Camera c){float[] m={(float)c.right.x,(float)c.right.y,(float)c.right.z,0,(float)c.up.x,(float)c.up.y,(float)c.up.z,0,
         (float)c.back.x,(float)c.back.y,(float)c.back.z,0,(float)c.bob.x,(float)c.bob.y,(float)c.bob.z,1};for(int i=0;i<16;i++)b.putFloat(offset+i*4,m[i]);}
     static void uniforms(Camera c,float[] p,float intensity,int color,float fogStart,float fogEnd){ByteBuffer b=BufferUtils.createByteBuffer(160);
-        b.putFloat(0,maskX).putFloat(4,maskY).putFloat(8,maskZ).putFloat(12,feetY-originY).putFloat(16,maskValid?1:0);
-        b.putFloat(80,(float)c.position.x-originX).putFloat(84,(float)c.position.y-originY).putFloat(88,(float)c.position.z-originZ);
+        for(int i=0;i<4;i++)b.putFloat(i*20,1); // Unused model transform stays neutral.
         b.putFloat(64,(color>>16&255)/255f).putFloat(68,(color>>8&255)/255f).putFloat(72,(color&255)/255f).putFloat(76,intensity);
         matrix(b,96,c);glBindBuffer(GL_UNIFORM_BUFFER,dynamic);glBufferSubData(GL_UNIFORM_BUFFER,0,b);b=BufferUtils.createByteBuffer(64);
         for(int i=0;i<16;i++)b.putFloat(i*4,p[i]);glBindBuffer(GL_UNIFORM_BUFFER,projection);glBufferSubData(GL_UNIFORM_BUFFER,0,b);
@@ -104,7 +91,7 @@ public final class GroundShadersCheck {
     static void draw(boolean blend){glBindFramebuffer(GL_FRAMEBUFFER,frame);glViewport(0,0,w,h);glDepthMask(false);glDisable(GL_DEPTH_TEST);glDisable(GL_CULL_FACE);
         glColorMask(true,true,true,!blend);
         if(blend){glEnable(GL_BLEND);glBlendFuncSeparate(GL_DST_COLOR,GL_ZERO,GL_ZERO,GL_ONE);}else glDisable(GL_BLEND);
-        glUseProgram(program);glActiveTexture(GL_TEXTURE1);glBindTexture(GL_TEXTURE_2D,reachableTexture);glActiveTexture(GL_TEXTURE0);glBindTexture(GL_TEXTURE_2D,depthTexture);glDrawArrays(GL_TRIANGLES,0,3);}
+        glUseProgram(program);glActiveTexture(GL_TEXTURE0);glBindTexture(GL_TEXTURE_2D,depthTexture);glDrawArrays(GL_TRIANGLES,0,3);}
     static float[] read(){float[] out=new float[w*h*4];glReadPixels(0,0,w,h,GL_RGBA,GL_FLOAT,out);return out;}
     static float[] render(Camera c,float[] p,float intensity,int color,float fogStart,float fogEnd,boolean blend){uniforms(c,p,intensity,color,fogStart,fogEnd);
         glBindTexture(GL_TEXTURE_2D,colorTexture);glTexSubImage2D(GL_TEXTURE_2D,0,0,0,w,h,GL_RGBA,GL_FLOAT,blend?terrain:new float[w*h*4]);draw(blend);return read();}
@@ -134,26 +121,30 @@ public final class GroundShadersCheck {
         for(int y=h/5+1;y<h*4/5-1;y++)for(int x=w/2-70;x<w/2+70;x++){int i=x+y*w;if(depth<=depths[i]){check(Math.abs(result[i*4]-.73)<1e-5&&Math.abs(result[i*4+1]-.16)<1e-5,"foreground entity recolored by ground");front++;}
             else{check(result[i*4]==shaded[i*4]&&result[i*4+1]==shaded[i*4+1],"entity rendered through closer terrain");occluded++;}}
         check(front>1000&&occluded>50,"entity occlusion fixture insufficient: "+front+"/"+occluded);}
-    static void dump(int i){for(int dy=-2;dy<=2;dy++)for(int dx=-2;dx<=2;dx++){int x=i%w+dx,y=i/w+dy;if(x<0||y<0||x>=w||y>=h)continue;int j=x+y*w;System.out.printf(Locale.ROOT,"pixel%d,%d depth%.9f face%d world%.7f,%.7f,%.7f%n",x,y,depths[j],faces[j],worldX[j],worldY[j],worldZ[j]);}}
-    static void reachableTops(Path out)throws Exception {allocate(640,400);mask(false);for(int x=-5;x<-2;x++)for(int y=0;y<2;y++)for(int z=-5;z<1;z++)reachableCell(x,y,z);uploadMask();
-        Camera c=camera(new V(0,7.2,7),new V(0,1,-4),0,new V(0,0,0));float[] p=perspective(c,null);scene(c,p,true,0,0);
-        float[] shown=render(c,p,.35f,DEFAULT_COLOR,1000,2000,true);save(terrain,shown,out.resolve("reachable-terrain.png"),"Reachable stair tops + sides | tall/floating tops unchanged");
-        for(int mode=0;mode<3;mode++){maskValid=mode!=1;int savedX=originX;if(mode==2)originX=200;float[] shaded=render(c,p,.35f,DEFAULT_COLOR,1000,2000,true);double[] gain=gains(DEFAULT_COLOR,.35f);int allowed=0,blocked=0,side=0;
-            for(int i=0;i<w*h;i++){boolean applies=tinted(i);if(faces[i]==1&&worldY[i]>.125){if(applies)allowed++;else blocked++;}else if(faces[i]==2)side++;
-                for(int k=0;k<3;k++){if(Math.abs(shaded[i*4+k]-terrain[i*4+k]*(applies?gain[k]:1))>=.00001)dump(i);check(Math.abs(shaded[i*4+k]-terrain[i*4+k]*(applies?gain[k]:1))<.00001,"reachable top gate mismatch mode="+mode+" pixel="+(i%w)+","+(i/w)+" face="+faces[i]+" world="+worldX[i]+","+worldY[i]+","+worldZ[i]+" expectedTint="+applies);}
-                check(shaded[i*4+3]==terrain[i*4+3],"reachable mask changed destination alpha");}
-            if(mode==0)check(allowed>1000,"reachable fractional stairs/slabs not present");else check(allowed==0,"invalid/outside mask admitted elevated tops");check(blocked>1000&&side>1000,"roof/top versus side fixture insufficient");depthUnchanged();
-            System.out.printf("Reachable tops mode%d: tinted=%d excluded=%d sides=%d%n",mode,allowed,blocked,side);originX=savedX;}
-        maskValid=true;mask(true);
+    static void exposedElevations(Path out)throws Exception {
+        allocate(640,400);Camera c=camera(new V(0,7.2,7),new V(0,1,-4),0,new V(0,0,0));
+        float[] p=perspective(c,null);scene(c,p,true,0,0);
+        float[] shown=render(c,p,.35f,DEFAULT_COLOR,1000,2000,true);
+        texturePreserved(shown,DEFAULT_COLOR,.35f);depthUnchanged();
+        int lowSteps=0,tallTop=0,floatingTop=0,sides=0;
+        for(int i=0;i<w*h;i++){
+            if(faces[i]==1){if(worldY[i]>.1&&worldY[i]<2)lowSteps++;if(worldY[i]==3)tallTop++;if(worldY[i]>4)floatingTop++;}
+            if(faces[i]==2)sides++;
+        }
+        check(lowSteps>1000&&tallTop>500&&floatingTop>500&&sides>1000,"exposed higher surfaces fixture insufficient");
+        save(terrain,shown,out.resolve("exposed-terrain.png"),"Ambient tint | steps, tower and floating tops included");
+        System.out.printf("Exposed elevated surfaces: steps=%d, isolated tall top=%d, floating top=%d, sides=%d%n",lowSteps,tallTop,floatingTop,sides);
     }
-    static void fractionalTops(){allocate(640,400);fractionalStair=true;Camera c=camera(new V(-2,4,7),new V(-.5,.5,2.5),0,new V(0,0,0));float[] p=perspective(c,null);scene(c,p,false,0,0);
-        for(double only:new double[]{.5,1}){mask(false);reachableSurface(-1,only,2);uploadMask();float[] shaded=render(c,p,.35f,DEFAULT_COLOR,1000,2000,true);double[] gain=gains(DEFAULT_COLOR,.35f);int lower=0,upper=0;
-            for(int i=0;i<w*h;i++)if(faces[i]==1&&worldX[i]>=-1&&worldX[i]<0&&worldZ[i]>=2&&worldZ[i]<3&&(worldY[i]==.5f||worldY[i]==1f)){
-                if(worldY[i]==.5f)lower++;else upper++;boolean applies=worldY[i]==only;
-                for(int k=0;k<3;k++)check(Math.abs(shaded[i*4+k]-terrain[i*4+k]*(applies?gain[k]:1))<.00001,"same-voxel fractional top alias: permitted="+only+" actual="+worldY[i]);
-                check(shaded[i*4+3]==terrain[i*4+3],"height-bit mask changed alpha");}
-            check(lower>300&&upper>300,"fractional stair shape fixture insufficient");depthUnchanged();System.out.printf("Same voxel distinct height bits: permitted %.1f, lowerPixels=%d upperPixels=%d%n",only,lower,upper);}
-        fractionalStair=false;mask(true);
+    static void fractionalTops(){allocate(640,400);fractionalStair=true;
+        Camera c=camera(new V(-2,4,7),new V(-.5,.5,2.5),0,new V(0,0,0));float[] p=perspective(c,null);scene(c,p,false,0,0);
+        float[] shaded=render(c,p,.35f,DEFAULT_COLOR,1000,2000,true);double[] gain=gains(DEFAULT_COLOR,.35f);int lower=0,upper=0;
+        for(int i=0;i<w*h;i++)if(faces[i]==1&&worldX[i]>=-1&&worldX[i]<0&&worldZ[i]>=2&&worldZ[i]<3&&(worldY[i]==.5f||worldY[i]==1f)){
+            if(worldY[i]==.5f)lower++;else upper++;
+            for(int k=0;k<3;k++)check(Math.abs(shaded[i*4+k]-terrain[i*4+k]*gain[k])<.00001,"exposed fractional top missed: height="+worldY[i]);
+            check(shaded[i*4+3]==terrain[i*4+3],"fractional top changed alpha");
+        }
+        check(lower>300&&upper>300,"fractional stair shape fixture insufficient");depthUnchanged();
+        System.out.printf("Both exposed stair heights tinted immediately: lowerPixels=%d upperPixels=%d%n",lower,upper);fractionalStair=false;
     }
     static void invariance(){allocate(256,192);V target=new V(1024,0,17.4);double[] expected=gains(DEFAULT_COLOR,.35f);
         V[] positions={new V(1023.98,2.8,24),new V(1024.02,2.8,24),new V(1020,3.7,22),new V(1027,2.3,25)};
@@ -194,7 +185,7 @@ public final class GroundShadersCheck {
         try(ZipFile game=new ZipFile(gamePath.toFile())){program=program(imports(Files.readString(shaderRoot.resolve("ground_shaders.vsh")),game),imports(Files.readString(shaderRoot.resolve("ground_shaders.fsh")),game));}
         String vs="#version 330\nvoid main(){vec2 c=vec2((gl_VertexID<<1)&2,gl_VertexID&2);gl_Position=vec4(c*2-1,0,1);}";
         entity=program(vs,"#version 330\nuniform float Depth;uniform vec2 Size;out vec4 fragColor;void main(){if(abs(gl_FragCoord.x-Size.x*.5)>71||gl_FragCoord.y<Size.y*.2||gl_FragCoord.y>Size.y*.8)discard;gl_FragDepth=Depth;fragColor=vec4(.73,.16,.085,1);}");
-        bindBlock("DynamicTransforms",0);bindBlock("Projection",1);bindBlock("Fog",2);dynamic=buffer(160,0);projection=buffer(64,1);fog=buffer(48,2);glUseProgram(program);glUniform1i(glGetUniformLocation(program,"SceneDepth"),0);glUniform1i(glGetUniformLocation(program,"ReachableTops"),1);mask(true);
+        bindBlock("DynamicTransforms",0);bindBlock("Projection",1);bindBlock("Fog",2);dynamic=buffer(160,0);projection=buffer(64,1);fog=buffer(48,2);glUseProgram(program);glUniform1i(glGetUniformLocation(program,"SceneDepth"),0);
         allocate(640,400);Camera c=camera(new V(0,2.8,7),new V(0,1,-4),0,new V(0,0,0));float[] p=perspective(c,null);scene(c,p,true,0,0);
         float[] gain=render(c,p,.35f,DEFAULT_COLOR,1000,2000,false);finite(gain);coverage(gain,DEFAULT_COLOR,.35f);depthUnchanged();
         float[] shaded=render(c,p,.35f,DEFAULT_COLOR,1000,2000,true);finite(shaded);texturePreserved(shaded,DEFAULT_COLOR,.35f);depthUnchanged();
@@ -205,7 +196,7 @@ public final class GroundShadersCheck {
         float[] fullyFogged=render(c,p,.35f,DEFAULT_COLOR,0,.001f,true);check(Arrays.equals(fullyFogged,terrain),"fully fogged scene changed");
         for(VisualAtmosphere.Preset preset:VisualAtmosphere.Preset.values()){
             int color=VisualAtmosphere.sample(preset,0,0);float[] output=render(c,p,.35f,color,1000,2000,true);texturePreserved(output,color,.35f);}
-        reachableTops(out);fractionalTops();invariance();distanceCoverage();fogAnchoring();timing();check(glGetError()==GL_NO_ERROR,"GL error");
+        exposedElevations(out);fractionalTops();invariance();distanceCoverage();fogAnchoring();timing();check(glGetError()==GL_NO_ERROR,"GL error");
         System.out.println("PASS GroundShaders ambient: "+checks+" checks; every terrain face, texture/lighting contrast, alpha/depth, sky/entities, near/far fog, palette and camera invariance. Synthetic GPU fixture, not game evidence.");glfwDestroyWindow(window);glfwTerminate();
     }
 }
