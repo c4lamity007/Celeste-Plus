@@ -17,7 +17,7 @@ The effect follows visible, upward-facing terrain using scene depth. It renders 
 - Actual-catalog fixtures: 82 passed; one expected Windows symlink-privilege skip.
 - Live verification matched 78 game files and 28 backend source hashes, signed manifests, the public loader and five anonymous download denials.
 
-**In-game testing remains with the user.** GPU previews are synthetic, not Minecraft screenshots. In-game appearance and performance have not been verified. Try both styles, nearby slopes, fog, module toggles and a world change.
+**Not verified in game:** the user is handling the Minecraft check. GPU previews are synthetic, not Minecraft screenshots. In-game appearance and performance remain unmeasured. Try both styles, nearby slopes, fog, module toggles and a world change.
 
 Keep the existing **Celeste+Setup.exe**. Fully restart Minecraft and load normally for this update.
 
