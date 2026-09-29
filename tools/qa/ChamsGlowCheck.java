@@ -55,6 +55,67 @@ public final class ChamsGlowCheck extends ChamsAuroraCheck {
         glReadPixels(0,0,W,H,GL_DEPTH_COMPONENT,GL_FLOAT,depth);
         for(int i=0;i<depth.limit();i++)check(Math.abs(depth.get(i)-.63f)<1e-6,"World depth untouched");
     }
+    private static void pixel(float[] mask,int x,int y,float opacity) {
+        if(x<0||y<0||x>=W||y>=H)return;
+        int at=(x+y*W)*4;
+        mask[at]=.20f;mask[at+1]=.70f;mask[at+2]=1;mask[at+3]=opacity;
+    }
+    private static float[] contourMask() {
+        float[] mask=new float[W*H*4];
+        // Filled diagonals with several slopes, sharp corners and concave steps.
+        for(int y=70;y<240;y++)for(int x=60;x<310;x++)if(x-60<(y-70)*1.25)pixel(mask,x,y,.68f);
+        for(int y=330;y<510;y++)for(int x=65;x<340;x++)if(x-65<(510-y)*1.5)pixel(mask,x,y,.68f);
+        for(int y=140;y<420;y++)for(int x=420;x<590;x++)if(x<490||y<210||y>350)pixel(mask,x,y,.68f);
+        // One-pixel diagonals, horizontal/vertical bars and isolated corner pixels.
+        for(int i=0;i<180;i++){pixel(mask,650+i,80+i,.68f);pixel(mask,880+i,340-i/2,.68f);}
+        for(int i=0;i<125;i++){pixel(mask,700+i,450,.68f);pixel(mask,980,380+i,.68f);}
+        pixel(mask,850,500,.68f);pixel(mask,850,502,.68f);pixel(mask,852,500,.68f);
+        // Opacity changes must choose the strongest adjacent model pixel without filtering it.
+        for(int y=75;y<155;y++)for(int x=980;x<1070;x++)pixel(mask,x,y,x<1025?.2f:.7f);
+        // Every edge and corner: an offscreen neighbor is empty, never clamped/wrapped.
+        for(int i=0;i<35;i++){
+            pixel(mask,i,0,.68f);pixel(mask,W-1-i,H-1,.68f);
+            pixel(mask,0,H-1-i,.68f);pixel(mask,W-1,i,.68f);
+        }
+        return mask;
+    }
+    private static float[] isolatedRim(float[] input,int program) {
+        FloatBuffer data=BufferUtils.createFloatBuffer(input.length);data.put(input).flip();
+        glActiveTexture(GL_TEXTURE0);glBindTexture(GL_TEXTURE_2D,maskColor);
+        glTexSubImage2D(GL_TEXTURE_2D,0,0,0,W,H,GL_RGBA,GL_FLOAT,data);
+        glBindFramebuffer(GL_FRAMEBUFFER,blurFbo);glViewport(0,0,(W+1)/2,(H+1)/2);
+        glDisable(GL_BLEND);glClearColor(0,0,0,0);glClear(GL_COLOR_BUFFER_BIT);
+        int previous=glow;glow=program;composite(false);glow=previous;
+        return read();
+    }
+    private static int rimErrors(float[] input,float[] actual,boolean strict) {
+        int errors=0,ring=0;
+        for(int y=0;y<H;y++)for(int x=0;x<W;x++) {
+            int at=(x+y*W)*4;float neighbor=0;
+            if(input[at+3]<=.001f)for(int dy=-1;dy<=1;dy++)for(int dx=-1;dx<=1;dx++) {
+                if((dx==0&&dy==0)||x+dx<0||y+dy<0||x+dx>=W||y+dy>=H)continue;
+                neighbor=Math.max(neighbor,input[((x+dx)+(y+dy)*W)*4+3]);
+            }
+            float expected=Math.min(neighbor*1.1f,.88f);
+            if(expected>0)ring++;
+            boolean correct=Math.abs(actual[at+3]-expected)<2e-6f;
+            if(expected==0)for(int channel=0;channel<4;channel++)correct&=actual[at+channel]==0;
+            if(!correct)errors++;
+            if(strict)check(correct,"Exact one-pixel exterior rim at "+x+","+y+": "+actual[at+3]+" expected "+expected);
+        }
+        if(strict)check(ring>3500,"Contour fixture must exercise slopes, corners and thin shapes");
+        return errors;
+    }
+    private static void contourPrecision(String previousFragment)throws Exception {
+        float[] input=contourMask(),current=isolatedRim(input,glow);
+        rimErrors(input,current,true);
+        int old=material("unified_chams_composite",previousFragment);
+        glUseProgram(old);glUniform1i(glGetUniformLocation(old,"GlowSampler"),1);
+        int rejected=rimErrors(input,isolatedRim(input,old),false);
+        check(rejected>1500,"Actual previous fractional shader must fail the precise contour control");
+        glDeleteProgram(old);depthUnchanged();
+        System.out.println("PASS exact exterior rim: slopes/corners/one-pixel shapes/all screen edges; zero bloom; previous fractional shader rejected at "+rejected+" pixels.");
+    }
     private static String sha(Path path)throws Exception {
         return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(Files.readAllBytes(path)));
     }
@@ -85,7 +146,11 @@ public final class ChamsGlowCheck extends ChamsAuroraCheck {
         changedResources=Path.of(args[2]).toRealPath();output=Path.of(args[3]).toAbsolutePath();Files.createDirectories(output);
         Path glowPath=changedResources.resolve("assets/celeste/shaders/core/chams_glow.fsh");
         Path blurPath=changedResources.resolve("assets/celeste/shaders/core/chams_glow_blur.fsh");
+        if(!Files.exists(blurPath))blurPath=resources.resolve("assets/celeste/shaders/core/chams_glow_blur.fsh");
         String glowSha=sha(glowPath),blurSha=sha(blurPath);
+        Path previousRim=Path.of(System.getProperty("celeste.test.previousChamsRim"));
+        String previousRimSha=sha(previousRim);
+        check(previousRimSha.equals("39587dd7324b37c134e345dd267cc58071010487e394e656c1bbc0ddb441439d"),"Exact previous fractional shader fixture");
         GLFWErrorCallback callback=GLFWErrorCallback.createPrint(System.err).set();long window=0;
         try{
             check(glfwInit(),"GLFW available");
@@ -110,6 +175,7 @@ public final class ChamsGlowCheck extends ChamsAuroraCheck {
             blurColor=attachment(false,(W+1)/2,(H+1)/2);blurFbo=fbo(blurColor,0);
             mainDepth=attachment(true,W,H);main=fbo(attachment(false,W,H),mainDepth);
             glDepthMask(true);glClearDepth(.63);glClear(GL_DEPTH_BUFFER_BIT);
+            contourPrecision(Files.readString(previousRim));
 
             beginMask();glViewport(W/3,0,W/3,H);body(false);float[] silhouette=read(),first=output();
             int exterior=0,soft=0;
@@ -165,6 +231,7 @@ public final class ChamsGlowCheck extends ChamsAuroraCheck {
                 check(seam[(x+y*W)*4+c]==0,"No internal joint, color or opacity seams");
             preview();depthUnchanged();check(glGetError()==GL_NO_ERROR,"No OpenGL errors");
             check(glowSha.equals(sha(glowPath))&&blurSha.equals(sha(blurPath)),"Exact tested shaders unchanged");
+            check(previousRimSha.equals(sha(previousRim)),"Previous shader control unchanged");
             Files.writeString(output.resolve("result.json"),"{\n  \"status\": \"passed\",\n  \"kind\": \"gpu-preview\",\n  \"in_game\": false,\n  \"glow_sha256\": \""+glowSha+"\",\n  \"blur_sha256\": \""+blurSha+"\",\n  \"checks\": "+checks+",\n  \"exterior_pixels\": "+exterior+",\n  \"soft_halo_pixels\": "+soft+"\n}\n");
             System.out.println("PASS Glow: "+checks+" checks; exterior="+exterior+"; soft halo="+soft+"; body preserved, empty/seam/edge isolated, depth unchanged.");
             System.out.println("GPU PREVIEW ONLY: "+output.resolve("chams-glow-gpu-preview.png"));

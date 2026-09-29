@@ -25,14 +25,44 @@ public final class HitEffectsState {
             this(branches,born,size,color,color);
         }
     }
-    public record Beam(Point from, Point to, double width, double opacity, int color, int endColor) {
-        public Beam(Point from,Point to,double width,double opacity,int color) { this(from,to,width,opacity,color,color); }
+    public record Beam(Point from, Point to, double width, double opacity, int color, int endColor, double highlight, double endHighlight) {
+        public Beam(Point from,Point to,double width,double opacity,int color,int endColor,double highlight) {
+            this(from,to,width,opacity,color,endColor,highlight,highlight);
+        }
+        public Beam(Point from,Point to,double width,double opacity,int color,int endColor) {
+            this(from,to,width,opacity,color,endColor,0,0);
+        }
+        public Beam(Point from,Point to,double width,double opacity,int color) { this(from,to,width,opacity,color,color,0,0); }
     }
     private record Edge(Point first,Point second) {
         static Edge of(Point a,Point b) {
             boolean before=a.x<b.x || a.x==b.x && (a.z<b.z || a.z==b.z && a.y<=b.y);
             return before?new Edge(a,b):new Edge(b,a);
         }
+    }
+    private static final class GroundEdge {
+        Beam visible;
+        Point lastFrom;
+        double firstBorn,lastBorn,lastStart;
+        GroundEdge(Beam beam,double born,double start) {
+            visible=beam;lastFrom=beam.from;firstBorn=lastBorn=born;lastStart=start;
+        }
+        void merge(Beam beam,double born,double start) {
+            firstBorn=Math.min(firstBorn,born);
+            if(born>lastBorn) {lastBorn=born;lastStart=start;lastFrom=beam.from;}
+            if(beam.opacity>=visible.opacity)visible=beam;
+        }
+        Beam sample(double now) {
+            double wave=0,endWave=0;
+            if(lastBorn>firstBorn+.000001) {
+                double age=now-lastBorn-lastStart/9;
+                wave=highlight(age);endWave=highlight(age-1.0/9);
+            }
+            boolean forward=visible.from.equals(lastFrom);
+            return new Beam(visible.from,visible.to,visible.width,visible.opacity,visible.color,visible.endColor,
+                forward?wave:endWave,forward?endWave:wave);
+        }
+        private static double highlight(double age) {return smooth(clamp(age/.035))*(1-smooth(clamp((age-.055)/.14)));}
     }
     public record Frame(List<Sprite> particles, List<Beam> ground) {
         public static final Frame EMPTY = new Frame(List.of(), List.of());
@@ -85,7 +115,7 @@ public final class HitEffectsState {
     public Frame frame(double now) {
         if (!Double.isFinite(now)) return Frame.EMPTY;
         particles.removeIf(p -> now < p.born || now - p.born >= p.life);
-        ground.removeIf(p -> now < p.born || now-p.born >= 1.55);
+        ground.removeIf(p -> now < p.born || now-p.born >= HitGroundPath.STEPS/9.0+.95);
         if (particles.isEmpty() && ground.isEmpty()) return Frame.EMPTY;
         List<Sprite> sprites = new ArrayList<>(particles.size());
         for (Particle p : particles) {
@@ -94,7 +124,7 @@ public final class HitEffectsState {
             sprites.add(new Sprite(position(p,age), position(p,Math.max(0,age-.07)),
                 p.radius*(.55+.45*Math.sqrt(alpha)), p.rotation+p.spin*age, alpha,p.color,p.style));
         }
-        Map<Edge,Beam> beams = new LinkedHashMap<>();
+        Map<Edge,GroundEdge> beams = new LinkedHashMap<>();
         for (GroundPulse p : ground) for (HitGroundPath.Branch branch:p.branches) {
             double age = now-p.born;
             if (age <= 0) continue;
@@ -107,12 +137,13 @@ public final class HitEffectsState {
                 int end=gradient(p.color,p.endColor,s.end()/HitGroundPath.STEPS);
                 Beam beam=new Beam(s.from(),s.to(),.048*p.size,alpha,start,end);
                 Edge key=Edge.of(s.from(),s.to());
-                Beam previous=beams.get(key);
-                // Shared prefixes and repeated hits draw an edge once, keeping the strongest visible pulse.
-                if(previous==null || alpha>=previous.opacity) beams.put(key,beam);
+                GroundEdge previous=beams.get(key);
+                // Shared prefixes draw once. A later hit sends a separate short highlight out along overlap.
+                if(previous==null)beams.put(key,new GroundEdge(beam,p.born,s.start()));
+                else previous.merge(beam,p.born,s.start());
             }
         }
-        return new Frame(List.copyOf(sprites),List.copyOf(beams.values()));
+        return new Frame(List.copyOf(sprites),beams.values().stream().map(edge->edge.sample(now)).toList());
     }
 
     public static int gradient(int start,int end,double progress) {

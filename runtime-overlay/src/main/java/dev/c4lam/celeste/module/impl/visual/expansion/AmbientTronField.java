@@ -5,7 +5,7 @@ import java.util.List;
 
 /** Bounded flat light trails on integer XY, XZ or YZ grid planes. */
 public final class AmbientTronField {
-    public static final int MAX_TRAILS = 24;
+    public static final int MAX_TRAILS = 24 * AmbientField.DENSITY_COPIES;
     public static final int MAX_SEGMENTS_PER_TRAIL = 8;
     public static final int MAX_AIR_QUERIES = MAX_TRAILS * MAX_SEGMENTS_PER_TRAIL * 4;
     private static final int STEPS = 36;
@@ -47,7 +47,7 @@ public final class AmbientTronField {
             || squared(eyeX - lastX, eyeY - lastY, eyeZ - lastZ) > 48 * 48)) reset();
         lastSeconds = seconds; lastX = eyeX; lastY = eyeY; lastZ = eyeZ;
         density = finiteRange(density, 0, 1, .6); size = finiteRange(size, .5, 2, 1);
-        int count = (int)Math.ceil(density * MAX_TRAILS);
+        int count = trailCount(density);
         if (count == 0) return List.of();
         long slice = (long)Math.floor(seconds * 20);
         List<Segment> out = new ArrayList<>(count * MAX_SEGMENTS_PER_TRAIL);
@@ -124,6 +124,8 @@ public final class AmbientTronField {
         }
         return t;
     }
+
+    public static int trailCount(double density) { return (int)Math.ceil(finiteRange(density,0,1,.6)*MAX_TRAILS); }
 
     private static int planeDirection(int normalAxis,int direction) {
         int axis=(normalAxis+1+(direction&1))%3;

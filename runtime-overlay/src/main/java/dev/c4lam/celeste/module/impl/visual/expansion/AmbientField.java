@@ -2,6 +2,7 @@ package dev.c4lam.celeste.module.impl.visual.expansion;
 
 /** Pure, world-anchored ambient field. Camera movement never seeds or advances a mote. */
 public final class AmbientField {
+    public static final int DENSITY_COPIES = 3;
     public static final double CELL = 5.0;
     public static final double RANGE = 22.0;
     public static final double HEIGHT = 11.0;
@@ -26,8 +27,14 @@ public final class AmbientField {
     }
 
     public static Mote sample(int x, int y, int z, Style style, double seconds) {
-        if (style == Style.TESSERACTS) return AmbientTesseractField.sample(x, y, z, seconds, 0);
-        long seed = hash(x, y, z);
+        return sample(x,y,z,style,seconds,0);
+    }
+
+    /** Three independently placed motes share each occupied cell; lane zero preserves the original sample. */
+    public static Mote sample(int x,int y,int z,Style style,double seconds,int lane) {
+        long salt = lane == 0 ? 0 : mix(lane * 0xD1B54A32D192ED03L);
+        if (style == Style.TESSERACTS) return AmbientTesseractField.sample(x,y,z,seconds,salt);
+        long seed = hash(x,y,z) ^ salt;
         double a = unit(mix(seed + 1)), b = unit(mix(seed + 2)), c = unit(mix(seed + 3));
         double time = Double.isFinite(seconds) ? seconds : 0.0;
         double phase = a * Math.PI * 2.0;

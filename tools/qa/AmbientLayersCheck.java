@@ -18,20 +18,20 @@ public final class AmbientLayersCheck {
             int total=0,minimum=Integer.MAX_VALUE,maximum=0;
             for(var selected:layers)if(selected.style()!=AmbientField.Style.TRON_TRAILS) {
                 int cap=AmbientEffectsLayers.particleCap(layers,selected.style());
-                check(cap>=51,"A selected style is starved");total+=cap;minimum=Math.min(minimum,cap);maximum=Math.max(maximum,cap);
+                check(cap>=153,"A selected style is starved");total+=cap;minimum=Math.min(minimum,cap);maximum=Math.max(maximum,cap);
             }
             check(total<=AmbientEffectsLayers.MAX_PARTICLES,"Combined particle budget exceeded");
             if(layers.stream().filter(l->l.style()!=AmbientField.Style.TRON_TRAILS).count()>1)check(maximum-minimum<=1,"Unfair layer reservation");
         }
         for(var style:styles) {
             var one=List.of(layer(style));
-            int expected=style==AmbientField.Style.TRON_TRAILS?0:style==AmbientField.Style.TESSERACTS?192:128;
+            int expected=style==AmbientField.Style.TRON_TRAILS?0:style==AmbientField.Style.TESSERACTS?576:384;
             check(AmbientEffectsLayers.particleCap(one,style)==expected,"Single-style cap changed");
         }
         var normalized=AmbientEffectsLayers.normalize(Arrays.asList(null,layer(styles[0]),layer(styles[0]),new AmbientEffectsLayers.Layer(null,.6,1)));
         check(normalized.size()==1,"Duplicate/null layer accepted");
         var zero=List.of(new AmbientEffectsLayers.Layer(styles[0],0,1),layer(styles[4]));
-        check(AmbientEffectsLayers.particleCap(zero,styles[4])==192&&AmbientEffectsLayers.particleCap(zero,styles[0])==0,"Zero density stole capacity");
+        check(AmbientEffectsLayers.particleCap(zero,styles[4])==576&&AmbientEffectsLayers.particleCap(zero,styles[0])==0,"Zero density stole capacity");
         var invalid=new AmbientEffectsLayers.Layer(styles[0],Double.NaN,Double.POSITIVE_INFINITY);
         close(invalid.density(),.6,"Density fallback");close(invalid.size(),1,"Size fallback");
         try { normalized.clear();throw new AssertionError("Mutable snapshot"); } catch(UnsupportedOperationException expected) { checks++; }

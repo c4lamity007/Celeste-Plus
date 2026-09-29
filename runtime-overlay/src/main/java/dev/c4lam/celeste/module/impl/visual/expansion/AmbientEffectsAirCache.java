@@ -5,7 +5,7 @@ import java.util.Map;
 
 /** One-frame cache: effects share observations, with a fair fixed budget and no terrain search. */
 public final class AmbientEffectsAirCache {
-    public static final int MAX_WORLD_PROBES = 8192;
+    public static final int MAX_WORLD_PROBES = 8192 * AmbientField.DENSITY_COPIES;
     public interface Cells {
         boolean clear(int x,int y,int z);
         boolean skyVisible(int x,int y,int z);

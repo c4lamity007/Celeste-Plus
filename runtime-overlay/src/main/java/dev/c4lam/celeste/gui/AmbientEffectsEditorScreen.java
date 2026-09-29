@@ -24,11 +24,16 @@ import org.lwjgl.glfw.GLFW;
 public final class AmbientEffectsEditorScreen extends Screen {
     private static final Color TEXT = new Color(247, 243, 249), MUTED = new Color(169, 162, 180);
     private static final Color ACCENT = new Color(255, 61, 150), PANEL = new Color(24, 19, 29, 240);
-    private static final Color CARD = new Color(44, 39, 52, 205), HOVER = new Color(58, 50, 67, 225);
-    private static final Color SELECTED = new Color(73, 47, 69, 230), TRACK = new Color(83, 73, 94, 220);
+    // Same frosted cards and highlights as the block/item picker.
+    private static final Color CARD_TOP = new Color(68, 65, 77, 190), CARD_BOTTOM = new Color(49, 47, 60, 204);
+    private static final Color HOVER_TOP = new Color(83, 79, 94, 205), HOVER_BOTTOM = new Color(61, 58, 75, 218);
+    private static final Color SELECTED_TOP = new Color(94, 83, 108, 212), SELECTED_BOTTOM = new Color(67, 61, 87, 223);
+    private static final Color TRACK = new Color(83, 73, 94, 220);
     private final Screen parent;
     private final GuiModule module;
     private final AmbientEffectsEditorState state;
+    private final ColorPickerControl colorPicker = new ColorPickerControl();
+    private String colorStyle;
     private AmbientEffectsEditorLayout.View view;
     private boolean changed;
 
@@ -47,6 +52,7 @@ public final class AmbientEffectsEditorScreen extends Screen {
         float preferred = (8f / 3f) / (float) client.getWindow().getScaleFactor()
             * InterfaceConfig.scale() / InterfaceConfig.DEFAULT_SCALE;
         view = AmbientEffectsEditorLayout.fit(width, height, preferred);
+        colorPicker.setViewport(0, 0, AmbientEffectsEditorLayout.WIDTH, AmbientEffectsEditorLayout.HEIGHT);
         GuiCursors.hideNative(client);
     }
     @Override public void render(DrawContext context, int mouseX, int mouseY, float delta) {
@@ -69,20 +75,22 @@ public final class AmbientEffectsEditorScreen extends Screen {
             canAdd || state.adding() ? mx : -1, canAdd || state.adding() ? my : -1);
         List<String> rows = state.rows();
         String selected = state.selected();
+        boolean colors = individualColors();
+        if (state.adding() || selected == null || !selected.equals(colorStyle) || !colors) closeColorPicker();
         for (int i = 0; i < rows.size(); i++) {
             String style = rows.get(i);
             var bounds = AmbientEffectsEditorLayout.row(i);
             boolean active = state.adding() ? i == state.pickerRow() : style.equals(selected);
-            rectangle(matrices, bounds, 5, active ? SELECTED : bounds.contains(mx, my) ? HOVER : CARD);
+            glass(matrices, bounds, 5, bounds.contains(mx, my), active);
             label(matrices, style, 26, bounds.y() + 8, 8.6f, active ? TEXT : MUTED);
             if (state.adding()) label(matrices, "+", 187, bounds.y() + 7, 10, ACCENT);
             else {
                 var remove = AmbientEffectsEditorLayout.remove(i);
-                if (remove.contains(mx, my)) rectangle(matrices, remove, 4, HOVER);
+                if (remove.contains(mx, my)) glass(matrices, remove, 4, true, false);
                 centered(matrices, "-", remove, 11, remove.contains(mx, my) ? TEXT : MUTED);
             }
         }
-        rectangle(matrices, AmbientEffectsEditorLayout.DETAILS, 6, CARD);
+        glass(matrices, AmbientEffectsEditorLayout.DETAILS, 6, false, false);
         if (state.adding()) {
             label(matrices, "Pick an effect", 232, 97, 9.4f, TEXT);
             label(matrices, "It will run with your other effects.", 232, 120, 7.5f, MUTED);
@@ -92,16 +100,37 @@ public final class AmbientEffectsEditorScreen extends Screen {
             label(matrices, selected, 232, 97, 10, TEXT);
             slider(matrices, "Density", AmbientEffectsEditorLayout.DENSITY, selected, mx, my);
             slider(matrices, "Size", AmbientEffectsEditorLayout.SIZE, selected, mx, my);
+            if (colors) {
+                label(matrices, "Color", AmbientEffectsEditorLayout.COLOR.x(), 233, 8.3f, MUTED);
+                localMatrices(matrices);
+                var swatch = AmbientEffectsEditorLayout.COLOR_SWATCH;
+                colorPicker.drawSwatch(matrices, AmbientEffectsSettings.color(module, selected), swatch.x(), swatch.y(), 1);
+                matrices.pop();
+            } else label(matrices, "Color follows Atmosphere", 232, 233, 7.5f, MUTED);
         } else {
             label(matrices, "No effects yet", 26, 94, 9.2f, TEXT);
             label(matrices, "Use + Add to choose one.", 26, 115, 7.7f, MUTED);
             label(matrices, "Size and density", 232, 97, 9.4f, MUTED);
             label(matrices, "Select an effect to adjust it.", 232, 120, 7.7f, MUTED);
         }
-        String footer = state.adding() ? rows.size() + " available" : state.active().size() + " active";
+        String footer = state.adding() ? "Click to add" : state.active().isEmpty() ? "0 active" : "Right-click to remove";
         label(matrices, footer, 16, 273, 8, MUTED);
         button(matrices, AmbientEffectsEditorLayout.DONE, "Done", true, mx, my);
-        GuiCursors.draw(matrices, mouseX, mouseY, state.dragging() != null || interactive(mx, my));
+        if (colorPicker.isOpen()) {
+            localMatrices(matrices); colorPicker.drawPopup(matrices); matrices.pop();
+        }
+        GuiCursors.draw(matrices, mouseX, mouseY, colorPicker.isDragging() || colorPicker.popupContains(mx, my)
+            || state.dragging() != null || interactive(mx, my));
+    }
+    private boolean individualColors() {
+        return AmbientEffectsSettings.individualColors(ModuleManager.getInstance().module("Atmosphere"));
+    }
+    private void localMatrices(MatrixStack matrices) {
+        matrices.push(); matrices.translate(view.x(), view.y(), 0); matrices.scale(view.scale(), view.scale(), 1);
+    }
+    private void closeColorPicker() {
+        if (!colorPicker.isOpen()) return;
+        colorPicker.close(); colorStyle = null; save();
     }
     private boolean interactive(double x, double y) {
         boolean row = false;
@@ -110,7 +139,8 @@ public final class AmbientEffectsEditorScreen extends Screen {
             || (state.adding() || !state.available().isEmpty()) && AmbientEffectsEditorLayout.ADD.contains(x, y)
             || AmbientEffectsEditorLayout.DONE.contains(x, y) || row
             || !state.adding() && state.selected() != null && (AmbientEffectsEditorLayout.DENSITY.contains(x, y)
-                || AmbientEffectsEditorLayout.SIZE.contains(x, y));
+                || AmbientEffectsEditorLayout.SIZE.contains(x, y)
+                || individualColors() && AmbientEffectsEditorLayout.COLOR.contains(x, y));
     }
     private void slider(MatrixStack matrices, String title, AmbientEffectsEditorLayout.Rect box,
                         String style, double mx, double my) {
@@ -131,8 +161,16 @@ public final class AmbientEffectsEditorScreen extends Screen {
     }
     private void button(MatrixStack matrices, AmbientEffectsEditorLayout.Rect box, String text,
                         boolean active, double mx, double my) {
-        rectangle(matrices, box, 5, active ? ACCENT : box.contains(mx, my) ? HOVER : CARD);
+        glass(matrices, box, 5, box.contains(mx, my), active);
         centered(matrices, text, box, 8.1f, active ? TEXT : MUTED);
+    }
+    private void glass(MatrixStack matrices, AmbientEffectsEditorLayout.Rect box, float radius,
+                       boolean hover, boolean selected) {
+        Color top = selected ? SELECTED_TOP : hover ? HOVER_TOP : CARD_TOP;
+        Color bottom = selected ? SELECTED_BOTTOM : hover ? HOVER_BOTTOM : CARD_BOTTOM;
+        RenderUtil.BLUR_RECT.draw(matrices, px(box.x()), py(box.y()), box.width() * view.scale(),
+            box.height() * view.scale(), new Vector4f(radius * view.scale()), top, top, bottom, bottom,
+            InterfaceConfig.glassTintMix());
     }
     private void centered(MatrixStack matrices, String text, AmbientEffectsEditorLayout.Rect box, float size, Color color) {
         Fonts.regular().drawCenteredText(matrices, text, px(box.x() + box.width() / 2),
@@ -151,22 +189,44 @@ public final class AmbientEffectsEditorScreen extends Screen {
         if (result == AmbientEffectsEditorState.Result.CHANGED) { changed = true; if (state.dragging() == null) save(); }
     }
     @Override public boolean mouseClicked(Click click, boolean doubled) {
-        if (click.button() == GLFW.GLFW_MOUSE_BUTTON_LEFT)
-            result(state.click(view.localX(click.x()), view.localY(click.y())));
+        double x = view.localX(click.x()), y = view.localY(click.y());
+        if (colorPicker.isOpen() && colorPicker.popupContains(x, y)) {
+            if (click.button() == GLFW.GLFW_MOUSE_BUTTON_LEFT) { colorPicker.mouseClicked(x, y); changed |= colorPicker.isDragging(); }
+            return true;
+        }
+        if (click.button() == GLFW.GLFW_MOUSE_BUTTON_LEFT && !state.adding() && state.selected() != null
+            && individualColors() && AmbientEffectsEditorLayout.COLOR.contains(x, y)) {
+            colorStyle = state.selected();
+            var swatch = AmbientEffectsEditorLayout.COLOR_SWATCH;
+            colorPicker.toggle(AmbientEffectsSettings.color(module, colorStyle), swatch.x(), swatch.y());
+            save(); return true;
+        }
+        closeColorPicker();
+        result(state.click(x, y, click.button()));
         return true;
     }
     @Override public boolean mouseDragged(Click click, double dx, double dy) {
-        if (click.button() == GLFW.GLFW_MOUSE_BUTTON_LEFT) changed |= state.drag(view.localX(click.x()));
+        if (click.button() == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+            if (colorPicker.isDragging()) { colorPicker.drag(view.localX(click.x()), view.localY(click.y())); changed = true; }
+            else changed |= state.drag(view.localX(click.x()));
+        }
         return true;
     }
     @Override public boolean mouseReleased(Click click) {
-        if (click.button() == GLFW.GLFW_MOUSE_BUTTON_LEFT) { state.release(); save(); }
+        if (click.button() == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+            colorPicker.mouseReleased(view.localX(click.x()), view.localY(click.y())); state.release(); save();
+        }
         return true;
     }
     @Override public boolean mouseScrolled(double x, double y, double horizontal, double vertical) {
+        if (colorPicker.isOpen()) return true;
         changed |= state.wheel(view.localX(x), view.localY(y), vertical); save(); return true;
     }
     @Override public boolean keyPressed(KeyInput input) {
+        if (colorPicker.isOpen()) {
+            if (input.key() == GLFW.GLFW_KEY_ESCAPE) closeColorPicker();
+            return true;
+        }
         switch (input.key()) {
             case GLFW.GLFW_KEY_ESCAPE -> result(state.escape());
             case GLFW.GLFW_KEY_UP -> state.move(-1);
@@ -182,7 +242,7 @@ public final class AmbientEffectsEditorScreen extends Screen {
     }
     @Override public void close() { save(); if (client != null) client.setScreen(parent); }
     @Override public void removed() {
-        state.release(); save(); GuiRenderer.getInstance().clearScissors(); GuiCursors.restoreNative(client); super.removed();
+        state.release(); closeColorPicker(); save(); GuiRenderer.getInstance().clearScissors(); GuiCursors.restoreNative(client); super.removed();
     }
     @Override public boolean shouldPause() { return false; }
     @Override public void renderBackground(DrawContext context, int mouseX, int mouseY, float delta) { }

@@ -10,6 +10,8 @@ public final class AmbientEffectsEditorLayout {
     public static final Rect DETAILS = new Rect(218, 81, 190, 174);
     public static final Rect DENSITY = new Rect(232, 126, 162, 36);
     public static final Rect SIZE = new Rect(232, 185, 162, 36);
+    public static final Rect COLOR = new Rect(232, 227, 162, 20);
+    public static final Rect COLOR_SWATCH = new Rect(378, 229, 16, 16);
 
     private AmbientEffectsEditorLayout() { }
     public record Rect(float x, float y, float width, float height) {

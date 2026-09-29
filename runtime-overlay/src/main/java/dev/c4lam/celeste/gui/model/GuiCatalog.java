@@ -256,7 +256,7 @@ public final class GuiCatalog {
         new GuiModule("Hit Effects", "Particles, ground trails and a small ripple when you hit", CelestePage.VISUALS, false,
             toggle("Particles", "Burst at the target", true),
             toggle("Ground Effect", "Light trails along block edges", false),
-            toggle("Displacement", "Brief distortion at the crosshair", false),
+            toggle("Displacement", "Brief distortion where you hit", false),
             mode("Particle Style", "Particle shape", "Sparks", "Sparks", "Stars", "Dots"),
             slider("Amount", "Particles per hit", 12, 4, 24, 1),
             slider("Size", "Effect size", 1, .5, 2, .1),

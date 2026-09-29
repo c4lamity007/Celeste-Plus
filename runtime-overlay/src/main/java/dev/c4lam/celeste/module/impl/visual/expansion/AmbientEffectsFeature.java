@@ -89,7 +89,7 @@ public final class AmbientEffectsFeature implements ModuleFeature {
                         Math.min(segment.az(), segment.bz()) - bound, Math.max(segment.ax(), segment.bx()) + bound,
                         Math.max(segment.ay(),segment.by()) + bound, Math.max(segment.az(), segment.bz()) + bound))) continue;
                     trails.add(new AmbientEffectsRenderer.TronSegment(segment,
-                        VisualAtmosphere.tint(0x57DDEB, seconds, segment.palette())));
+                        AmbientEffectsLayers.color(layer,seconds,segment.palette())));
                 }
             } else if (cubes) {
                 AmbientTesseractField.AirCell air = airCache::clear;
@@ -98,7 +98,7 @@ public final class AmbientEffectsFeature implements ModuleFeature {
                     AmbientTesseractField.Candidate candidate = candidates.get(rank);
                     AmbientField.Mote mote = candidate.mote();
                     double alpha = mote.opacity() * (cap == AmbientTesseractField.MAX_PARTICLES ? AmbientTesseractField.capFade(rank)
-                        : AmbientField.smooth((cap - 1.0 - rank) / Math.min(32,cap * .25)))
+                        : AmbientField.smooth((cap - 1.0 - rank) / Math.min(32 * AmbientField.DENSITY_COPIES,cap * .25)))
                         * AmbientTesseractField.visibility(mote.x() - eye.x, mote.y() - eye.y, mote.z() - eye.z);
                     if (alpha < .01) continue;
                     double radius = mote.size() * frameSize, bound = AmbientTesseractField.bounds(radius);
@@ -107,7 +107,7 @@ public final class AmbientEffectsFeature implements ModuleFeature {
                         mote.y() - bound, mote.z() - bound, mote.x() + bound, mote.y() + bound, mote.z() + bound))) continue;
                     alpha *= AmbientTesseractField.airVisibility(mote.x(), mote.y(), mote.z(), radius, air);
                     if (alpha < .01) continue;
-                    int color = VisualAtmosphere.tint(mote.color(), seconds, (candidate.priority() >>> 11) * 0x1.0p-53);
+                    int color = AmbientEffectsLayers.color(layer,seconds,(candidate.priority() >>> 11) * 0x1.0p-53);
                     particles.add(new AmbientEffectsRenderer.Particle(new Vec3d(mote.x(), mote.y(), mote.z()),
                         radius, mote.yaw(), mote.pitch(), (float)alpha, color, frameStyle));
                 }
@@ -115,22 +115,23 @@ public final class AmbientEffectsFeature implements ModuleFeature {
                 for (int y = cy - 3; y <= cy + 3; y++) {
                     if (!AmbientField.occupied(x, y, z, frameDensity)
                         || !AmbientField.mayBeVisible(x, y, z, eye.x, eye.y, eye.z)) continue;
-                    AmbientField.Mote mote = AmbientField.sample(x, y, z, frameStyle, seconds);
-                    double alpha = mote.opacity() * AmbientField.visibility(mote.x() - eye.x, mote.y() - eye.y, mote.z() - eye.z);
-                    if (alpha < .01) continue;
-                    double radius = mote.size() * frameSize;
-                    // Frustum work is independent of block state; reject it before live world queries.
-                    double bound = radius * 6;
-                    if (context.frustum() != null && !context.frustum().isVisible(new Box(mote.x() - bound,
-                        mote.y() - bound, mote.z() - bound, mote.x() + bound,
-                        mote.y() + bound, mote.z() + bound))) continue;
-                    if (!airCache.openSky(MathHelper.floor(mote.x()),MathHelper.floor(mote.y()),MathHelper.floor(mote.z()))) continue;
-                    int color = frameStyle == AmbientField.Style.LEAVES ? mote.color()
-                        : VisualAtmosphere.tint(mote.color(), seconds,
-                            (AmbientTesseractField.priority(x, y, z) >>> 11) * 0x1.0p-53);
-                    AmbientEffectsRenderer.Particle particle = new AmbientEffectsRenderer.Particle(new Vec3d(mote.x(), mote.y(), mote.z()),
-                        radius, mote.yaw(), mote.pitch(), (float) alpha, color, frameStyle);
-                    particles.add(particle);
+                    for (int lane=0;lane<AmbientField.DENSITY_COPIES;lane++) {
+                        AmbientField.Mote mote = AmbientField.sample(x,y,z,frameStyle,seconds,lane);
+                        double alpha = mote.opacity() * AmbientField.visibility(mote.x() - eye.x, mote.y() - eye.y, mote.z() - eye.z);
+                        if (alpha < .01) continue;
+                        double radius = mote.size() * frameSize;
+                        // Frustum work is independent of block state; reject it before live world queries.
+                        double bound = radius * 6;
+                        if (context.frustum() != null && !context.frustum().isVisible(new Box(mote.x() - bound,
+                            mote.y() - bound, mote.z() - bound, mote.x() + bound,
+                            mote.y() + bound, mote.z() + bound))) continue;
+                        if (!airCache.openSky(MathHelper.floor(mote.x()),MathHelper.floor(mote.y()),MathHelper.floor(mote.z()))) continue;
+                        int color = AmbientEffectsLayers.color(layer,seconds,
+                            (AmbientTesseractField.priority(x,y,z) >>> 11) * 0x1.0p-53 + lane/(double)AmbientField.DENSITY_COPIES);
+                        AmbientEffectsRenderer.Particle particle = new AmbientEffectsRenderer.Particle(new Vec3d(mote.x(), mote.y(), mote.z()),
+                            radius, mote.yaw(), mote.pitch(), (float) alpha, color, frameStyle);
+                        particles.add(particle);
+                    }
                 }
             }
             particles.sort(Comparator.comparingDouble(p -> p.position().squaredDistanceTo(eye)));
@@ -182,7 +183,7 @@ public final class AmbientEffectsFeature implements ModuleFeature {
                 case "Tron Trails" -> AmbientField.Style.TRON_TRAILS;
                 default -> AmbientField.Style.FIREFLIES;
             };
-            snapshot.add(new AmbientEffectsLayers.Layer(style,layer.density(),layer.size()));
+            snapshot.add(new AmbientEffectsLayers.Layer(style,layer.density(),layer.size(),layer.color()));
         }
         layers = AmbientEffectsLayers.normalize(snapshot);
     }

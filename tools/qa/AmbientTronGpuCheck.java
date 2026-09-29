@@ -24,11 +24,11 @@ public final class AmbientTronGpuCheck extends ImpactCheck {
         AtmosphereCheck.transforms(AtmosphereCheck.identity(),AtmosphereCheck.perspective(),new float[]{1,1,1,1},0);
         AtmosphereCheck.fog(fogEnd*.5f,fogEnd);
         glEnable(GL_DEPTH_TEST);glDepthFunc(GL_LEQUAL);glDepthMask(false);glDisable(GL_CULL_FACE);glEnable(GL_BLEND);glBlendFunc(GL_SRC_ALPHA,GL_ONE);
-        FloatBuffer vertices=BufferUtils.createFloatBuffer(Math.max(1,lines.size())*4*12);
+        FloatBuffer vertices=BufferUtils.createFloatBuffer(Math.max(1,lines.size())*AmbientTronGeometry.MAX_VERTICES*12);
         for(var line:lines)AmbientTronGeometry.beam(line,0,0,0,(x,y,z,u,v,a)->AtmosphereCheck.vertex(vertices,x,y,z,u,v,
             AtmosphereCheck.color(0x57DDEB,Math.round(a*opacity*255)/255.0),0,0,0));
         vertices.flip();int count=vertices.remaining()/12;
-        check(count<=AmbientTronField.MAX_TRAILS*AmbientTronField.MAX_SEGMENTS_PER_TRAIL*4,"bounded production vertices");
+        check(count<=AmbientTronField.MAX_TRAILS*AmbientTronField.MAX_SEGMENTS_PER_TRAIL*AmbientTronGeometry.MAX_VERTICES,"bounded production vertices");
         IntBuffer elements=BufferUtils.createIntBuffer(Math.max(1,count/4*6));
         for(int base=0;base<count;base+=4)for(int i:new int[]{0,1,2,0,2,3})elements.put(base+i);elements.flip();
         glUseProgram(glow);glBindBuffer(GL_ARRAY_BUFFER,vertexBuffer);glBufferData(GL_ARRAY_BUFFER,vertices,GL_STREAM_DRAW);
@@ -74,6 +74,12 @@ public final class AmbientTronGpuCheck extends ImpactCheck {
             for(int i=0;i<line.length;i+=4)peak=Math.max(peak,line[i+1]);
             for(int i=0;i<line.length;i+=4)if(line[i+1]>.008 && line[i+1]<peak*.5)halo++;
             check(peak>.2 && halo>20,"bright core and soft surrounding glow both visible");
+            double[] columns=new double[W];double brightest=0;
+            for(int y=0;y<H;y++)for(int x=0;x<W;x++)columns[x]+=line[(y*W+x)*4+1];
+            for(double value:columns)brightest=Math.max(brightest,value);
+            int leftSoft=0,rightSoft=0;
+            for(int x=0;x<W;x++)if(columns[x]>brightest*.02&&columns[x]<brightest*.8){if(x<W/2)leftSoft++;else rightSoft++;}
+            check(leftSoft>=4&&rightSoft>=4,"exposed endpoints need visible soft longitudinal falloff");
             sheet(draw(initial,1,1,40,true),draw(field(.5),1,1,40,true));
             System.out.println("PASS ambient-tron GPU: "+checks+" checks, "+coverage+" visible pixels; core/glow, sub-frame motion, fog, occlusion, depth preservation and clear. GPU="+glGetString(GL_RENDERER));
         }finally{minecraft.close();glfwDestroyWindow(window);glfwTerminate();}

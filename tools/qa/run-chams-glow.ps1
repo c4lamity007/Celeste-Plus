@@ -23,7 +23,8 @@ $classpath = $libraries -join ';'
 $qa = Join-Path $resolvedProject 'tools\qa'
 & (Join-Path $JdkHome 'bin\javac.exe') --release 21 -classpath $classpath -d $classes (Join-Path $qa 'ImpactCheck.java') (Join-Path $qa 'ChamsAuroraCheck.java') (Join-Path $PSScriptRoot 'ChamsGlowCheck.java')
 if ($LASTEXITCODE -ne 0) { throw 'Chams Glow harness compilation failed.' }
-$javaOptions = @('-Xmx768m')
+$previousRim=Join-Path $PSScriptRoot 'fixtures/chams-glow-fractional.fsh'
+$javaOptions = @('-Xmx768m',"-Dceleste.test.previousChamsRim=$previousRim")
 if ($PreviousShaderDirectory) {
     $previous = (Resolve-Path -LiteralPath $PreviousShaderDirectory).Path
     $javaOptions += "-Dceleste.test.previousChamsGlow=$previous"

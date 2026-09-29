@@ -6,14 +6,30 @@ import java.util.List;
 
 /** Immutable layer snapshots and bounded, independent effect lifetimes. */
 public final class AmbientEffectsLayers {
-    public static final int MAX_PARTICLES = 256;
-    public record Layer(AmbientField.Style style, double density, double size) {
+    public static final int MAX_PARTICLES = 256 * AmbientField.DENSITY_COPIES;
+    public record Layer(AmbientField.Style style, double density, double size, int color) {
+        public Layer(AmbientField.Style style,double density,double size) { this(style,density,size,defaultColor(style)); }
         public Layer {
+            color &= 0xFFFFFF;
             density = range(density, 0, 1, .6);
             size = range(size, .5, 2, 1);
         }
     }
     private AmbientEffectsLayers() { }
+    public static int defaultColor(AmbientField.Style style) {
+        if(style==null)return 0xA6FFE1;
+        return switch(style) {
+            case CRYSTALS -> 0x6BDEFF;
+            case SNOW -> 0xE3F5FF;
+            case LEAVES -> 0xD98739;
+            case TESSERACTS -> 0x48ACFF;
+            case TRON_TRAILS -> 0x57DDEB;
+            default -> 0xA6FFE1;
+        };
+    }
+    public static int color(Layer layer,double seconds,double phase) {
+        return VisualAtmosphere.tint(layer.color(),seconds,phase);
+    }
 
     public static List<Layer> normalize(List<Layer> input) {
         if (input == null || input.isEmpty()) return List.of();
@@ -35,7 +51,7 @@ public final class AmbientEffectsLayers {
             present |= layer.style() == style;
         }
         if (!present) return 0;
-        int original = style == AmbientField.Style.TESSERACTS ? AmbientTesseractField.MAX_PARTICLES : 128;
+        int original = style == AmbientField.Style.TESSERACTS ? AmbientTesseractField.MAX_PARTICLES : 128 * AmbientField.DENSITY_COPIES;
         return Math.min(original, MAX_PARTICLES / count);
     }
 

@@ -55,7 +55,7 @@ public final class AmbientTesseractGpuCheck extends ImpactCheck {
         g.setColor(new Color(17,22,30));g.fillRect(0,0,image.getWidth(),image.getHeight());g.setColor(Color.WHITE);g.setFont(new Font("SansSerif",Font.BOLD,18));g.drawString("AMBIENT TESSERACTS - actual particle geometry and shaders",14,25);
         g.setFont(new Font("SansSerif",Font.PLAIN,13));g.drawString("Nearby world particles; random lifetimes, straight drift, translucent faces and glowing edges. GPU fixture, not Minecraft.",14,48);
         g.drawImage(AtmosphereCheck.image(detail),0,header,null);g.drawImage(AtmosphereCheck.image(field),W,header,null);
-        g.drawString("Matching corner links; normal size, close camera",14,H+header+20);g.drawString("Open air: density .6, 22-block sphere, cap192",W+14,H+header+20);g.dispose();ImageIO.write(image,"PNG",output.resolve("ambient-tesseracts-gpu-preview.png").toFile());
+        g.drawString("Matching corner links; normal size, close camera",14,H+header+20);g.drawString("Open air: density .6, 22-block sphere, cap576",W+14,H+header+20);g.dispose();ImageIO.write(image,"PNG",output.resolve("ambient-tesseracts-gpu-preview.png").toFile());
     }
     public static void main(String[] args)throws Exception{
         resources=Path.of(args[0]);Path staged=Path.of(args[1]);minecraft=new ZipFile(args[2]);output=Path.of(args[3]);Files.createDirectories(output);

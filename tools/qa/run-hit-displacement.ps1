@@ -17,7 +17,9 @@ $libraries=@(rg --files $cache -g '*.jar' | Where-Object {
 })
 if($libraries.Count -ne 6){throw 'Expected six cached LWJGL 3.3.3 Java/Windows jars; no downloads attempted.'}
 $classpath=$libraries -join ';'
-& "$JdkHome/bin/javac.exe" --release 21 -cp $classpath -d "$outputPath/classes" "$sourcePath/src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/HitDisplacementAnimation.java" "$PSScriptRoot/HitDisplacementCheck.java"
+$animation=Join-Path $sourcePath 'src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/HitDisplacementAnimation.java'
+if(-not(Test-Path -LiteralPath $animation)){$animation=Join-Path $ProjectRoot 'src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/HitDisplacementAnimation.java'}
+& "$JdkHome/bin/javac.exe" --release 21 -cp $classpath -d "$outputPath/classes" $animation "$PSScriptRoot/HitDisplacementCheck.java"
 if($LASTEXITCODE -ne 0){throw 'Hit displacement fixture compilation failed'}
 & "$JdkHome/bin/java.exe" -cp "$outputPath/classes;$classpath" HitDisplacementCheck "$sourcePath/src/main/resources/assets/celeste/shaders/core" $gamePath $outputPath
 if($LASTEXITCODE -ne 0){throw 'Hit displacement GPU check failed'}

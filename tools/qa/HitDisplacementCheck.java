@@ -15,13 +15,17 @@ import static org.lwjgl.opengl.GL33C.*;
 
 /** Production GLSL against a patterned scene/target; this is GPU evidence, not Minecraft. */
 public final class HitDisplacementCheck {
-    static int checks, w=480,h=320,program,ubo,fbo,color,source,depth;
+    static int checks, w=480,h=320,program,ubo,projectionUbo,fbo,color,source,depth;
+    static final float[] IDENTITY={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
     static float[] scene,depths;
     static void check(boolean ok,String why){checks++;if(!ok)throw new AssertionError(why);}
     static int compile(int kind,String source){int s=glCreateShader(kind);glShaderSource(s,source);glCompileShader(s);check(glGetShaderi(s,GL_COMPILE_STATUS)!=0,glGetShaderInfoLog(s));return s;}
     static String imports(String text,ZipFile game)throws Exception{
-        var entry=game.getEntry("assets/minecraft/shaders/include/dynamictransforms.glsl");check(entry!=null,"Minecraft DynamicTransforms include missing");
-        return text.replace("#moj_import <minecraft:dynamictransforms.glsl>",new String(game.getInputStream(entry).readAllBytes(),java.nio.charset.StandardCharsets.UTF_8).replaceAll("(?m)^#version[^\\n]*", ""));
+        for(String name:new String[]{"dynamictransforms","projection"}) {
+            var entry=game.getEntry("assets/minecraft/shaders/include/"+name+".glsl");check(entry!=null,"Minecraft "+name+" include missing");
+            text=text.replace("#moj_import <minecraft:"+name+".glsl>",new String(game.getInputStream(entry).readAllBytes(),java.nio.charset.StandardCharsets.UTF_8).replaceAll("(?m)^#version[^\\n]*", ""));
+        }
+        return text;
     }
     static int texture(int internal,int channels){int t=glGenTextures();glBindTexture(GL_TEXTURE_2D,t);glTexImage2D(GL_TEXTURE_2D,0,internal,w,h,0,channels,GL_FLOAT,(ByteBuffer)null);
         glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);return t;}
@@ -35,9 +39,12 @@ public final class HitDisplacementCheck {
         glBindTexture(GL_TEXTURE_2D,source);glTexSubImage2D(GL_TEXTURE_2D,0,0,0,w,h,GL_RGBA,GL_FLOAT,scene);
         glBindTexture(GL_TEXTURE_2D,depth);glTexSubImage2D(GL_TEXTURE_2D,0,0,0,w,h,GL_DEPTH_COMPONENT,GL_FLOAT,depths);
     }
-    static float[] render(List<Frame> frames){ByteBuffer b=BufferUtils.createByteBuffer(160);for(int i=0;i<frames.size();i++){Frame f=frames.get(i);int p=i*16;
-        b.putFloat(p,f.x()).putFloat(p+4,f.y()).putFloat(p+8,f.radius()).putFloat(p+12,f.strength());
+    static float[] render(List<Frame> frames){return render(frames,IDENTITY,0);}
+    static float[] render(List<Frame> frames,float[] projection,float viewZ){ByteBuffer b=BufferUtils.createByteBuffer(160);for(int i=0;i<frames.size();i++){Frame f=frames.get(i);int p=i*16;
+        b.putFloat(p,f.x()*2-1).putFloat(p+4,f.y()*2-1).putFloat(p+8,viewZ).putFloat(p+12,f.radius());
+        b.putFloat(64+i*4,f.strength());
         b.putFloat(96+p,(f.color()>>16&255)/255f).putFloat(100+p,(f.color()>>8&255)/255f).putFloat(104+p,(f.color()&255)/255f).putFloat(108+p,f.release());}
+        glBindBuffer(GL_UNIFORM_BUFFER,projectionUbo);glBufferSubData(GL_UNIFORM_BUFFER,0,projection);
         glBindBuffer(GL_UNIFORM_BUFFER,ubo);glBufferSubData(GL_UNIFORM_BUFFER,0,b);glBindTexture(GL_TEXTURE_2D,color);glTexSubImage2D(GL_TEXTURE_2D,0,0,0,w,h,GL_RGBA,GL_FLOAT,scene);
         glBindFramebuffer(GL_FRAMEBUFFER,fbo);glViewport(0,0,w,h);glUseProgram(program);glDisable(GL_DEPTH_TEST);glDepthMask(false);glDisable(GL_BLEND);glDisable(GL_CULL_FACE);glColorMask(true,true,true,false);
         glActiveTexture(GL_TEXTURE0);glBindTexture(GL_TEXTURE_2D,source);glDrawArrays(GL_TRIANGLES,0,3);float[] result=new float[w*h*4];glReadPixels(0,0,w,h,GL_RGBA,GL_FLOAT,result);
@@ -64,11 +71,29 @@ public final class HitDisplacementCheck {
         for(double age=-.01;age<=.70;age+=.001){f=HitDisplacementAnimation.at(age,.5f,.5f,1,0);check(Float.isFinite(f.radius())&&f.radius()>=0&&f.radius()<=.126,"radius invalid");check(f.strength()>=0&&f.strength()<=1,"fade invalid");check(f.release()>=0&&f.release()<=1,"release invalid");}
         check(HitDisplacementAnimation.at(Double.NaN,.5f,.5f,1,0).strength()==0,"invalid age active");System.out.println("PASS bounded hit animation, fade/growth/release, expiry, reset and invalid input");
     }
+    static void projection(){
+        var input=List.of(HitDisplacementAnimation.at(.24,.25f,.75f,1.2f,0xAA66FF));
+        // FOV scaling plus clip-space offset stand in for an actual bob/hurt-adjusted frame.
+        float[] adjusted={1.25f,0,0,0,0,.8f,0,0,0,0,1,0,.24f,-.16f,0,1};
+        Frame f=input.getFirst();
+        var shifted=List.of(new Frame(.3075f,.62f,f.radius(),f.strength(),f.color(),f.release()));
+        float[] shown=render(input,adjusted,0);validateLocalized(shifted,shown);
+        check(!Arrays.equals(scene,shown),"current projection was ignored");
+        // A perspective divide must happen on GPU, using the same projection as world geometry.
+        float[] perspective={1.6f,0,0,0,0,1.2f,0,0,0,0,-1.002f,-1,0,0,-.2002f,0};
+        var projected=List.of(new Frame(.3f,.65f,f.radius(),f.strength(),f.color(),f.release()));
+        validateLocalized(projected,render(input,perspective,-2));
+        check(Arrays.equals(scene,render(input,perspective,2)),"behind-camera hit rendered or moved to center");
+        check(Arrays.equals(scene,render(input,perspective,-.05f)),"near-clipped hit rendered");
+        System.out.println("PASS actual Projection UBO: FOV/translation, perspective divide, behind-camera and near-plane rejection");
+    }
     public static void main(String[] args)throws Exception{Path shaders=Path.of(args[0]),out=Path.of(args[2]);Files.createDirectories(out);animation();check(glfwInit(),"GLFW unavailable");glfwWindowHint(GLFW_VISIBLE,GLFW_FALSE);glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR,3);glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR,3);glfwWindowHint(GLFW_OPENGL_PROFILE,GLFW_OPENGL_CORE_PROFILE);long window=glfwCreateWindow(64,64,"Hit Displacement GPU QA",0,0);check(window!=0,"GL context missing");glfwMakeContextCurrent(window);GL.createCapabilities();glBindVertexArray(glGenVertexArrays());
         try(ZipFile game=new ZipFile(args[1])){int v=compile(GL_VERTEX_SHADER,imports(Files.readString(shaders.resolve("hit_displacement.vsh")),game)),f=compile(GL_FRAGMENT_SHADER,imports(Files.readString(shaders.resolve("hit_displacement.fsh")),game));program=glCreateProgram();glAttachShader(program,v);glAttachShader(program,f);glLinkProgram(program);check(glGetProgrami(program,GL_LINK_STATUS)!=0,glGetProgramInfoLog(program));glDeleteShader(v);glDeleteShader(f);}
         glUseProgram(program);glUniform1i(glGetUniformLocation(program,"SceneColor"),0);int block=glGetUniformBlockIndex(program,"DynamicTransforms");check(block>=0,"DynamicTransforms missing");glUniformBlockBinding(program,block,0);ubo=glGenBuffers();glBindBuffer(GL_UNIFORM_BUFFER,ubo);glBufferData(GL_UNIFORM_BUFFER,160,GL_DYNAMIC_DRAW);glBindBufferBase(GL_UNIFORM_BUFFER,0,ubo);
+        int projectionBlock=glGetUniformBlockIndex(program,"Projection");check(projectionBlock>=0,"Projection block missing");glUniformBlockBinding(program,projectionBlock,1);projectionUbo=glGenBuffers();glBindBuffer(GL_UNIFORM_BUFFER,projectionUbo);glBufferData(GL_UNIFORM_BUFFER,64,GL_DYNAMIC_DRAW);glBindBufferBase(GL_UNIFORM_BUFFER,1,projectionUbo);
         allocate(480,320);check(Arrays.equals(scene,render(List.of())),"empty frame not identity");check(Arrays.equals(scene,render(List.of(HitDisplacementAnimation.at(0,.5f,.5f,1,0x33BBFF)))),"zero-age pulse not identity");check(Arrays.equals(scene,render(List.of(HitDisplacementAnimation.at(.68,.5f,.5f,1,0x33BBFF)))),"expired pulse not identity");
         var peak=List.of(HitDisplacementAnimation.at(.24,.5f,.5f,1.4f,0x33BBFF));float[] shown=render(peak);validateLocalized(peak,shown);save(shown,out.resolve("hit-displacement.png"));
+        projection();
         for(int[] size:new int[][]{{640,180},{180,640},{384,256}}){allocate(size[0],size[1]);var active=List.of(HitDisplacementAnimation.at(.19,.5f,.5f,1.2f,0x33BBFF));validateLocalized(active,render(active));}
         for(double age:new double[]{.035,.14,.3,.45,.56,.65}){var active=List.of(HitDisplacementAnimation.at(age,.04f,.96f,2.5f,0xFE9900));float[] shownEdge=render(active);if(age>.1&&age<.56)validateLocalized(active,shownEdge);}
         var many=List.of(HitDisplacementAnimation.at(.13,.5f,.5f,2.5f,0xFF66EE),HitDisplacementAnimation.at(.27,.5f,.5f,2.5f,0x22CCFF),HitDisplacementAnimation.at(.41,.5f,.5f,2.5f,0xFFFFAA),HitDisplacementAnimation.at(.57,.5f,.5f,2.5f,0x99FF66));validateLocalized(many,render(many));

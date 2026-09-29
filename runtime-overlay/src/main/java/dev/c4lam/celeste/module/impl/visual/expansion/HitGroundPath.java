@@ -8,10 +8,11 @@ import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 
-/** Flat one-block seam paths. Four shared exits fan into nine distinct outward routes. */
+/** Nine flat seam paths cover eight compass headings, including small optional backward detours. */
 public final class HitGroundPath {
-    public static final int BRANCHES = 9, STEPS = 7, MAX_SURFACE_SAMPLES = 256;
+    public static final int BRANCHES = 9, STEPS = 10, MAX_SURFACE_SAMPLES = 384;
     private static final int[] DX={1,0,-1,0}, DZ={0,1,0,-1};
+    private static final int[] HX={1,1,0,-1,-1,-1,0,1}, HZ={0,1,1,1,0,-1,-1,-1};
     public record Segment(HitEffectsState.Point from, HitEffectsState.Point to, double start, double end) { }
     public record Branch(List<Segment> segments) { public Branch { segments=List.copyOf(segments); } }
     public interface Surface {
@@ -29,41 +30,138 @@ public final class HitGroundPath {
         if(!Double.isFinite(top)) return List.of();
         budget.top=top;
         Random random=new Random(seed);
-        int offset=random.nextInt(4);
-        int[][] second=new int[4][3];
-        for(int direction=0;direction<4;direction++) {
-            second[direction]=new int[]{direction,(direction+1)%4,(direction+3)%4};
-            for(int i=2;i>0;i--){int j=random.nextInt(i+1),swap=second[direction][i];second[direction][i]=second[direction][j];second[direction][j]=swap;}
-        }
+        int offset=random.nextInt(8),extra=random.nextInt(8);
         List<Branch> branches=new ArrayList<>(BRANCHES);
-        Set<List<Segment>> unique=new HashSet<>();
+        Set<List<Edge>> unique=new HashSet<>();
         Set<Edge> occupied=new HashSet<>();
         for(int branch=0;branch<BRANCHES;branch++) {
+            int heading=branch<8?(offset+branch)%8:extra;
+            List<Edge> planned=plan(heading,random,occupied,unique);
+            unique.add(planned);
             List<Segment> route=new ArrayList<>(STEPS);
-            int px=0,pz=0,exit=(offset+branch%4)%4;
-            for(int step=0;step<STEPS;step++) {
-                int preferred=step==0?exit:step==1?second[exit][branch/4]:random.nextInt(4);
-                Edge chosen=null;
-                // Prefer a new edge after the deliberately shared initial prefix.
-                for(int pass=0;pass<2 && chosen==null;pass++) for(int attempt=0;attempt<4;attempt++) {
-                    int direction=(preferred+attempt)%4;
-                    if(step==0 && direction!=exit) continue;
-                    int nx=px+DX[direction],nz=pz+DZ[direction];
-                    if(nx*nx+nz*nz<=px*px+pz*pz) continue;
-                    Edge edge=new Edge(px,pz,nx,nz);
-                    if(pass==0 && step>1 && occupied.contains(edge)) continue;
-                    if(!budget.supported(edge)) continue;
-                    chosen=edge;break;
-                }
-                if(chosen==null) break;
-                route.add(new Segment(new HitEffectsState.Point(originX+px,top+.018,originZ+pz),
-                    new HitEffectsState.Point(originX+chosen.nx,top+.018,originZ+chosen.nz),step,step+1));
-                occupied.add(chosen);px=chosen.nx;pz=chosen.nz;
+            for(Edge edge:planned) {
+                // Plan in integer space first. Collision checks only visit the chosen ten edges.
+                if(!budget.supported(edge))break;
+                int step=route.size();
+                route.add(new Segment(new HitEffectsState.Point(originX+edge.x,top+.018,originZ+edge.z),
+                    new HitEffectsState.Point(originX+edge.nx,top+.018,originZ+edge.nz),step,step+1));
+                occupied.add(edge);
             }
-            if(!route.isEmpty() && unique.add(List.copyOf(route)))branches.add(new Branch(route));
+            if(!route.isEmpty())branches.add(new Branch(route));
         }
         return List.copyOf(branches);
     }
+
+    private static List<Edge> plan(int heading,Random random,Set<Edge> occupied,Set<List<Edge>> used) {
+        boolean hiccup=random.nextDouble()<.28,crossing=hiccup&&random.nextDouble()<.45;
+        List<Edge> best=null;double bestScore=Double.POSITIVE_INFINITY;
+        // Three distinct guaranteed routes provide a finite fallback, even for the repeated ninth heading.
+        for(int attempt=0;attempt<43;attempt++) {
+            List<Edge> candidate=attempt<3?fallback(heading,attempt)
+                :crossing&&attempt<7?crossing(heading,attempt-3):wander(heading,random,hiccup);
+            if(candidate.isEmpty()||!bends(candidate,heading)||used.contains(candidate))continue;
+            double score=attempt<3?.7:0;boolean backwards=false,selfCrossing=false;Set<Long> nodes=new HashSet<>();nodes.add(node(0,0));
+            for(int i=0;i<candidate.size();i++) {
+                Edge e=candidate.get(i);
+                backwards|=(e.nx-e.x)*HX[heading]+(e.nz-e.z)*HZ[heading]<0;
+                selfCrossing|=!nodes.add(node(e.nx,e.nz));
+                if(i>1&&(occupied.contains(e)||occupied.contains(new Edge(e.nx,e.nz,e.x,e.z))))score+=.6;
+            }
+            if(hiccup&&!backwards)score+=3;
+            if(crossing&&!selfCrossing)score+=8;
+            score+=random.nextDouble()*.5;
+            if(score<bestScore){best=candidate;bestScore=score;}
+        }
+        return best==null?List.of():best;
+    }
+
+    private static List<Edge> crossing(int heading,int variant) {
+        int forward=heading/2,side=(forward+1)%4;
+        if((heading&1)==0&&variant%2==1)side=(forward+3)%4;
+        if((heading&1)!=0&&variant%2==1){int swap=forward;forward=side;side=swap;}
+        int[] directions=(heading&1)==0
+            ?new int[]{forward,forward,side,(forward+2)%4,(side+2)%4,(side+2)%4,forward,forward,side,forward}
+            :new int[]{forward,side,side,(forward+2)%4,(side+2)%4,forward,forward,side,forward,side};
+        // Shift the crossing one block farther out without changing its right-angle pass-through.
+        if(variant>=2){System.arraycopy(directions,0,directions,1,STEPS-1);directions[0]=forward;}
+        List<Edge> result=new ArrayList<>(STEPS);int x=0,z=0;
+        for(int direction:directions){int nx=x+DX[direction],nz=z+DZ[direction];result.add(new Edge(x,z,nx,nz));x=nx;z=nz;}
+        return List.copyOf(result);
+    }
+
+    private static List<Edge> fallback(int heading,int variant) {
+        int forward=heading/2,side=(forward+1)%4;
+        if((heading&1)==0&&variant==1)side=(forward+3)%4;
+        int[] pattern=(heading&1)==0?switch(variant) {
+            case 0->new int[]{0,0,1,0,0,-1,0,1,0,0};
+            case 1->new int[]{0,1,1,0,0,-1,0,0,-1,0};
+            default->new int[]{0,1,0,0,-1,0,0,1,0,0};
+        }:switch(variant) {
+            case 0->new int[]{0,0,1,0,1,1,0,1,0,1};
+            case 1->new int[]{0,1,1,0,1,0,0,1,1,0};
+            default->new int[]{0,0,1,1,1,0,1,0,0,1};
+        };
+        List<Edge> result=new ArrayList<>(STEPS);int x=0,z=0;
+        for(int step=0;step<STEPS;step++) {
+            int direction=pattern[step]==0?forward:pattern[step]==1?side:(side+2)%4;
+            int nx=x+DX[direction],nz=z+DZ[direction];result.add(new Edge(x,z,nx,nz));x=nx;z=nz;
+        }
+        return List.copyOf(result);
+    }
+
+    private static List<Edge> wander(int heading,Random random,boolean hiccup) {
+        List<Edge> result=new ArrayList<>(STEPS);Set<Edge> edges=new HashSet<>();Map<Long,Integer> joints=new HashMap<>();
+        int x=0,z=0,backAt=3+random.nextInt(4),backwards=0,continueAcross=-1,previous=-1,run=0;
+        for(int step=0;step<STEPS;step++) {
+            Edge chosen=null;int chosenDirection=-1;double best=-Double.MAX_VALUE;
+            for(int direction=0;direction<4;direction++) {
+                int nx=x+DX[direction],nz=z+DZ[direction];
+                int forward=DX[direction]*HX[heading]+DZ[direction]*HZ[heading];
+                if(continueAcross>=0&&direction!=continueAcross)continue;
+                if(direction==previous&&run>=3)continue;
+                if(edges.contains(new Edge(x,z,nx,nz))||edges.contains(new Edge(nx,nz,x,z)))continue;
+                if(nx*HX[heading]+nz*HZ[heading]<1)continue;
+                if(forward<0&&(!hiccup||backwards>=2||step<backAt||step>backAt+1))continue;
+                int joint=joints.getOrDefault(node(nx,nz),0);
+                // Revisit only a straight interior joint, from its perpendicular axis, with room to exit.
+                if(joint!=0&&(step==STEPS-1||joint!=((direction&1)==0?10:5)))continue;
+                if(step==STEPS-1&&!insideHeading(nx,nz,heading))continue;
+                double score=forward-Math.abs(nx*HZ[heading]-nz*HX[heading])*.20+random.nextDouble()*4.8;
+                if(hiccup&&step==backAt&&forward<0)score+=9;
+                if(hiccup&&step==backAt-1&&(heading&1)==0&&forward==0)score+=6;
+                if(score>best){best=score;chosen=new Edge(x,z,nx,nz);chosenDirection=direction;}
+            }
+            if(chosen==null)return List.of();
+            continueAcross=joints.containsKey(node(chosen.nx,chosen.nz))?chosenDirection:-1;
+            joints.merge(node(x,z),1<<chosenDirection,(a,b)->a|b);
+            joints.merge(node(chosen.nx,chosen.nz),1<<((chosenDirection+2)%4),(a,b)->a|b);
+            if((chosen.nx-x)*HX[heading]+(chosen.nz-z)*HZ[heading]<0)backwards++;
+            run=chosenDirection==previous?run+1:1;previous=chosenDirection;
+            result.add(chosen);edges.add(chosen);x=chosen.nx;z=chosen.nz;
+        }
+        return insideHeading(x,z,heading)?List.copyOf(result):List.of();
+    }
+
+    private static boolean bends(List<Edge> edges,int heading) {
+        int previousX=0,previousZ=0,run=0,longest=0,turns=0,left=0,right=0;
+        for(Edge edge:edges) {
+            int dx=edge.nx-edge.x,dz=edge.nz-edge.z;
+            if(dx==previousX&&dz==previousZ)run++;
+            else {if(run>0)turns++;run=1;}
+            longest=Math.max(longest,run);previousX=dx;previousZ=dz;
+            int side=dx*HZ[heading]-dz*HX[heading];if(side>0)left++;else if(side<0)right++;
+        }
+        if(longest>3||turns<4)return false;
+        // Cardinal routes need several real lateral moves, including a return toward their heading.
+        // Diagonal routes mix short staircase runs instead of a perfectly repeating zigzag.
+        return (heading&1)==0?left>0&&right>0&&left+right>=3:longest>=2;
+    }
+
+    private static boolean insideHeading(int x,int z,int heading) {
+        int forward=x*HX[heading]+z*HZ[heading],side=Math.abs(x*HZ[heading]-z*HX[heading]);
+        return forward>=((heading&1)==0?4:6)&&side<=forward*.414213562373095;
+    }
+    private static long node(int x,int z) {return ((long)x<<32)^(z&0xffffffffL);}
 
     private static final class Budget {
         private final Surface surface;

@@ -10,7 +10,9 @@ public final class AmbientEffectsSettings {
     public static final List<String> STYLES = List.of("Fireflies", "Crystal Motes", "Snowfall",
         "Falling Leaves", "Tesseracts", "Tron Trails");
     public static final String PREFIX = "module.ambient_effects.setting.";
-    public record Layer(String style, double density, double size) { }
+    public record Layer(String style, double density, double size, int color) {
+        public Layer(String style, double density, double size) { this(style, density, size, defaultColor(style)); }
+    }
     private AmbientEffectsSettings() { }
 
     public static GuiSetting[] settings(Runnable editor) {
@@ -25,6 +27,7 @@ public final class AmbientEffectsSettings {
             result.add(new GuiSetting.Toggle(style + " Enabled", "Active effect", style.equals("Fireflies")).hidden());
             result.add(new GuiSetting.Slider(style + " Density", "Amount", .6, 0, 1, .05).hidden());
             result.add(new GuiSetting.Slider(style + " Size", "Size", 1, .5, 2, .1).hidden());
+            result.add(new GuiSetting.ColorPick(style + " Color", "Effect color", defaultColor(style)).visibleWhen(() -> false));
         }
         result.add(new GuiSetting.Toggle("Sky Lines", "Slow luminous arcs above the horizon", true));
         result.add(new GuiSetting.Mode("Sky Pattern", "Sky line design",
@@ -37,7 +40,7 @@ public final class AmbientEffectsSettings {
     public static List<Layer> layers(GuiModule module) {
         List<Layer> result = new ArrayList<>();
         if (module != null) for (String style : STYLES) if (enabled(module, style))
-            result.add(new Layer(style, slider(module, style, "Density").value(), slider(module, style, "Size").value()));
+            result.add(new Layer(style, slider(module, style, "Density").value(), slider(module, style, "Size").value(), color(module, style).rgb()));
         return List.copyOf(result);
     }
 
@@ -60,6 +63,28 @@ public final class AmbientEffectsSettings {
         GuiSetting setting = find(module, style + " " + control);
         if (setting instanceof GuiSetting.Slider slider) return slider;
         throw new IllegalArgumentException("Missing ambient control: " + style + " " + control);
+    }
+
+    public static GuiSetting.ColorPick color(GuiModule module, String style) {
+        if (STYLES.contains(style) && find(module, style + " Color") instanceof GuiSetting.ColorPick pick) return pick;
+        throw new IllegalArgumentException("Missing ambient color: " + style);
+    }
+
+    public static int defaultColor(String style) {
+        if (style == null) return 0xA6FFE1;
+        return switch (style) {
+            case "Crystal Motes" -> 0x6BDEFF;
+            case "Snowfall" -> 0xE3F5FF;
+            case "Falling Leaves" -> 0xD98739;
+            case "Tesseracts" -> 0x48ACFF;
+            case "Tron Trails" -> 0x57DDEB;
+            default -> 0xA6FFE1;
+        };
+    }
+
+    public static boolean individualColors(GuiModule atmosphere) {
+        if (atmosphere == null || !atmosphere.enabled()) return true;
+        return find(atmosphere, "Advanced") instanceof GuiSetting.Toggle toggle && toggle.value();
     }
 
     private static GuiSetting find(GuiModule module, String label) {
@@ -88,6 +113,8 @@ public final class AmbientEffectsSettings {
             if (!modern && !selected) { density = .6; size = 1; }
             values.setProperty(PREFIX + name + "_density", Double.toString(Math.clamp(density, 0, 1)));
             values.setProperty(PREFIX + name + "_size", Double.toString(Math.clamp(size, .5, 2)));
+            Integer rgb = GuiSetting.ColorPick.parse(values.getProperty(PREFIX + name + "_color"));
+            values.setProperty(PREFIX + name + "_color", String.format(Locale.ROOT, "#%06X", rgb == null ? defaultColor(style) : rgb));
         }
         values.setProperty(PREFIX + "layers_version", "1");
         return values;

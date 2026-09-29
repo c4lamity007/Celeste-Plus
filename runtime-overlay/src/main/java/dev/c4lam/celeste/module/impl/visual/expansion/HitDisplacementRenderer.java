@@ -11,6 +11,7 @@ import com.mojang.blaze3d.vertex.VertexFormat;
 import dev.c4lam.celeste.auth.AuthBootstrap;
 import dev.c4lam.celeste.beta.lifecycle.BetaSubscriptions;
 import dev.c4lam.celeste.compat.RenderCompatibility;
+import dev.c4lam.celeste.rotation.RotationManager;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderContext;
@@ -20,6 +21,9 @@ import net.fabricmc.fabric.api.resource.v1.ResourceLoader;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gl.UniformType;
 import net.minecraft.client.render.VertexFormats;
+import net.minecraft.entity.LivingEntity;
+import net.minecraft.util.hit.EntityHitResult;
+import net.minecraft.util.math.Vec3d;
 import net.minecraft.resource.ResourceType;
 import net.minecraft.resource.SynchronousResourceReloader;
 import net.minecraft.util.Identifier;
@@ -37,11 +41,12 @@ public final class HitDisplacementRenderer {
     private static final RenderPipeline PIPELINE = dev.c4lam.celeste.compat.BetaRenderPipelines.register(
         RenderPipeline.builder().withLocation(id("pipeline/hit_displacement"))
             .withVertexShader(id("core/hit_displacement")).withFragmentShader(id("core/hit_displacement"))
-            .withUniform("DynamicTransforms", UniformType.UNIFORM_BUFFER).withSampler("SceneColor")
+            .withUniform("DynamicTransforms", UniformType.UNIFORM_BUFFER)
+            .withUniform("Projection", UniformType.UNIFORM_BUFFER).withSampler("SceneColor")
             .withVertexFormat(VertexFormats.EMPTY, VertexFormat.DrawMode.TRIANGLES)
             .withoutBlend().withCull(false).withDepthTestFunction(DepthTestFunction.NO_DEPTH_TEST)
             .withDepthWrite(false).withColorWrite(true, false).build());
-    private static final HitDisplacementAnimation ANIMATION = new HitDisplacementAnimation();
+    private static final HitDisplacementWorld ANIMATION = new HitDisplacementWorld();
     private static final Identifier PHASE = id("hit_displacement/after_world");
     private static GpuTexture scene;
     private static GpuTextureView sceneView;
@@ -71,12 +76,50 @@ public final class HitDisplacementRenderer {
     }
 
     public static synchronized void pulse(MinecraftClient client, int rgb, double size) {
+        if (client != null && client.crosshairTarget instanceof EntityHitResult hit
+            && hit.getEntity() instanceof LivingEntity target) pulse(client, target, rgb, size);
+    }
+
+    public static synchronized void pulse(MinecraftClient client, LivingEntity target, int rgb, double size) {
+        if (!allowed(client) || target == null || target.getEntityWorld() != client.world
+            || !target.isAlive() || target.isRemoved()) return;
+        Vec3d eye = client.player.getEyePos();
+        RotationManager rotation = RotationManager.getInstance();
+        Vec3d direction = Vec3d.fromPolar(rotation.serverPitchOr(client.player.getPitch()),
+            rotation.serverYawOr(client.player.getYaw()));
+        var box = target.getBoundingBox();
+        var point = HitDisplacementWorld.impact(point(eye), point(direction),
+            new HitDisplacementWorld.Point(box.minX, box.minY, box.minZ),
+            new HitDisplacementWorld.Point(box.maxX, box.maxY, box.maxZ));
+        if (point == null) return;
+        enqueue(client, new HitDisplacementWorld.Anchor(target.getId(),
+            point.subtract(point(target.getEntityPos())), point), rgb, size);
+    }
+
+    private static void enqueue(MinecraftClient client, HitDisplacementWorld.Anchor anchor, int rgb, double size) {
         if (!allowed(client)) return;
         if (world != client.world || player != client.player) reset();
         world = client.world;
         player = client.player;
-        // Minecraft's locked gameplay cursor and crosshair share the screen center.
-        ANIMATION.pulse(System.nanoTime(), .5, .5, rgb, size);
+        ANIMATION.pulse(System.nanoTime(), anchor, rgb, size);
+    }
+
+    private static HitDisplacementWorld.Point point(Vec3d point) {
+        return new HitDisplacementWorld.Point(point.x, point.y, point.z);
+    }
+
+    private static HitDisplacementWorld.Point viewPosition(MinecraftClient client, WorldRenderContext context,
+                                                           HitDisplacementWorld.Anchor anchor) {
+        var camera = client.gameRenderer.getCamera();
+        if (camera == null || !camera.isReady()) return null;
+        var at = anchor.fallback();
+        var target = client.world.getEntityById(anchor.entityId());
+        if (target != null && !target.isRemoved())
+            at = point(target.getLerpedPos(camera.getLastTickProgress())).add(anchor.offset());
+        Vec3d eye = context.worldState().cameraRenderState.pos;
+        Vector4f view = context.matrices().peek().getPositionMatrix().transform(new Vector4f(
+            (float) (at.x() - eye.x), (float) (at.y() - eye.y), (float) (at.z() - eye.z), 1));
+        return new HitDisplacementWorld.Point(view.x, view.y, view.z);
     }
 
     private static boolean allowed(MinecraftClient client) {
@@ -94,7 +137,11 @@ public final class HitDisplacementRenderer {
             if (world != null || ANIMATION.size() > 0 || scene != null) reset();
             return;
         }
-        List<HitDisplacementAnimation.Frame> pulses = ANIMATION.sample(System.nanoTime());
+        if (context == null || context.worldState() == null || context.worldState().cameraRenderState == null
+            || context.worldState().cameraRenderState.pos == null || context.matrices() == null
+            || RenderSystem.getProjectionMatrixBuffer() == null) return;
+        List<HitDisplacementWorld.WorldFrame> pulses = ANIMATION.sampleWorld(System.nanoTime(),
+            anchor -> viewPosition(client, context, anchor));
         if (pulses.isEmpty()) {
             if (scene != null) releaseResources();
             return;
@@ -116,18 +163,22 @@ public final class HitDisplacementRenderer {
             encoder.copyTextureToTexture(target.texture(), scene, 0, 0, 0, 0, 0,
                 target.getWidth(0), target.getHeight(0));
             Matrix4f lenses = new Matrix4f().zero(), colors = new Matrix4f().zero();
+            Vector4f strengths = new Vector4f();
             for (int i = 0; i < pulses.size(); i++) {
                 var pulse = pulses.get(i);
-                lenses.setColumn(i, new Vector4f(pulse.x(), pulse.y(), pulse.radius(), pulse.strength()));
+                var point = pulse.position();
+                lenses.setColumn(i, new Vector4f((float) point.x(), (float) point.y(), (float) point.z(), pulse.radius()));
+                strengths.setComponent(i, pulse.strength());
                 int rgb = pulse.color();
                 colors.setColumn(i, new Vector4f((rgb >> 16 & 255) / 255F, (rgb >> 8 & 255) / 255F,
                     (rgb & 255) / 255F, pulse.release()));
             }
-            var transforms = RenderSystem.getDynamicUniforms().write(lenses, new Vector4f(1), new Vector3f(), colors);
+            var transforms = RenderSystem.getDynamicUniforms().write(lenses, strengths, new Vector3f(), colors);
             // No depth attachment, depth writes or destination-alpha writes.
             try (RenderPass pass = encoder.createRenderPass(() -> "Celeste hit displacement", target, OptionalInt.empty())) {
                 pass.setPipeline(PIPELINE);
                 pass.setUniform("DynamicTransforms", transforms);
+                pass.setUniform("Projection", RenderSystem.getProjectionMatrixBuffer());
                 pass.bindTexture("SceneColor", sceneView, RenderSystem.getSamplerCache().get(FilterMode.LINEAR));
                 pass.draw(0, 3);
             }

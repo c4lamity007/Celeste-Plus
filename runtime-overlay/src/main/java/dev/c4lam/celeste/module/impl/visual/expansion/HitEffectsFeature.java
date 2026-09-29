@@ -76,7 +76,7 @@ public final class HitEffectsFeature implements ModuleFeature {
             int end=VisualAtmosphere.tint(HitEffectsState.gradient(settings.color,0xFFFFFF,.22),0,.25);
             state.ground(HitGroundPath.build(position.x,position.y,position.z,seed,surface),now,settings.size,start,end);
         }
-        if(settings.displacement) HitDisplacementRenderer.pulse(client,color,settings.size);
+        if(settings.displacement) HitDisplacementRenderer.pulse(client,target,color,settings.size);
     }
 
     synchronized HitEffectsRenderer.Frame extract(WorldExtractionContext context) {
@@ -123,9 +123,9 @@ public final class HitEffectsFeature implements ModuleFeature {
         try { HitDisplacementRenderer.reset(); } catch(RuntimeException | LinkageError ignored) { }
     }
 
-    /** Cached read-only collision probes: at most 384 loaded block states per accepted hit. */
+    /** Cached read-only collision probes: at most 640 loaded block states per accepted hit. */
     private static final class Surface implements HitGroundPath.Surface {
-        private static final int MAX_BLOCK_READS=384;
+        private static final int MAX_BLOCK_READS=640;
         private final ClientWorld world;
         private final ShapeContext shapeContext;
         private final Map<BlockPos,List<Box>> cells=new HashMap<>();

@@ -47,6 +47,17 @@ public final class AmbientEffectsEditorState {
         return Result.CLOSE;
     }
     public Result click(double x, double y) {
+        return click(x, y, 0);
+    }
+    public Result click(double x, double y, int button) {
+        if (button == 1) {
+            if (adding) return Result.NONE;
+            List<String> rows = active();
+            for (int i = 0; i < rows.size(); i++) if (AmbientEffectsEditorLayout.row(i).contains(x, y))
+                return remove(rows.get(i)) ? Result.CHANGED : Result.NONE;
+            return Result.NONE;
+        }
+        if (button != 0) return Result.NONE;
         dragging = null; refresh();
         if (AmbientEffectsEditorLayout.DONE.contains(x, y)) return Result.CLOSE;
         if (AmbientEffectsEditorLayout.ENABLED.contains(x, y)) { module.toggle(); return Result.CHANGED; }

@@ -81,7 +81,7 @@ public final class AmbientTesseractCheck {
         }
         spaceAndBounds();
         capAndCamera();
-        System.out.println("PASS Ambient tesseracts: "+checks+" checks; "+births+" invisible respawns; random lives/3D drift, rotation, reset, air clearance, 22-block sphere, 192 cap, faces and 32 corner-linked beams");
+        System.out.println("PASS Ambient tesseracts: "+checks+" checks; "+births+" invisible respawns; random lives/3D drift, rotation, reset, air clearance, 22-block sphere, 576 cap, faces and 32 corner-linked beams");
     }
     static void spaceAndBounds(){
         double radius=.14,bound=AmbientTesseractField.bounds(radius);
@@ -105,7 +105,7 @@ public final class AmbientTesseractCheck {
         double ex=2.5,ey=3,ez=2.5;var candidates=AmbientTesseractField.candidates(ex,ey,ez,12,.6,71);List<AmbientField.Mote> field=new ArrayList<>();
         for(int rank=0;rank<candidates.size();rank++)if(opacity(candidates.get(rank),rank,ex,ey,ez)>=.01)field.add(candidates.get(rank).mote());
         require(field.size()>64,"default population not increased");
-        require(candidates.size()<=192,"potential population exceeds cap");long above=field.stream().filter(m->m.y()-ey>10).count(),below=field.stream().filter(m->m.y()-ey< -10).count();
+        require(candidates.size()<=AmbientTesseractField.MAX_PARTICLES,"potential population exceeds cap");long above=field.stream().filter(m->m.y()-ey>10).count(),below=field.stream().filter(m->m.y()-ey< -10).count();
         require(above>8&&below>8,"cap/visibility loses above or below population");
         for(double axis:new double[]{-20,-10,10,20})require(AmbientTesseractField.visibility(0,axis,0)==AmbientTesseractField.visibility(axis,0,0)&&AmbientTesseractField.visibility(0,axis,0)>0,"vertical/horizontal range differs");
         require(AmbientTesseractField.visibility(0,22,0)==0&&AmbientTesseractField.visibility(Double.NaN,0,0)==0,"far/nonfinite visibility");
@@ -115,10 +115,10 @@ public final class AmbientTesseractCheck {
     }
     static double opacity(AmbientTesseractField.Candidate c,int rank,double ex,double ey,double ez){var m=c.mote();return m.opacity()*AmbientTesseractField.capFade(rank)*AmbientTesseractField.visibility(m.x()-ex,m.y()-ey,m.z()-ez);}
     static Life life(AmbientTesseractField.Candidate c){return new Life(c.cellX(),c.cellY(),c.cellZ(),c.mote().size());}
-    static Map<Life,Double> selected(double seconds){var list=AmbientTesseractField.candidates(2.5,3,2.5,seconds,1,71);Map<Life,Double> result=new HashMap<>();require(list.size()<=192,"potential cap overflow");for(int rank=0;rank<list.size();rank++)result.put(life(list.get(rank)),opacity(list.get(rank),rank,2.5,3,2.5));return result;}
+    static Map<Life,Double> selected(double seconds){var list=AmbientTesseractField.candidates(2.5,3,2.5,seconds,1,71);Map<Life,Double> result=new HashMap<>();require(list.size()<=AmbientTesseractField.MAX_PARTICLES,"potential cap overflow");for(int rank=0;rank<list.size();rank++)result.put(life(list.get(rank)),opacity(list.get(rank),rank,2.5,3,2.5));return result;}
     static void capAndCamera(){
         var potential=AmbientTesseractField.candidates(2.5,3,2.5,12,1,71);
-        require(potential.size()==192,"cap fixture not saturated");
+        require(potential.size()==AmbientTesseractField.MAX_PARTICLES,"cap fixture not saturated");
         require(potential.stream().anyMatch(c->c.mote().opacity()==0),"invisible births do not reserve their slots");
         Map<Life,Double> previousView=new HashMap<>();int intersections=0;
         for(int angle=0;angle<=360;angle+=5){
@@ -137,7 +137,7 @@ public final class AmbientTesseractCheck {
             previous=current;
         }
         require(admitted>5&&retired>5,"birth/range cap transitions not exercised");
-        require(AmbientTesseractField.capFade(191)==0&&AmbientTesseractField.capFade(159)==1,"cap edge lacks smooth fade");
+        require(AmbientTesseractField.capFade(575)==0&&AmbientTesseractField.capFade(479)==1,"cap edge lacks smooth fade");
         System.out.println("Cap/camera: "+intersections+" unchanged overlapping view samples; "+admitted+" admitted / "+retired+" retired without full-opacity replacement");
     }
 }

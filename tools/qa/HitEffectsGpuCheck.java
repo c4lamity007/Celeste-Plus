@@ -10,6 +10,11 @@ import java.util.zip.ZipFile;
 import javax.imageio.ImageIO;
 import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.GL;
+import dev.c4lam.celeste.module.impl.visual.expansion.HitEffectsState;
+import dev.c4lam.celeste.module.impl.visual.expansion.HitGroundPath;
+import dev.c4lam.celeste.module.impl.visual.expansion.HitGroundGeometry;
+import java.util.List;
+import java.util.ArrayList;
 import static org.lwjgl.glfw.GLFW.*;
 import static org.lwjgl.opengl.GL33C.*;
 
@@ -46,6 +51,58 @@ public final class HitEffectsGpuCheck {
         return result;
     }
     static double energy(float[] pixels){double sum=0;for(int i=0;i<W*H;i++)sum+=pixels[i*4+2]-.05;return sum;}
+    static double rgbEnergy(float[] pixels){double sum=0;for(int i=0;i<W*H;i++)sum+=pixels[i*4]+pixels[i*4+1]+pixels[i*4+2]-.11;return sum;}
+    static float[] ground(List<HitEffectsState.Beam> beams,float scale,float depth) {
+        ArrayList<float[]> quads=new ArrayList<>();
+        HitGroundGeometry.emit(beams,(x,y,z,u,v,a,c)->quads.add(new float[]{(float)x*scale-.8f,(float)z*1.6f,-.4f,u,v,(c>>16&255)/255f,(c>>8&255)/255f,(c&255)/255f,(float)a}));
+        float[] vertices=new float[quads.size()/4*6*9];int cursor=0;
+        for(int base=0;base<quads.size();base+=4)for(int index:new int[]{0,1,2,0,2,3}) {
+            System.arraycopy(quads.get(base+index),0,vertices,cursor,9);cursor+=9;
+        }
+        glColorMask(true,true,true,true);glDepthMask(true);glClearColor(.025f,.035f,.05f,.375f);glClearDepth(depth);glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
+        glBindBuffer(GL_ARRAY_BUFFER,vbo);glBufferData(GL_ARRAY_BUFFER,vertices,GL_DYNAMIC_DRAW);
+        glEnable(GL_BLEND);glBlendFuncSeparate(GL_SRC_ALPHA,GL_ONE,GL_ZERO,GL_ONE);glColorMask(true,true,true,false);
+        glEnable(GL_DEPTH_TEST);glDepthFunc(GL_LEQUAL);glDepthMask(false);glDrawArrays(GL_TRIANGLES,0,vertices.length/9);
+        float[] result=new float[W*H*4];glReadPixels(0,0,W,H,GL_RGBA,GL_FLOAT,result);
+        float[] depths=new float[W*H];glReadPixels(0,0,W,H,GL_DEPTH_COMPONENT,GL_FLOAT,depths);
+        for(int i=0;i<W*H;i++) {check(result[i*4+3]==.375f,"ground destination alpha");check(Math.abs(depths[i]-depth)<1e-6,"ground keeps depth");for(int c=0;c<3;c++)check(Float.isFinite(result[i*4+c]),"ground finite");}
+        return result;
+    }
+    static double column(float[] image,int x) {double value=0;for(int y=0;y<H;y++)value+=image[(x+y*W)*4+2]-.05;return value;}
+    static double differenceCenter(float[] bright,float[] plain) {
+        double sum=0,weight=0;for(int y=0;y<H;y++)for(int x=0;x<W;x++) {
+            double d=Math.max(0,bright[(x+y*W)*4+2]-plain[(x+y*W)*4+2]);sum+=x*d;weight+=d;
+        }check(weight>10,"highlight changes actual shader pixels");return sum/weight;
+    }
+    static void groundChecks(Path out)throws Exception {
+        fog(1000,2000);
+        var start=new HitEffectsState.Point(0,0,0);var end=new HitEffectsState.Point(1,0,0);
+        var single=List.of(new HitEffectsState.Beam(start,end,.12,1,0x2288BB,0x55BBEE));
+        float[] image=ground(single,1.6f,1);double full=energy(image);check(full>50,"actual ground geometry visible");
+        check(column(image,21)<column(image,35)*.4,"start cap tapers rather than flat rectangle");
+        check(column(image,170)<column(image,155)*.4,"end cap tapers rather than flat rectangle");
+        check(Math.abs(column(image,17))<.001&&Math.abs(column(image,175))<.001,"no protruding end fragments");
+        check(Math.abs(energy(ground(single,1.6f,.1f)))<.001,"actual ground occluded by terrain");
+        fog(0,.001f);check(Math.abs(energy(ground(single,1.6f,1)))<.001,"actual ground respects fog");fog(1000,2000);
+        var segments=new ArrayList<HitGroundPath.Segment>();
+        for(int i=0;i<4;i++)segments.add(new HitGroundPath.Segment(new HitEffectsState.Point(i,0,0),new HitEffectsState.Point(i+1,0,0),i,i+1));
+        var state=new HitEffectsState();var branches=List.of(new HitGroundPath.Branch(segments));
+        state.ground(branches,0,1.6,0x2288BB,0x55BBEE);state.ground(branches,.45,1.6,0x2288BB,0x55BBEE);
+        double[] centers=new double[2];float[][] brightFrames=new float[2][];
+        for(int i=0;i<2;i++) {
+            var beams=state.frame(i==0?.515:.74).ground();
+            var plain=beams.stream().map(b->new HitEffectsState.Beam(b.from(),b.to(),b.width(),b.opacity(),b.color(),b.endColor())).toList();
+            brightFrames[i]=ground(beams,.4f,1);float[] plainImage=ground(plain,.4f,1);
+            check(rgbEnergy(brightFrames[i])>rgbEnergy(plainImage)*1.1,"repeat pulse visibly increases RGB bloom beyond baseline alpha");
+            centers[i]=differenceCenter(brightFrames[i],plainImage);
+        }
+        check(centers[1]>centers[0]+30,"actual highlight pixels move outward between frames");
+        BufferedImage preview=new BufferedImage(W*3,H+28,BufferedImage.TYPE_INT_RGB);Graphics2D g=preview.createGraphics();
+        g.setColor(new Color(6,9,13));g.fillRect(0,0,preview.getWidth(),preview.getHeight());g.setColor(Color.WHITE);g.setFont(new Font("SansSerif",Font.PLAIN,11));
+        float[][] images={image,brightFrames[0],brightFrames[1]};String[] labels={"Tapered ends | actual mesh","Repeat wave | early","Repeat wave | later"};
+        for(int panel=0;panel<3;panel++) {g.drawString(labels[panel],panel*W+5,17);for(int y=0;y<H;y++)for(int x=0;x<W;x++) {int at=(x+y*W)*4;float[] p=images[panel];preview.setRGB(panel*W+x,H-y+26,Math.round(Math.clamp(p[at],0,1)*255)<<16|Math.round(Math.clamp(p[at+1],0,1)*255)<<8|Math.round(Math.clamp(p[at+2],0,1)*255));}}
+        g.dispose();ImageIO.write(preview,"png",out.resolve("hit-ground-polish-gpu.png").toFile());
+    }
     public static void main(String[] args)throws Exception {
         Path root=Path.of(args[0]),gamePath=Path.of(args[1]),out=Path.of(args[2]);Files.createDirectories(out);
         check(glfwInit(),"GLFW");glfwWindowHint(GLFW_VISIBLE,GLFW_FALSE);glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR,3);glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR,3);glfwWindowHint(GLFW_OPENGL_PROFILE,GLFW_OPENGL_CORE_PROFILE);
@@ -72,6 +129,7 @@ public final class HitEffectsGpuCheck {
             for(int y=0;y<H;y++)for(int x=0;x<W;x++){int i=(x+y*W)*4;float[] p=results[mode];int r=Math.round(Math.clamp(p[i],0,1)*255),green=Math.round(Math.clamp(p[i+1],0,1)*255),b=Math.round(Math.clamp(p[i+2],0,1)*255);preview.setRGB(mode*W+x,H-y+24,(r<<16)|(green<<8)|b);}
         }
         check(!Arrays.equals(results[0],results[1])&&!Arrays.equals(results[1],results[2]),"distinct shapes");g.dispose();ImageIO.write(preview,"png",out.resolve("hit-effects-gpu.png").toFile());
-        check(glGetError()==GL_NO_ERROR,"GL error");System.out.println("PASS hit-effects-gpu: "+checks+" checks; actual GLSL sprites, beams, rotation, alpha, fog and terrain depth. Synthetic fixture, not game evidence.");glfwDestroyWindow(window);glfwTerminate();
+        groundChecks(out);
+        check(glGetError()==GL_NO_ERROR,"GL error");System.out.println("PASS hit-effects-gpu: "+checks+" checks; actual shared ground mesh/caps/moving repeat highlight and GLSL sprites, beams, rotation, alpha, fog and terrain depth. Synthetic fixture, not game evidence.");glfwDestroyWindow(window);glfwTerminate();
     }
 }

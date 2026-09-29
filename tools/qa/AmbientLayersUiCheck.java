@@ -19,7 +19,7 @@ public final class AmbientLayersUiCheck {
     }
     public static void main(String[] args) throws Exception {
         System.setProperty("celeste.qa.config", Path.of(args[0]).toAbsolutePath().toString());
-        defaultsAndInputs(); migrationAndActualPersistence(); geometry();
+        defaultsAndInputs(); migrationAndActualPersistence(); colorsAndPicker(); geometry();
         System.out.println("Ambient layers UI: " + checks + " checks passed (actual settings, input state, ModuleManager load/import/export/save)");
     }
     private static void defaultsAndInputs() {
@@ -64,6 +64,12 @@ public final class AmbientLayersUiCheck {
         state.click(350, 27); check(module.enabled(), "explicit module switch enables");
         check(!state.add("Unknown"), "unknown style ignored");
         check(state.click(-200, -200) == AmbientEffectsEditorState.Result.NONE, "outside click ignored");
+        check(state.click(35, 90, 1) == AmbientEffectsEditorState.Result.CHANGED, "right click active row removes effect");
+        check(state.active().isEmpty(), "right click removes exact active entry");
+        state.openPicker();
+        check(state.click(35, 90, 1) == AmbientEffectsEditorState.Result.NONE && state.active().isEmpty(), "right click picker cannot add");
+        check(state.click(35, 90, 0) == AmbientEffectsEditorState.Result.CHANGED, "left click picker adds");
+        check(state.click(35, 90, 2) == AmbientEffectsEditorState.Result.NONE && state.active().size() == 1, "middle click ignored");
     }
     private static void migrationAndActualPersistence() throws Exception {
         ModuleManager manager = ModuleManager.getInstance();
@@ -89,6 +95,8 @@ public final class AmbientLayersUiCheck {
         }
         var state = new AmbientEffectsEditorState(module);
         state.add("Snowfall"); state.add("Tesseracts");
+        AmbientEffectsSettings.color(module, "Snowfall").setRgb(0x1122CC);
+        AmbientEffectsSettings.color(module, "Tesseracts").setRgb(0xCCEE22);
         AmbientEffectsSettings.slider(module, "Snowfall", "Density").setValue(.25);
         AmbientEffectsSettings.slider(module, "Tesseracts", "Size").setValue(.8);
         Properties exported = manager.exportState();
@@ -105,6 +113,8 @@ public final class AmbientLayersUiCheck {
         for (String style : AmbientEffectsSettings.STYLES) state.remove(style);
         load.invoke(manager);
         check(manager.exportState().equals(exported), "actual startup load restores multilayer config");
+        check(AmbientEffectsSettings.color(module, "Snowfall").rgb() == 0x1122CC, "independent color survives load");
+        check(AmbientEffectsSettings.color(module, "Tesseracts").rgb() == 0xCCEE22, "second color survives load");
         Properties oldDisk = new Properties(); oldDisk.setProperty(prefix + "style", "Falling Leaves");
         oldDisk.setProperty(prefix + "density", ".35"); oldDisk.setProperty(prefix + "size", "1.4");
         try (OutputStream stream = Files.newOutputStream(file)) { oldDisk.store(stream, "legacy"); }
@@ -112,6 +122,7 @@ public final class AmbientLayersUiCheck {
         var oldLayer = AmbientEffectsSettings.layers(module).getFirst();
         check(AmbientEffectsSettings.layers(module).size() == 1 && oldLayer.style().equals("Falling Leaves"), "actual startup load migrates legacy");
         near(.35, oldLayer.density(), "startup density"); near(1.4, oldLayer.size(), "startup size");
+        check(AmbientEffectsSettings.color(module, "Snowfall").rgb() == AmbientEffectsSettings.defaultColor("Snowfall"), "legacy snapshot resets missing colors instead of inheriting previous config");
         for (String style : AmbientEffectsSettings.STYLES) state.remove(style);
         Properties empty = manager.exportState();
         state.add("Fireflies"); manager.importState(empty);
@@ -129,6 +140,47 @@ public final class AmbientLayersUiCheck {
         Properties legacyDefault = new Properties(); legacyDefault.setProperty("module.ambient_effects.enabled", "false");
         manager.importState(legacyDefault);
         check(AmbientEffectsSettings.layers(module).getFirst().style().equals("Fireflies"), "old defaults reset to original style");
+    }
+    private static void colorsAndPicker() {
+        GuiModule module = fresh();
+        GuiSetting.Toggle advanced = new GuiSetting.Toggle("Advanced", "", false);
+        GuiModule atmosphere = new GuiModule("Atmosphere", "", CelestePage.VISUALS, false, advanced);
+        check(AmbientEffectsSettings.individualColors(atmosphere), "colors visible with Atmosphere off");
+        atmosphere.setEnabled(true);
+        check(!AmbientEffectsSettings.individualColors(atmosphere), "preset hides individual colors");
+        advanced.setValue(true);
+        check(AmbientEffectsSettings.individualColors(atmosphere), "Advanced shows individual colors");
+        check(AmbientEffectsSettings.individualColors(null), "missing Atmosphere allows individual colors");
+        var oldConstructor = new AmbientEffectsSettings.Layer("Snowfall", .5, 1);
+        check(oldConstructor.color() == AmbientEffectsSettings.defaultColor("Snowfall"), "legacy Layer constructor retained");
+        GuiSetting.ColorPick pick = AmbientEffectsSettings.color(module, "Fireflies");
+        GuiSetting.ColorPick other = AmbientEffectsSettings.color(module, "Tron Trails");
+        int originalOther = other.rgb();
+        ColorPickerControl picker = new ColorPickerControl();
+        var swatch = AmbientEffectsEditorLayout.COLOR_SWATCH;
+        picker.setViewport(0, 0, AmbientEffectsEditorLayout.WIDTH, AmbientEffectsEditorLayout.HEIGHT);
+        picker.toggle(pick, swatch.x(), swatch.y()); picker.drawPopup(null);
+        var position = PopupPlacement.place(swatch.x(), swatch.y(), 16, 16, 120, 104, 0, 0,
+            AmbientEffectsEditorLayout.WIDTH, AmbientEffectsEditorLayout.HEIGHT);
+        check(picker.popupContains(position.x() + 1, position.y() + 1), "actual picker uses anchored popup geometry");
+        check(position.y() + 104 < swatch.y(), "picker flips above lower swatch without clipping");
+        picker.mouseClicked(position.x() + 8 + 44, position.y() + 8 + 44);
+        check(picker.isDragging(), "real SV click begins drag");
+        picker.drag(position.x() + 8 + 66, position.y() + 8 + 20);
+        picker.mouseReleased(position.x() + 8 + 66, position.y() + 8 + 20);
+        check(!picker.isDragging(), "real picker drag ends");
+        check(pick.rgb() != AmbientEffectsSettings.defaultColor("Fireflies"), "real picker writes selected effect color");
+        check(other.rgb() == originalOther, "picker does not recolor other effect");
+        int stored = pick.rgb();
+        var state = new AmbientEffectsEditorState(module); state.remove("Fireflies"); state.add("Fireflies");
+        check(pick.rgb() == stored, "color remembered when removing and readding");
+        picker.close();
+        check(!picker.isOpen(), "picker closes cleanly");
+        Properties bad = new Properties(); bad.setProperty(AmbientEffectsSettings.PREFIX + "layers_version", "1");
+        bad.setProperty(AmbientEffectsSettings.PREFIX + "snowfall_color", "not-a-color");
+        Properties normalized = AmbientEffectsSettings.prepare(bad);
+        check(GuiSetting.ColorPick.parse(normalized.getProperty(AmbientEffectsSettings.PREFIX + "snowfall_color"))
+            == AmbientEffectsSettings.defaultColor("Snowfall"), "invalid stored color falls back deterministically");
     }
     private static void geometry() {
         for (int width : new int[]{160, 320, 640, 854, 1280, 1920, 3840})

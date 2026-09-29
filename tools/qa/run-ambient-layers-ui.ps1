@@ -10,16 +10,32 @@ $out = if ([IO.Path]::IsPathRooted($Output)) { $Output } else { Join-Path $repo 
 New-Item -ItemType Directory -Force -Path $out | Out-Null
 $source = Join-Path $repo 'src/main/java/dev/c4lam/celeste'
 if (!$BaselineSource) { $BaselineSource = $source }
+function SourceFile([string]$relative) {
+    $local = Join-Path $source $relative
+    if (Test-Path -LiteralPath $local) { return $local }
+    return Join-Path $BaselineSource $relative
+}
 $files = @(
-    (Join-Path $source 'gui/model/GuiSetting.java'),
-    (Join-Path $BaselineSource 'gui/model/GuiModule.java'),
-    (Join-Path $source 'gui/model/AmbientEffectsSettings.java'),
-    (Join-Path $source 'gui/AmbientEffectsEditorLayout.java'),
-    (Join-Path $source 'gui/AmbientEffectsEditorState.java'),
-    (Join-Path $source 'module/ModuleManager.java'),
+    (SourceFile 'gui/model/GuiSetting.java'),
+    (SourceFile 'gui/model/GuiModule.java'),
+    (SourceFile 'gui/model/AmbientEffectsSettings.java'),
+    (SourceFile 'gui/AmbientEffectsEditorLayout.java'),
+    (SourceFile 'gui/AmbientEffectsEditorState.java'),
+    (SourceFile 'gui/ColorPickerControl.java'),
+    (SourceFile 'gui/PopupPlacement.java'),
+    (SourceFile 'module/ModuleManager.java'),
     (Join-Path $PSScriptRoot 'AmbientLayersUiCheck.java')
 )
-$files += Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot 'ambient-layers-stubs') -Recurse -Filter '*.java' | ForEach-Object FullName
+$stubFiles = @{}
+$baselineQa = [IO.Path]::GetFullPath((Join-Path $BaselineSource '../../../../../../tools/qa'))
+foreach ($stubRoot in @((Join-Path $baselineQa 'ambient-layers-stubs'), (Join-Path $PSScriptRoot 'ambient-layers-stubs'))) {
+    if (Test-Path -LiteralPath $stubRoot) {
+        foreach ($file in Get-ChildItem -LiteralPath $stubRoot -Recurse -Filter '*.java') {
+            $stubFiles[[IO.Path]::GetRelativePath($stubRoot, $file.FullName)] = $file.FullName
+        }
+    }
+}
+$files += $stubFiles.Values
 & (Join-Path $JavaHome 'bin/javac.exe') -encoding UTF-8 -d $out @files
 if ($LASTEXITCODE -ne 0) { throw 'Ambient editor test compilation failed' }
 & (Join-Path $JavaHome 'bin/java.exe') -ea -cp $out dev.c4lam.celeste.gui.AmbientLayersUiCheck (Join-Path $out 'config')

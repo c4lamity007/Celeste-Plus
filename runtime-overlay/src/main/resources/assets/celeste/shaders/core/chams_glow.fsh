@@ -9,9 +9,9 @@ vec4 sampleGlow(vec2 uv) {
     return texture(GlowSampler, uv);
 }
 
-vec4 sampleEdge(vec2 uv) {
-    if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) return vec4(0.0);
-    vec4 value = texture(InSampler, uv);
+vec4 sampleEdge(ivec2 pixel, ivec2 size) {
+    if (any(lessThan(pixel, ivec2(0))) || any(greaterThanEqual(pixel, size))) return vec4(0.0);
+    vec4 value = texelFetch(InSampler, pixel, 0);
     return vec4(value.rgb * value.a, value.a);
 }
 
@@ -30,12 +30,14 @@ void main() {
         vec2 offset = stepSize * float(i);
         blurred += (sampleGlow(uv + offset) + sampleGlow(uv - offset)) * weights[i];
     }
-    vec2 edgeStep = vec2(1.35 * radius) / vec2(size);
     vec4 edge = vec4(0.0);
-    const vec2 directions[8] = vec2[8](vec2(1,0), vec2(-1,0), vec2(0,1), vec2(0,-1),
-        vec2(.707107,.707107), vec2(-.707107,.707107), vec2(.707107,-.707107), vec2(-.707107,-.707107));
+    // One exact framebuffer pixel around the resolved model. Fractional circular
+    // taps blend empty texels into the contour and make slopes look broken.
+    // Keep the eight reads; only the broad bloom uses filtered half-size storage.
+    const ivec2 directions[8] = ivec2[8](ivec2(1,0), ivec2(-1,0), ivec2(0,1), ivec2(0,-1),
+        ivec2(1,1), ivec2(-1,1), ivec2(1,-1), ivec2(-1,-1));
     for (int i = 0; i < 8; i++) {
-        vec4 tap = sampleEdge(uv + edgeStep * directions[i]);
+        vec4 tap = sampleEdge(p + directions[i], size);
         if (tap.a > edge.a) edge = tap;
     }
     float haloAlpha = clamp(blurred.a * 2.6, 0.0, .84);

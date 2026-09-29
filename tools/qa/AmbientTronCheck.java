@@ -145,16 +145,19 @@ public final class AmbientTronCheck {
         }
     }
     private static void geometry() {
+        var newborn=new AmbientTronField.Segment(1,0,0,0,.001,0,0,.11,.2f,.6f,.5);
+        AmbientTronGeometry.beam(newborn,0,2,0,(x,y,z,u,v,a)->check(x>=-1E-12&&x<=.001+1E-12&&Math.abs(z)<=.00045+1E-12,"newborn caps cannot flash full-width bars"));
         for (var eye : new double[][]{{0,0,0},{.5,0,0},{0,2,0},{1E7,0,1E7},{0,0,2}}) {
             var s = new AmbientTronField.Segment(1,0,0,0,1,0,0,.11,.2f,.6f,.5);
             List<double[]> vertices = new ArrayList<>();
             AmbientTronGeometry.beam(s,eye[0],eye[1],eye[2],(x,y,z,u,v,a)->vertices.add(new double[]{x,y,z,u,v,a}));
-            check(vertices.size()==4, "flat ribbon uses one quad");
+            check(vertices.size()==AmbientTronGeometry.MAX_VERTICES, "bounded middle strip and two soft caps");
             for(var v:vertices) check(Double.isFinite(Arrays.stream(v).sum()), "edge-on beam finite");
             check(vertices.get(0)[3]==2 && vertices.get(1)[3]==3, "uses production bright core and glow shader branch");
-            check(vertices.get(0)[5]==.2f && vertices.get(3)[5]==.6f, "interpolated tail alpha reaches vertices");
-            double[] a=vertices.get(0),b=vertices.get(1);
+            check(vertices.get(0)[5]==0 && vertices.get(vertices.size()-1)[5]==0, "exposed tips must fade to zero");
+            double[] a=vertices.get(4),b=vertices.get(5);
             for(var v:vertices)check(v[1]==0,"width stays in world plane, never faces camera");
+            for(var v:vertices)check(v[0]>=0&&v[0]<=1,"terminal cap protrudes beyond endpoint");
             check(Math.abs(Math.sqrt((a[0]-b[0])*(a[0]-b[0])+(a[1]-b[1])*(a[1]-b[1])+(a[2]-b[2])*(a[2]-b[2]))-.22)<1E-8, "beam retains configured width");
         }
     }
@@ -170,8 +173,8 @@ public final class AmbientTronCheck {
             AmbientTronGeometry.beam(right,0,0,0,(x,y,z,u,v,o)->r.add(new double[]{x,y,z}));
             AmbientTronGeometry.beam(left,300,15,-120,(x,y,z,u,v,o)->moved.add(new double[]{x,y,z}));
             for(int i=0;i<3;i++) {
-                check(l.get(2)[i]==r.get(1)[i] && l.get(3)[i]==r.get(0)[i],"miter joints share identical edge positions");
-                for(int v=0;v<4;v++)check(l.get(v)[i]==moved.get(v)[i],"camera motion cannot rotate flat geometry");
+                check(l.get(l.size()-2)[i]==r.get(1)[i] && l.get(l.size()-1)[i]==r.get(0)[i],"miter joints share identical edge positions");
+                for(int v=0;v<l.size();v++)check(l.get(v)[i]==moved.get(v)[i],"camera motion cannot rotate flat geometry");
             }
             for(var v:l)check(v[normal]==mid[normal],"all corner vertices remain strictly planar");
         }

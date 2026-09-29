@@ -6,7 +6,7 @@ import java.util.List;
 
 /** Nearby world cells own independent random births; camera motion never moves them. */
 public final class AmbientTesseractField {
-    public static final int MAX_PARTICLES = 192;
+    public static final int MAX_PARTICLES = 192 * AmbientField.DENSITY_COPIES;
     public static final double CELL = 4.0;
     public static final double RANGE = 22.0;
     public static final int CELL_RADIUS = 6;
@@ -34,10 +34,12 @@ public final class AmbientTesseractField {
             for (int y = cy - CELL_RADIUS; y <= cy + CELL_RADIUS; y++)
                 for (int z = cz - CELL_RADIUS; z <= cz + CELL_RADIUS; z++) {
                     if (!AmbientField.occupied(x, y, z, density) || !mayBeVisible(x, y, z, eyeX, eyeY, eyeZ)) continue;
-                    AmbientField.Mote mote = sample(x, y, z, seconds, seed);
-                    double dx = mote.x() - eyeX, dy = mote.y() - eyeY, dz = mote.z() - eyeZ;
-                    if (dx * dx + dy * dy + dz * dz >= RANGE * RANGE) continue;
-                    candidates.add(new Candidate(mote, priority(x, y, z), x, y, z));
+                    for (int lane=0;lane<AmbientField.DENSITY_COPIES;lane++) {
+                        AmbientField.Mote mote = sample(x,y,z,seconds,lane==0?seed:mix(seed ^ lane*0xD1B54A32D192ED03L));
+                        double dx = mote.x() - eyeX, dy = mote.y() - eyeY, dz = mote.z() - eyeZ;
+                        if (dx * dx + dy * dy + dz * dz >= RANGE * RANGE) continue;
+                        candidates.add(new Candidate(mote, priority(x, y, z), x, y, z));
+                    }
                 }
         candidates.sort(Comparator.comparingLong(Candidate::priority));
         if (candidates.size() > MAX_PARTICLES) candidates.subList(MAX_PARTICLES, candidates.size()).clear();
@@ -45,7 +47,7 @@ public final class AmbientTesseractField {
     }
     /** The last selected ranks vanish before an entering boundary cell can displace them. */
     public static double capFade(int rank) {
-        return AmbientField.smooth((MAX_PARTICLES - 1.0 - rank) / 32.0);
+        return AmbientField.smooth((MAX_PARTICLES - 1.0 - rank) / (32.0 * AmbientField.DENSITY_COPIES));
     }
     public static AmbientField.Mote sample(int x, int y, int z, double seconds, long seed) {
         long cell = mix(seed ^ x * 0x632BE59BD9B4E019L ^ y * 0x9E3779B97F4A7C15L ^ z * 0x94D049BB133111EBL);

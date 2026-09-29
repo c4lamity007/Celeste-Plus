@@ -13,7 +13,8 @@ void main() {
     float halo;
     if (mode > 2.5) {
         float across = abs(p.x);
-        float aa = max(fwidth(across), .035);
+        // Tapered tips become very narrow: keep derivative AA from lighting their whole triangle.
+        float aa = clamp(fwidth(across), .035, .18);
         core = 1.0 - smoothstep(.09, .09 + aa, across);
         halo = exp(-across * across * 5.2) * (1.0 - smoothstep(.72, 1.0, across));
     } else {

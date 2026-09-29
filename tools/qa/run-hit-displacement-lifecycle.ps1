@@ -16,7 +16,7 @@ $libraries=@(rg --files $cache -g '*.jar' | Where-Object {
 })
 if($libraries.Count -ne 2){throw 'Expected cached ASM9.9 jars; no downloads attempted.'}
 $classpath=$libraries -join ';'
-& "$JdkHome/bin/javac.exe" --release 21 -cp $classpath -d "$outputPath/classes" "$StagedRoot/src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/HitDisplacementAnimation.java" "$PSScriptRoot/HitDisplacementLifecycleCheck.java"
+& "$JdkHome/bin/javac.exe" --release 21 -cp $classpath -d "$outputPath/classes" "$StagedRoot/src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/HitDisplacementAnimation.java" "$StagedRoot/src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/HitDisplacementWorld.java" "$PSScriptRoot/HitDisplacementLifecycleCheck.java"
 if($LASTEXITCODE -ne 0){throw 'Hit displacement lifecycle fixture compilation failed'}
 & "$JdkHome/bin/java.exe" -cp "$outputPath/classes;$classpath" HitDisplacementLifecycleCheck $ProductionClasses
 if($LASTEXITCODE -ne 0){throw 'Hit displacement lifecycle check failed'}

@@ -3,6 +3,7 @@ param(
     [Parameter(Mandatory=$true)][string]$MinecraftJar,
     [Parameter(Mandatory=$true)][string]$OutputRoot,
     [string]$ShaderRoot='',
+    [string]$SourceRoot='',
     [string]$JdkHome='C:/Program Files/Eclipse Adoptium/jdk-21.0.11.10-hotspot'
 )
 $ErrorActionPreference='Stop'
@@ -14,7 +15,8 @@ $libraries=@(rg --files $cache -g '*.jar' | Where-Object {
 })
 if($libraries.Count -ne 6){throw 'Expected six cached LWJGL 3.3.3 Java/Windows jars'}
 $classpath=$libraries -join ';'
-& "$JdkHome/bin/javac.exe" --release 21 -cp $classpath -d "$OutputRoot/classes" "$PSScriptRoot/HitEffectsGpuCheck.java"
+if (!$SourceRoot) { $SourceRoot=Join-Path $ProjectRoot 'src/main/java/dev/c4lam/celeste/module/impl/visual/expansion' }
+& "$JdkHome/bin/javac.exe" --release 21 -cp $classpath -d "$OutputRoot/classes" "$PSScriptRoot/HitEffectsGpuCheck.java" "$SourceRoot/HitEffectsState.java" "$SourceRoot/HitGroundPath.java" "$SourceRoot/HitGroundGeometry.java"
 if($LASTEXITCODE -ne 0){throw 'Hit Effects GPU fixture compilation failed'}
 & "$JdkHome/bin/java.exe" -cp "$OutputRoot/classes;$classpath" HitEffectsGpuCheck $ShaderRoot $MinecraftJar $OutputRoot
 if($LASTEXITCODE -ne 0){throw 'Hit Effects GPU fixture failed'}

@@ -63,15 +63,10 @@ public final class HitEffectsRenderer {
         if(camera==null) return;
         MatrixStack.Entry matrix=context.matrices().peek();
         VertexConsumer buffer=context.consumers().getBuffer(LAYER);
-        for(HitEffectsState.Beam line:frame.effects.ground()) {
-            Vec3d a=vec(line.from()),b=vec(line.to());
-            if(a.squaredDistanceTo(camera)>64*64) continue;
-            Vec3d delta=b.subtract(a);
-            Vec3d side=new Vec3d(-delta.z,0,delta.x);
-            if(side.lengthSquared()<1e-10) continue;
-            side=side.normalize().multiply(line.width());
-            beam(buffer,matrix,camera,a,b,side,line.color(),line.endColor(),line.opacity(),line.opacity());
-        }
+        HitGroundGeometry.emit(frame.effects.ground().stream()
+            .filter(line->vec(line.from()).squaredDistanceTo(camera)<=64*64).toList(),
+            (x,y,z,u,v,alpha,color)->buffer.vertex(matrix,(float)(x-camera.x),(float)(y-camera.y),(float)(z-camera.z))
+                .texture(u,v).color(argb(alpha,color)));
         for(HitEffectsState.Sprite sprite:frame.effects.particles()) {
             Vec3d center=vec(sprite.position());
             if(center.squaredDistanceTo(camera)>64*64) continue;
