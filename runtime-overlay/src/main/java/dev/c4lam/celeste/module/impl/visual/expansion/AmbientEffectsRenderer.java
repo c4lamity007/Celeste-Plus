@@ -21,11 +21,14 @@ import java.util.List;
 /** Two cached depth-tested batches: closed 3D cores/blades, then optional supporting bloom. */
 public final class AmbientEffectsRenderer {
     public record Particle(Vec3d position, double radius, double yaw, double pitch, float opacity, int color) { }
+    public record TronSegment(AmbientTronField.Segment line, int color) { }
     public record Frame(List<Particle> particles, AmbientField.Style style, Vec3d right, Vec3d up,
-                        SkyLinesRenderer.Frame skyLines) {
+                        SkyLinesRenderer.Frame skyLines, List<TronSegment> trails) {
+        public Frame(List<Particle> particles, AmbientField.Style style, Vec3d right, Vec3d up,
+                     SkyLinesRenderer.Frame skyLines) { this(particles, style, right, up, skyLines, List.of()); }
         public static final Frame EMPTY = new Frame(List.of(), AmbientField.Style.FIREFLIES,
             Vec3d.ZERO, Vec3d.ZERO, SkyLinesRenderer.Frame.EMPTY);
-        public boolean isEmpty() { return particles.isEmpty() && skyLines.isEmpty(); }
+        public boolean isEmpty() { return particles.isEmpty() && skyLines.isEmpty() && trails.isEmpty(); }
     }
     private static final RenderLayer MESH = layer(false);
     private static final RenderLayer GLOW = layer(true);
@@ -53,6 +56,15 @@ public final class AmbientEffectsRenderer {
         Vec3d camera = context.worldState().cameraRenderState.pos;
         if (camera == null) return;
         SkyLinesRenderer.draw(context, frame.skyLines());
+        if (!frame.trails().isEmpty()) {
+            MatrixStack.Entry matrix = context.matrices().peek();
+            VertexConsumer glow = context.consumers().getBuffer(GLOW);
+            for (TronSegment trail : frame.trails()) {
+                AmbientTronGeometry.beam(trail.line(), camera.x, camera.y, camera.z, (x,y,z,u,v,alpha) ->
+                    vertex(glow, matrix, x,y,z,camera,u,v,0,0,0,VisualExpansionRenderer.argb(alpha,trail.color())));
+            }
+            if (context.consumers() instanceof VertexConsumerProvider.Immediate immediate) immediate.draw(GLOW);
+        }
         if (frame.particles().isEmpty()) return;
         MatrixStack.Entry matrix = context.matrices().peek();
         VertexConsumer mesh = context.consumers().getBuffer(MESH);

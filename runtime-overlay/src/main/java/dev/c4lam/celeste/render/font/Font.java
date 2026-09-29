@@ -12,6 +12,7 @@ import org.joml.Matrix4f;
 
 import java.awt.Color;
 import java.util.Map;
+import java.text.Normalizer;
 
 /** Lightweight batched MSDF font renderer for Celeste's GUI. */
 public final class Font {
@@ -71,6 +72,7 @@ public final class Font {
             return;
         }
 
+        text = Normalizer.normalize(text, Normalizer.Form.NFC);
         GuiRenderer renderer = GuiRenderer.getInstance();
         BufferBuilder builder = renderer.begin(GuiPipelines.TEXT);
         Matrix4f matrix = matrices.peek().getPositionMatrix();
@@ -145,6 +147,7 @@ public final class Font {
             return;
         }
 
+        text = Normalizer.normalize(text, Normalizer.Form.NFC);
         GuiRenderer renderer = GuiRenderer.getInstance();
         BufferBuilder builder = renderer.begin(GuiPipelines.TEXT);
         Matrix4f matrix = matrices.peek().getPositionMatrix();
@@ -206,6 +209,7 @@ public final class Font {
             return 0.0f;
         }
 
+        text = Normalizer.normalize(text, Normalizer.Form.NFC);
         float lineWidth = 0.0f;
         float maxWidth = 0.0f;
         int previous = -1;

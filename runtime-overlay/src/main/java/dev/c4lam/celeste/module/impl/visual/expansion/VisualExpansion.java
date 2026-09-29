@@ -24,6 +24,7 @@ public final class VisualExpansion {
         ChamsFeature chams = new ChamsFeature();
         BlockHighlightFeature blockHighlight = new BlockHighlightFeature();
         AmbientEffectsFeature ambient = new AmbientEffectsFeature();
+        HitEffectsFeature hits = new HitEffectsFeature();
         SkyLyricsFeature lyrics = new SkyLyricsFeature();
 
         manager.register(new AtmosphereFeature());
@@ -38,6 +39,7 @@ public final class VisualExpansion {
         manager.register(chams);
         manager.register(blockHighlight);
         manager.register(ambient);
+        manager.register(hits);
         manager.register(lyrics);
         manager.register(new SkyboxFeature());
         manager.register(new CustomFogFeature());
@@ -55,6 +57,8 @@ public final class VisualExpansion {
         SkyboxRenderer.initialize();
         ShaderFogRenderer.initialize();
         GroundShadersRenderer.initialize();
+        HitEffectsRenderer.initialize(hits);
+        HitDisplacementRenderer.initialize();
         HandShadersRenderer.initialize();
     }
 }

@@ -21,6 +21,7 @@ import java.util.List;
 /** A bounded field of real, depth-tested 3D motes; never creates game particles or entities. */
 public final class AmbientEffectsFeature implements ModuleFeature {
     private final AmbientTesseractField tesseracts = new AmbientTesseractField(System.nanoTime());
+    private final AmbientTronField tronTrails = new AmbientTronField(System.nanoTime());
     private final JumpCircleAnimation.Clock clock = new JumpCircleAnimation.Clock();
     private final SkyLinesMath.Motion skyMotion = new SkyLinesMath.Motion();
     private volatile boolean enabled;
@@ -61,8 +62,24 @@ public final class AmbientEffectsFeature implements ModuleFeature {
             ? new SkyLinesRenderer.Frame(atmosphere(SkyLinesMath.sample(skyPattern, skySeconds, skyIntensity), seconds))
             : SkyLinesRenderer.Frame.EMPTY;
         List<AmbientEffectsRenderer.Particle> particles = new ArrayList<>(96);
+        List<AmbientEffectsRenderer.TronSegment> trails = new ArrayList<>();
         BlockPos.Mutable block = new BlockPos.Mutable();
-        if (cubes) {
+        if (frameStyle == AmbientField.Style.TRON_TRAILS) {
+            AmbientTronField.AirCell air = (x, y, z) -> {
+                block.set(x, y, z);
+                return !context.world().isOutOfHeightLimit(block) && context.world().isChunkLoaded(block)
+                    && context.world().getBlockState(block).isAir() && context.world().getFluidState(block).isEmpty();
+            };
+            for (AmbientTronField.Segment segment : tronTrails.sample(eye.x, eye.y, eye.z, seconds, frameDensity, frameSize, air)) {
+                double bound = segment.width() * 1.1;
+                if (context.frustum() != null && !context.frustum().isVisible(new Box(
+                    Math.min(segment.ax(), segment.bx()) - bound, segment.ay() - bound,
+                    Math.min(segment.az(), segment.bz()) - bound, Math.max(segment.ax(), segment.bx()) + bound,
+                    segment.by() + bound, Math.max(segment.az(), segment.bz()) + bound))) continue;
+                trails.add(new AmbientEffectsRenderer.TronSegment(segment,
+                    VisualAtmosphere.tint(0x57DDEB, seconds, segment.palette())));
+            }
+        } else if (cubes) {
             AmbientTesseractField.AirCell air = (x, y, z) -> {
                 block.set(x, y, z);
                 return !context.world().isOutOfHeightLimit(block) && context.world().isChunkLoaded(block)
@@ -117,8 +134,9 @@ public final class AmbientEffectsFeature implements ModuleFeature {
         java.util.Collections.reverse(particles); // Back-to-front translucent core batches.
         Vector3f right = context.camera().getRotation().transform(new Vector3f(1, 0, 0));
         Vector3f up = context.camera().getRotation().transform(new Vector3f(0, 1, 0));
-        return particles.isEmpty() && sky.isEmpty() ? AmbientEffectsRenderer.Frame.EMPTY : new AmbientEffectsRenderer.Frame(
-            List.copyOf(particles), frameStyle, new Vec3d(right.x, right.y, right.z), new Vec3d(up.x, up.y, up.z), sky);
+        return particles.isEmpty() && sky.isEmpty() && trails.isEmpty() ? AmbientEffectsRenderer.Frame.EMPTY : new AmbientEffectsRenderer.Frame(
+            List.copyOf(particles), frameStyle, new Vec3d(right.x, right.y, right.z), new Vec3d(up.x, up.y, up.z), sky,
+            List.copyOf(trails));
     }
 
     private static SkyLinesMath.Geometry atmosphere(SkyLinesMath.Geometry geometry, double seconds) {
@@ -152,6 +170,7 @@ public final class AmbientEffectsFeature implements ModuleFeature {
             case "Snowfall" -> AmbientField.Style.SNOW;
             case "Falling Leaves" -> AmbientField.Style.LEAVES;
             case "Tesseracts" -> AmbientField.Style.TESSERACTS;
+            case "Tron Trails" -> AmbientField.Style.TRON_TRAILS;
             default -> AmbientField.Style.FIREFLIES;
         };
         double value = context.slider("Density", .6);
@@ -163,5 +182,5 @@ public final class AmbientEffectsFeature implements ModuleFeature {
     private static double finiteRange(double value, double min, double max, double fallback) {
         return Double.isFinite(value) ? MathHelper.clamp(value, min, max) : fallback;
     }
-    private void reset() { observedWorld = null; clock.reset(); skyMotion.reset(); tesseracts.reset(); }
+    private void reset() { observedWorld = null; clock.reset(); skyMotion.reset(); tesseracts.reset(); tronTrails.reset(); }
 }

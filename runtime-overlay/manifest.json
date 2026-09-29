@@ -214,7 +214,7 @@
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/gui/model/GuiCatalog.java",
-      "sha256": "8724bcdcabd0b934f1e4638643022fd51966637a7c84690af6e1da7c1b3e11f0",
+      "sha256": "d2b6a2a0cc16d3685f21ceba0dcad9de0b46f72a92750b3c2fe7fa53db9cf9ba",
       "baseSha256": "11f261cd447bf0307a91732fa8903e3e71f8f9a4ea5638f508abfbcd887a66d6"
     },
     {
@@ -326,6 +326,11 @@
       "path": "src/main/java/dev/c4lam/celeste/hud/HudSurface.java",
       "sha256": "9a588f8f7657f97664bf750dbf6addfe5da3eb2b340490b3bc8385e6a8d8b7e8",
       "baseSha256": null
+    },
+    {
+      "path": "src/main/java/dev/c4lam/celeste/hud/HudTargetTracker.java",
+      "sha256": "f83bb58ad5c7209cf1ceedf5ae29a806bff278f33d4513d4d29a59eed785b92e",
+      "baseSha256": "bba6b720b9e045efb2ee04f452b4c0f976ff8d20f1531df2ba7fd4bb709b4432"
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/hud/HudViewport.java",
@@ -639,17 +644,17 @@
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/AmbientEffectsFeature.java",
-      "sha256": "be849ac327959e969348f0f4ec2fbfde72b22231ff6209bf3b13d851c25db83f",
+      "sha256": "bec0dad9460f1c70aedc53cdf5f8acc3153d8bad7c20f29f577a35250ac91781",
       "baseSha256": "a9d5098c0e9b8fb711cef546d0ef4d4e285b026148da82a06519270c6dbe7bb6"
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/AmbientEffectsRenderer.java",
-      "sha256": "cc6ea29884943b97930bb565d9104e870d7d01b93b7367ddab3d618976647ff7",
+      "sha256": "2735f072e2e4b465660a88dcd6267d1922d89581181b8a8067e44b352d015e5e",
       "baseSha256": "2799aef931aa3ec20044a948c4c3dfaca4a90747ffdef3890715c6498942be54"
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/AmbientField.java",
-      "sha256": "5c2f6b3a9564673835697797db0198715c36e3555abfaba75ef9a077de30756a",
+      "sha256": "5bd105803da9a4e0a09f300e284428a20cf425237577f5a50a608163a5ecb1d6",
       "baseSha256": "19fa6827fcc57d8f763b15bf838c90e598ea1479a052f409caca1fe3b58c1e17"
     },
     {
@@ -660,6 +665,16 @@
     {
       "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/AmbientTesseractGeometry.java",
       "sha256": "f26d4e801dae8afed8b70caea7cf2701a955f4383a604397068dd1f1de10311a",
+      "baseSha256": null
+    },
+    {
+      "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/AmbientTronField.java",
+      "sha256": "6b3f4915497e56f98a6095bf6752a013440c79404c31548078ef72512ad0e656",
+      "baseSha256": null
+    },
+    {
+      "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/AmbientTronGeometry.java",
+      "sha256": "24722bb857cb4bb02eea7d3a93f7352cd504086e457d48ed6f9beeed0b727d5c",
       "baseSha256": null
     },
     {
@@ -755,6 +770,36 @@
     {
       "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/HandShadersRenderer.java",
       "sha256": "bcf960436579ae30f5a9d5fa87a66e8a56816463244e033090dc26b46bf14532",
+      "baseSha256": null
+    },
+    {
+      "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/HitDisplacementAnimation.java",
+      "sha256": "e9a50d681f7cfc10c1747f329640147944d830c9c8e26ec6531270e621ede2e9",
+      "baseSha256": null
+    },
+    {
+      "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/HitDisplacementRenderer.java",
+      "sha256": "02283b9badff11de11fd688b30e59de74c1539f7953667186757db7d75aff36c",
+      "baseSha256": null
+    },
+    {
+      "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/HitEffectsFeature.java",
+      "sha256": "ac4a161435fdf58ff627a78987fe1dc00bdd92b6a28bdaad2220585521eb3f20",
+      "baseSha256": null
+    },
+    {
+      "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/HitEffectsRenderer.java",
+      "sha256": "0466bd2b73953b40418ae9062ea118e23b06267662749b42922ed0a11cf92651",
+      "baseSha256": null
+    },
+    {
+      "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/HitEffectsState.java",
+      "sha256": "8433d5329aee22cc93c6483be3f660454b9679007864feef3addbf44192ec87b",
+      "baseSha256": null
+    },
+    {
+      "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/HitGroundPath.java",
+      "sha256": "18d0e33df1149a81e200f2090cd39559fab8ae43cd573815692badde7cd643f3",
       "baseSha256": null
     },
     {
@@ -859,7 +904,7 @@
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/VisualExpansion.java",
-      "sha256": "4140b75f3245924d4cd9b38ce7d8b7aac14fb3e2798370ae83359d086ecac314",
+      "sha256": "3a7a4f56c3a0369773fc05e1e732932842a543271f728dbcd22af5ae10a2748a",
       "baseSha256": "dec3c4200893fa79860ca061cacb473b5bd10b5c07121cd1517558e528c25d47"
     },
     {
@@ -919,7 +964,7 @@
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/render/font/Font.java",
-      "sha256": "32af4859e8570634c20d7f15cbff0e3dde8f58d7a536d38a68a4d49debf58282",
+      "sha256": "c4616b5241052593f55f30562a9e9a10619815b176c84231cfbf499cce559eb8",
       "baseSha256": "08904852a643b5b067e4309e9f5f8185b5db4e8d37c754dc87ff48af73a47ab3"
     },
     {
@@ -974,32 +1019,32 @@
     },
     {
       "path": "src/main/resources/assets/celeste/fonts/sf_pro/sf_bold.json",
-      "sha256": "51c90082011ec5f6d226438f2583e292fe183c74211c8b821172828c564360c2",
+      "sha256": "52b3c6fa56fc5106f95176af9d24f9c1a897f676828b2b111fa712cb35e0dbf4",
       "baseSha256": "8d282fcb07741ceafa2c7a7838d05a3414466967aaf0a110e2710938b07a4476"
     },
     {
       "path": "src/main/resources/assets/celeste/fonts/sf_pro/sf_bold.png",
-      "sha256": "4cdb0c7f2a13e08c5d94239b48e6c55804bd39feb2dff903ab69120aabc96e12",
+      "sha256": "b288449f89d4cb599fd80b0c1ccc6f08bd2ecff54a7ab0cd5db9e47714166b38",
       "baseSha256": "cc2b4e8b0f64223dd3d73a4ff5fdf5f539aaafa4799c6163d15dcb9840ae95f2"
     },
     {
       "path": "src/main/resources/assets/celeste/fonts/sf_pro/sf_regular.json",
-      "sha256": "ca83dbfcb2d54b29937857440e4b03e3c04fcae1352825e81136985e0c021980",
+      "sha256": "108b6143de187bfc3e88068aadce078e10dc6bd3d3fda3f50f4922334b7c782d",
       "baseSha256": "79dd7d91d3bab864ac9ca0f787cae7b0ef959f92f0bea39f124e11cd00d086f8"
     },
     {
       "path": "src/main/resources/assets/celeste/fonts/sf_pro/sf_regular.png",
-      "sha256": "030963a6218340a19408786e21b58f260b95e1aa079265a084ae796fdae86883",
+      "sha256": "c1759a0b4bf7a5c7a8f99e1eaaa46809605165a6fea4aad14dc683644e41689a",
       "baseSha256": "696a7f162433766504263f3f3c5b3f5fc9ddf94a64e22b7c54766601b62daa2a"
     },
     {
       "path": "src/main/resources/assets/celeste/fonts/sf_pro/sf_semibold.json",
-      "sha256": "aa620d5b28071b88109a55474d3d924b39d6aa3bf92937f81f4400cf2fff7c0b",
+      "sha256": "060fe437307d6333025fc8e3fd40aba229869602957609e7311dcb55fd8c730d",
       "baseSha256": "9971a5411ad90f39bbeebca7cb81107a0cafc40774130926f0518aee9e8e9e3e"
     },
     {
       "path": "src/main/resources/assets/celeste/fonts/sf_pro/sf_semibold.png",
-      "sha256": "0ca94abc9bf4f64cb5f1a72fad9c8ec626a9ce85c43afd7eb3aa99aacc89b7c8",
+      "sha256": "99c2d19a996171893a02b69e15c86a7c423dad132ffb4e6e50f905ed230bbfe7",
       "baseSha256": "c6124d076a95ea123aa79f456181c1fbe2d573aee9af3c953e84dc8ff99ffd2c"
     },
     {
@@ -1055,6 +1100,26 @@
     {
       "path": "src/main/resources/assets/celeste/shaders/core/hand_shaders_history.fsh",
       "sha256": "bc90f1c5e7f6bc23507b45c64c4298ce9215ee2c31a3bb533280161c1d797688",
+      "baseSha256": null
+    },
+    {
+      "path": "src/main/resources/assets/celeste/shaders/core/hit_displacement.fsh",
+      "sha256": "7cada6f2ef181d0b0fe39eb61ce1e1c23c6cf2fed028fd656d7168dab9524b6b",
+      "baseSha256": null
+    },
+    {
+      "path": "src/main/resources/assets/celeste/shaders/core/hit_displacement.vsh",
+      "sha256": "d6597cbd168b520af7298caee53f40772fb042b557157ad4414ee2f524c0afcf",
+      "baseSha256": null
+    },
+    {
+      "path": "src/main/resources/assets/celeste/shaders/core/hit_effects.fsh",
+      "sha256": "81b13cc7c5e57ccebfecb12454ee8b212e8295fdeef90fea53739388e3eedc5d",
+      "baseSha256": null
+    },
+    {
+      "path": "src/main/resources/assets/celeste/shaders/core/hit_effects.vsh",
+      "sha256": "6b5d5f535ff74d765d495bc34fa00d1adedcf79f2b8b046321beb5b98d108bb6",
       "baseSha256": null
     },
     {
