@@ -3,12 +3,14 @@ param(
     [Parameter(Mandatory=$true)][string]$OutputRoot,
     [string]$ProductionClasses='',
     [string]$StagedRoot='',
+    [string]$ReachabilityRoot='',
     [string]$JdkHome='C:/Program Files/Eclipse Adoptium/jdk-21.0.11.10-hotspot'
 )
 $ErrorActionPreference='Stop'
 $PSNativeCommandUseErrorActionPreference=$false
 $groundProject=(Resolve-Path -LiteralPath $ProjectRoot).Path
 if(-not $StagedRoot){$StagedRoot=$groundProject}
+if(-not $ReachabilityRoot){$ReachabilityRoot=$groundProject}
 if(-not $ProductionClasses){$ProductionClasses=Join-Path $groundProject 'build/classes/java/main'}
 $groundOutput=[IO.Path]::GetFullPath($OutputRoot)
 $groundClasses=Join-Path $groundOutput 'classes'
@@ -21,6 +23,7 @@ $groundAsm=@(rg --files (Join-Path $groundCache 'org.ow2.asm') -g '*.jar' | Wher
 if($groundAsm.Count -ne 2){throw 'Expected two cached ASM9.9 jars; no downloads attempted.'}
 $groundClasspath=$groundAsm -join ';'
 $groundHelpers=Join-Path $StagedRoot 'src/main/java/dev/c4lam/celeste/module/impl/visual/expansion'
+$groundGraph=Join-Path $ReachabilityRoot 'src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/GroundWalkability.java'
 $groundFeature=Join-Path $ProductionClasses 'dev/c4lam/celeste/module/impl/visual/expansion/GroundShadersFeature.class'
 $groundRenderer=Join-Path $ProductionClasses 'dev/c4lam/celeste/module/impl/visual/expansion/GroundShadersRenderer.class'
 if(-not(Test-Path -LiteralPath $groundFeature)-or-not(Test-Path -LiteralPath $groundRenderer)){throw 'Build actual Ground Shaders production classes first, or pass their exact ProductionClasses directory.'}
@@ -32,10 +35,14 @@ function Invoke-GroundLifecycle {
     return $lines
 }
 $null=Invoke-GroundLifecycle (Join-Path $JdkHome 'bin/javac.exe') @('--release','21','-classpath',$groundClasspath,'-d',$groundClasses,
-    (Join-Path $groundHelpers 'GroundShadersMath.java'),
+    (Join-Path $groundHelpers 'GroundShadersMath.java'),$groundGraph,
     (Join-Path $groundProject 'src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/VisualAtmosphere.java'),
-    (Join-Path $PSScriptRoot 'GroundShadersLifecycleCheck.java')) 'compile'
+    (Join-Path $PSScriptRoot 'GroundShadersLifecycleCheck.java'),
+    (Join-Path $PSScriptRoot 'GroundWalkabilityCheck.java'),
+    (Join-Path $PSScriptRoot 'GroundReachabilityCheck.java')) 'compile'
+Invoke-GroundLifecycle (Join-Path $JdkHome 'bin/java.exe') @('-classpath',"$groundClasses;$groundClasspath",'GroundWalkabilityCheck') 'walkability'
 Invoke-GroundLifecycle (Join-Path $JdkHome 'bin/java.exe') @('-classpath',"$groundClasses;$groundClasspath",'GroundShadersLifecycleCheck',$ProductionClasses) 'lifecycle'
+Invoke-GroundLifecycle (Join-Path $JdkHome 'bin/java.exe') @('-classpath',"$groundClasses;$groundClasspath",'GroundReachabilityCheck',$ProductionClasses) 'reachability'
 Get-FileHash -Algorithm SHA256 -LiteralPath $groundFeature,$groundRenderer |
     ForEach-Object { '{0} {1}' -f $_.Hash.ToLowerInvariant(),[IO.Path]::GetFileName($_.Path) } |
     Set-Content -LiteralPath (Join-Path $groundOutput 'production-class-sha256.txt') -Encoding utf8

@@ -3,11 +3,14 @@ package dev.c4lam.celeste.module.impl.visual.expansion;
 import com.mojang.blaze3d.pipeline.BlendFunction;
 import com.mojang.blaze3d.pipeline.RenderPipeline;
 import com.mojang.blaze3d.platform.DepthTestFunction;
+import com.mojang.blaze3d.platform.DestFactor;
+import com.mojang.blaze3d.platform.SourceFactor;
 import com.mojang.blaze3d.systems.RenderPass;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.textures.FilterMode;
 import com.mojang.blaze3d.textures.GpuTexture;
 import com.mojang.blaze3d.textures.GpuTextureView;
+import com.mojang.blaze3d.textures.TextureFormat;
 import com.mojang.blaze3d.vertex.VertexFormat;
 import dev.c4lam.celeste.auth.AuthBootstrap;
 import dev.c4lam.celeste.beta.lifecycle.BetaSubscriptions;
@@ -24,6 +27,7 @@ import net.minecraft.client.gl.RenderPipelines;
 import net.minecraft.client.render.Camera;
 import net.minecraft.client.render.VertexFormats;
 import net.minecraft.client.world.ClientWorld;
+import net.minecraft.client.texture.NativeImage;
 import net.minecraft.block.enums.CameraSubmersionType;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.LivingEntity;
@@ -35,10 +39,12 @@ import org.joml.Matrix4f;
 import org.joml.Vector3f;
 import org.joml.Vector4f;
 import org.slf4j.Logger;
+import org.lwjgl.system.MemoryUtil;
 
+import java.nio.ByteBuffer;
 import java.util.OptionalInt;
 
-/** Colors visible upward terrain before entities are drawn; owns no scene-depth writes or overrides. */
+/** Applies ambient color to every visible terrain face before entities, preserving texture and lighting. */
 public final class GroundShadersRenderer {
     private static final Logger LOGGER = dev.c4lam.celeste.compat.RuntimeLogging.getLogger("Celeste/GroundShaders");
     private static final RenderPipeline PIPELINE = dev.c4lam.celeste.compat.BetaRenderPipelines.register(
@@ -47,19 +53,24 @@ public final class GroundShadersRenderer {
             .withVertexShader(id("core/ground_shaders"))
             .withFragmentShader(id("core/ground_shaders"))
             .withSampler("SceneDepth")
+            .withSampler("ReachableTops")
             .withVertexFormat(VertexFormats.EMPTY, VertexFormat.DrawMode.TRIANGLES)
-            .withBlend(BlendFunction.TRANSLUCENT).withCull(false)
+            .withBlend(new BlendFunction(SourceFactor.DST_COLOR, DestFactor.ZERO, SourceFactor.ZERO, DestFactor.ONE))
+            .withCull(false)
             .withDepthTestFunction(DepthTestFunction.NO_DEPTH_TEST)
             .withDepthWrite(false).withColorWrite(true, false).build());
     private static final RenderStateDataKey<Frame> FRAME = RenderStateDataKey.create(() -> "celeste_ground_shaders");
-    private static final GroundShadersMath.Clock CLOCK = new GroundShadersMath.Clock();
     private static GpuTexture depth;
     private static GpuTextureView depthView;
+    private static GpuTexture reachableTexture;
+    private static GpuTextureView reachableView;
+    private static GroundReachability.Mask uploadedMask;
     private static volatile long generation;
     private static boolean initialized, warned;
 
     private record Frame(Object worldToken, long generation, GroundShadersMath.Settings options,
-                         float phase, Vector3f patternCamera, Matrix4f inverseView) { }
+                         Matrix4f inverseView, GroundReachability.Mask reachable,
+                         Vector3f cameraFromMask, float feetFromMask) { }
 
     private GroundShadersRenderer() { }
 
@@ -90,27 +101,30 @@ public final class GroundShadersRenderer {
         var position = context.camera().getCameraPos();
         if (!Double.isFinite(position.x) || !Double.isFinite(position.y) || !Double.isFinite(position.z)
             || Math.abs(position.y) > 32768) return;
-        // The actual view matrix retains view-bob/hurt transforms that a camera
-        // quaternion alone would lose, making a ground pattern slide while walking.
+        // Native terrain fog uses world-relative distances. Retain view-bob/hurt
+        // transforms so camera motion cannot shift that fog boundary.
         Matrix4f inverseView = new Matrix4f(context.viewMatrix());
         float determinant = inverseView.determinant();
         if (!inverseView.isFinite() || !Float.isFinite(determinant) || Math.abs(determinant) < 1.0E-8F) return;
         inverseView.invert();
         if (!inverseView.isFinite()) return;
         GroundShadersMath.Settings options = active.settings();
-        float phase = CLOCK.sample(System.nanoTime(), MinecraftClient.getInstance().isPaused(), options.speed());
-        // Every procedural lattice repeats at exactly 1024 scaled world units.
-        // Double precision sizing before modulo preserves arbitrary Scale settings.
-        Vector3f patternCamera = new Vector3f(GroundShadersMath.coordinate(position.x, options.scale()), 0,
-            GroundShadersMath.coordinate(position.z, options.scale()));
-        context.worldState().setData(FRAME, new Frame(active.worldToken(), generation, options, phase,
-            patternCamera, inverseView));
+        GroundReachability.Mask reachable = active.reachable();
+        // Subtract integer origins before narrowing to floats at distant world coordinates.
+        int originX = reachable == null ? (int) Math.floor(position.x) : reachable.originX();
+        int originY = reachable == null ? (int) Math.floor(position.y) : reachable.originY();
+        int originZ = reachable == null ? (int) Math.floor(position.z) : reachable.originZ();
+        Vector3f cameraFromMask = new Vector3f((float) (position.x - originX),
+            (float) (position.y - originY), (float) (position.z - originZ));
+        float feetFromMask = (float) (MinecraftClient.getInstance().player.getY() - originY);
+        context.worldState().setData(FRAME, new Frame(active.worldToken(), generation, options, inverseView,
+            reachable, cameraFromMask, feetFromMask));
     }
 
     private static boolean isCurrent(Frame frame) {
         MinecraftClient client = MinecraftClient.getInstance();
         GroundShadersFeature.Options active = GroundShadersFeature.options(client.world);
-        return frame != null && client.player != null && active != null
+        return frame != null && client.player != null && active != null && frame.reachable == active.reachable()
             && GroundShadersMath.currentFrame(frame.generation, generation, frame.worldToken,
                 active.worldToken(), active.settings());
     }
@@ -150,25 +164,29 @@ public final class GroundShadersRenderer {
         try {
             if (!RenderSystem.getDevice().precompilePipeline(PIPELINE).isValid()) return;
             ensureDepth(sourceDepth);
+            ensureReachability(frame.reachable);
             var encoder = RenderSystem.getDevice().createCommandEncoder();
             // Never sample a texture still bound as a scene depth attachment.
             encoder.copyTextureToTexture(sourceDepth.texture(), depth, 0, 0, 0, 0, 0,
                 sourceDepth.getWidth(0), sourceDepth.getHeight(0));
             GroundShadersMath.Settings options = frame.options;
             int rgb = options.color();
-            // GLSL ModelViewMat[0] stores (phase radians, range, 1 / pattern size, mode).
-            // TextureMat is the complete inverse view transform, including translation.
-            Matrix4f parameters = new Matrix4f().m00(frame.phase).m01(options.range())
-                .m02(1F / options.scale()).m03(options.mode());
+            // The shader outputs a color multiplier, retaining each terrain texel's
+            // existing lighting. TextureMat converts view space for native fog.
+            GroundReachability.Mask reachable = frame.reachable;
+            Matrix4f parameters = new Matrix4f().m00(reachable == null ? 0 : reachable.sizeX())
+                .m01(reachable == null ? 0 : reachable.sizeY()).m02(reachable == null ? 0 : reachable.sizeZ())
+                .m03(frame.feetFromMask).m10(reachable == null ? 0 : 1);
             var transforms = RenderSystem.getDynamicUniforms().write(parameters,
                 new Vector4f((rgb >> 16 & 255) / 255F, (rgb >> 8 & 255) / 255F, (rgb & 255) / 255F, options.intensity()),
-                frame.patternCamera, frame.inverseView);
+                frame.cameraFromMask, frame.inverseView);
             // This color-only pass leaves both scene depth and destination alpha intact.
             try (RenderPass pass = encoder.createRenderPass(() -> "Celeste ground material", target, OptionalInt.empty())) {
                 pass.setPipeline(PIPELINE);
                 RenderSystem.bindDefaultUniforms(pass);
                 pass.setUniform("DynamicTransforms", transforms);
                 pass.bindTexture("SceneDepth", depthView, RenderSystem.getSamplerCache().get(FilterMode.NEAREST));
+                pass.bindTexture("ReachableTops", reachableView, RenderSystem.getSamplerCache().get(FilterMode.NEAREST));
                 pass.draw(0, 3);
             }
             warned = false;
@@ -197,10 +215,39 @@ public final class GroundShadersRenderer {
         depthView = RenderSystem.getDevice().createTextureView(depth);
     }
 
+    private static void ensureReachability(GroundReachability.Mask mask) {
+        int width = mask == null ? 1 : mask.sizeX();
+        int height = mask == null ? 1 : mask.sizeY() * mask.sizeZ();
+        if (!usable(reachableView) || reachableView.getWidth(0) != width || reachableView.getHeight(0) != height) {
+            releaseReachability();
+            reachableTexture = RenderSystem.getDevice().createTexture("Celeste reachable terrain tops",
+                GpuTexture.USAGE_COPY_DST | GpuTexture.USAGE_TEXTURE_BINDING, TextureFormat.RGBA8, width, height, 1, 1);
+            reachableView = RenderSystem.getDevice().createTextureView(reachableTexture);
+        } else if (uploadedMask == mask) return;
+        ByteBuffer pixels = MemoryUtil.memAlloc(width * height * 4);
+        try {
+            if (mask == null) pixels.putInt(0);
+            else mask.copyTo(pixels);
+            pixels.flip();
+            RenderSystem.getDevice().createCommandEncoder().writeToTexture(reachableTexture, pixels,
+                NativeImage.Format.RGBA, 0, 0, 0, 0, width, height);
+            uploadedMask = mask;
+        } finally { MemoryUtil.memFree(pixels); }
+    }
+
+    private static void releaseReachability() {
+        GpuTextureView oldView = reachableView;
+        GpuTexture oldTexture = reachableTexture;
+        reachableView = null;
+        reachableTexture = null;
+        uploadedMask = null;
+        try { if (oldView != null && !oldView.isClosed()) oldView.close(); }
+        finally { if (oldTexture != null && !oldTexture.isClosed()) oldTexture.close(); }
+    }
+
     /** Disable, world changes, reload and unload invalidate every extracted frame. */
     public static void reset() {
         generation++;
-        CLOCK.reset();
         if (RenderSystem.isOnRenderThread()) releaseResources();
         else MinecraftClient.getInstance().execute(GroundShadersRenderer::releaseResources);
     }
@@ -211,8 +258,10 @@ public final class GroundShadersRenderer {
         GpuTexture oldDepth = depth;
         depthView = null;
         depth = null;
-        try { if (oldView != null && !oldView.isClosed()) oldView.close(); }
-        finally { if (oldDepth != null && !oldDepth.isClosed()) oldDepth.close(); }
+        try {
+            try { if (oldView != null && !oldView.isClosed()) oldView.close(); }
+            finally { if (oldDepth != null && !oldDepth.isClosed()) oldDepth.close(); }
+        } finally { releaseReachability(); }
     }
 
     private static Identifier id(String path) { return Identifier.of("celeste", path); }
