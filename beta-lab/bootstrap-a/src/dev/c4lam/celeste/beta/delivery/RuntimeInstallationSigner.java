@@ -2,6 +2,7 @@ package dev.c4lam.celeste.beta.delivery;
 
 import com.google.gson.JsonObject;
 import dev.c4lam.celeste.auth.DpopProofSigner;
+import dev.c4lam.celeste.auth.CredentialMaterial;
 import dev.c4lam.celeste.auth.PortableCredentialProtection;
 import java.io.IOException;
 import java.io.InputStream;
@@ -11,11 +12,6 @@ import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.security.GeneralSecurityException;
-import java.security.KeyFactory;
-import java.security.PrivateKey;
-import java.security.spec.EdECPrivateKeySpec;
-import java.security.spec.NamedParameterSpec;
-import java.security.spec.PKCS8EncodedKeySpec;
 import java.time.Clock;
 import java.util.Arrays;
 import java.util.Locale;
@@ -77,12 +73,12 @@ public final class RuntimeInstallationSigner {
         if (plain == null || plain.length == 0 || plain.length > MAX_PLAIN || uid <= 0 || device == null) {
             throw new GeneralSecurityException("Invalid protected installation data");
         }
-        JsonObject credential = BetaDeliveryClient.object(plain);
-        if (!device.equals(BetaDeliveryClient.text(credential, "deviceId"))
-            || uid != BetaDeliveryClient.integer(credential, "uid")) {
+        try (CredentialMaterial credential = CredentialMaterial.decode(plain)) {
+        if (!device.equals(credential.deviceId())
+            || uid != credential.uid()) {
             throw new GeneralSecurityException("Protected installation does not match the launcher identity");
         }
-        JsonObject certificate = BetaDeliveryClient.signed(BetaDeliveryClient.text(credential, "certificate"),
+        JsonObject certificate = BetaDeliveryClient.signed(credential.certificate(),
             "celeste-installation", BetaDeliveryClient.publicKey(serverKey));
         long now = clock.instant().getEpochSecond();
         if (!device.equals(BetaDeliveryClient.text(certificate, "device"))
@@ -92,17 +88,12 @@ public final class RuntimeInstallationSigner {
             throw new GeneralSecurityException("Installation certificate does not match the current identity");
         }
         byte[] rawPublic = BetaDeliveryClient.decode(BetaDeliveryClient.text(certificate, "install_key"));
-        byte[] encodedPrivate = BetaDeliveryClient.decode(BetaDeliveryClient.text(credential, "signingPrivate"));
+        DpopProofSigner signer = credential.signer(rawPublic, clock);
         try {
-            KeyFactory factory = KeyFactory.getInstance("Ed25519");
-            PrivateKey privateKey = encodedPrivate.length == 32
-                ? factory.generatePrivate(new EdECPrivateKeySpec(NamedParameterSpec.ED25519, encodedPrivate))
-                : factory.generatePrivate(new PKCS8EncodedKeySpec(encodedPrivate));
-            // Constructor proves that the private key matches the certificate's signed public key.
-            DpopProofSigner signer = new DpopProofSigner(privateKey, rawPublic, clock);
             // Legacy installation certificates predate cnf; current delivery grants never may omit it.
             if (certificate.has("cnf")) signer.requireBinding(certificate);
             return signer;
-        } finally { Arrays.fill(encodedPrivate, (byte) 0); }
+        } catch (GeneralSecurityException | RuntimeException | Error failure) { signer.close(); throw failure; }
+        }
     }
 }

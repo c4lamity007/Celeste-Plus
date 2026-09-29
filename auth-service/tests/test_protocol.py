@@ -416,11 +416,11 @@ def test_challenge_is_one_time_and_requires_both_signatures(tmp_path):
         assert client.post("/v1/auth/complete", json=valid_body).status_code == 401
 
 
-def test_admin_login_counts_only_failures_and_success_clears_them(tmp_path):
+def test_admin_login_reserves_attempts_and_success_clears_them(tmp_path):
     config = settings(tmp_path)
     app = create_app(config)
     with TestClient(app, base_url="https://testserver") as client:
-        for _ in range(5):
+        for _ in range(4):
             failed = client.post("/admin/login", data={"password": "wrong"})
             assert failed.status_code == 401
 

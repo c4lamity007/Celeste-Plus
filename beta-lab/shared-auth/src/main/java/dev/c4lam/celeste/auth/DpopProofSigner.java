@@ -17,11 +17,11 @@ import java.util.Locale;
 import java.util.Objects;
 
 /** RFC 9449 request proofs. Instances expose a signing capability, never key material. */
-public final class DpopProofSigner {
+public final class DpopProofSigner implements AutoCloseable {
     private static final SecureRandom RANDOM = new SecureRandom();
     private static final Base64.Encoder BASE64 = Base64.getUrlEncoder().withoutPadding();
     private static final byte[] SPKI = HexFormat.of().parseHex("302a300506032b6570032100");
-    private final PrivateKey privateKey;
+    private byte[] privateEncoding;
     private final Clock clock;
     private final String header;
     private final String thumbprint;
@@ -31,7 +31,18 @@ public final class DpopProofSigner {
     }
 
     public DpopProofSigner(PrivateKey privateKey, byte[] publicKey, Clock clock) throws GeneralSecurityException {
-        this.privateKey = Objects.requireNonNull(privateKey, "privateKey");
+        this(Objects.requireNonNull(privateKey, "privateKey").getEncoded(), publicKey, clock, true);
+    }
+
+    /** Copies the encoding; the caller retains responsibility for its own input buffer. */
+    public static DpopProofSigner fromEncoded(byte[] encoded, byte[] publicKey, Clock clock) throws GeneralSecurityException {
+        if (encoded == null) throw new GeneralSecurityException("Missing installation key");
+        return new DpopProofSigner(encoded.clone(), publicKey, clock, true);
+    }
+
+    private DpopProofSigner(byte[] ownedEncoding, byte[] publicKey, Clock clock, boolean owned) throws GeneralSecurityException {
+        this.privateEncoding = ownedEncoding;
+        try {
         this.clock = Objects.requireNonNull(clock, "clock");
         if (publicKey == null || publicKey.length != 32) throw new GeneralSecurityException("Invalid DPoP public key");
         byte[] encoded = java.util.Arrays.copyOf(SPKI, SPKI.length + 32);
@@ -49,6 +60,7 @@ public final class DpopProofSigner {
         thumbprint = hash(canonical);
         header = BASE64.encodeToString(("{\"typ\":\"dpop+jwt\",\"alg\":\"EdDSA\",\"jwk\":"
             + canonical + "}").getBytes(StandardCharsets.US_ASCII));
+        } catch (GeneralSecurityException | RuntimeException | Error failure) { close(); throw failure; }
     }
 
     public String thumbprint() { return thumbprint; }
@@ -131,11 +143,15 @@ public final class DpopProofSigner {
         return "https://" + host + port + (path == null || path.isEmpty() ? "/" : path);
     }
 
-    private byte[] sign(byte[] bytes) throws GeneralSecurityException {
-        Signature signature = Signature.getInstance("Ed25519");
-        signature.initSign(privateKey);
-        signature.update(bytes);
-        return signature.sign();
+    private synchronized byte[] sign(byte[] bytes) throws GeneralSecurityException {
+        if (privateEncoding == null) throw new GeneralSecurityException("Installation signer has been closed");
+        return CredentialMaterial.signEncoded(privateEncoding, bytes);
+    }
+
+    public synchronized boolean isDestroyed() { return privateEncoding == null; }
+
+    @Override public synchronized void close() {
+        if (privateEncoding != null) { java.util.Arrays.fill(privateEncoding, (byte) 0); privateEncoding = null; }
     }
 
     private static String hash(String text) throws GeneralSecurityException {

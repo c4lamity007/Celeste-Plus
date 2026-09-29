@@ -9,7 +9,8 @@ import java.util.Random;
 /** Bounded, world-independent hit animations. No game objects survive an accepted hit. */
 public final class HitEffectsState {
     public static final int MAX_PARTICLES = 144;
-    public static final int MAX_GROUND_PULSES = 4;
+    // Eight accepted targets per tick over the full ~2.1 second animation, plus headroom.
+    public static final int MAX_GROUND_PULSES = 384;
     public enum Style { SPARKS, STARS, DOTS }
     public record Point(double x, double y, double z) {
         public Point add(double dx, double dy, double dz) { return new Point(x + dx, y + dy, z + dz); }
@@ -42,23 +43,24 @@ public final class HitEffectsState {
     }
     private static final class GroundEdge {
         Beam visible;
-        Point lastFrom;
-        double firstBorn,lastBorn,lastStart;
+        Point firstFrom;
+        double lastBorn,wave,endWave;
         GroundEdge(Beam beam,double born,double start) {
-            visible=beam;lastFrom=beam.from;firstBorn=lastBorn=born;lastStart=start;
+            visible=beam;firstFrom=beam.from;lastBorn=born;
         }
-        void merge(Beam beam,double born,double start) {
-            firstBorn=Math.min(firstBorn,born);
-            if(born>lastBorn) {lastBorn=born;lastStart=start;lastFrom=beam.from;}
+        void merge(Beam beam,double born,double start,double now) {
+            if(born>lastBorn+.000001) {
+                lastBorn=born;
+                double age=now-born-start/9;
+                double a=highlight(age),b=highlight(age-1.0/9);
+                boolean forward=beam.from.equals(firstFrom);
+                wave=Math.min(1,wave+(forward?a:b));
+                endWave=Math.min(1,endWave+(forward?b:a));
+            }
             if(beam.opacity>=visible.opacity)visible=beam;
         }
         Beam sample(double now) {
-            double wave=0,endWave=0;
-            if(lastBorn>firstBorn+.000001) {
-                double age=now-lastBorn-lastStart/9;
-                wave=highlight(age);endWave=highlight(age-1.0/9);
-            }
-            boolean forward=visible.from.equals(lastFrom);
+            boolean forward=visible.from.equals(firstFrom);
             return new Beam(visible.from,visible.to,visible.width,visible.opacity,visible.color,visible.endColor,
                 forward?wave:endWave,forward?endWave:wave);
         }
@@ -108,14 +110,16 @@ public final class HitEffectsState {
 
     public void ground(List<HitGroundPath.Branch> branches, double now, double size, int color,int endColor) {
         if (branches == null || branches.isEmpty() || !Double.isFinite(now)) return;
-        while (ground.size() >= MAX_GROUND_PULSES) ground.removeFirst();
+        expireGround(now);
+        // Never replace a still-running hit. The safety cap admits the bounded normal attack rate.
+        if (ground.size() >= MAX_GROUND_PULSES) return;
         ground.add(new GroundPulse(List.copyOf(branches), now, finite(size,1,.5,2), color & 0xFFFFFF,endColor & 0xFFFFFF));
     }
 
     public Frame frame(double now) {
         if (!Double.isFinite(now)) return Frame.EMPTY;
         particles.removeIf(p -> now < p.born || now - p.born >= p.life);
-        ground.removeIf(p -> now < p.born || now-p.born >= HitGroundPath.STEPS/9.0+.95);
+        expireGround(now);
         if (particles.isEmpty() && ground.isEmpty()) return Frame.EMPTY;
         List<Sprite> sprites = new ArrayList<>(particles.size());
         for (Particle p : particles) {
@@ -140,7 +144,7 @@ public final class HitEffectsState {
                 GroundEdge previous=beams.get(key);
                 // Shared prefixes draw once. A later hit sends a separate short highlight out along overlap.
                 if(previous==null)beams.put(key,new GroundEdge(beam,p.born,s.start()));
-                else previous.merge(beam,p.born,s.start());
+                else previous.merge(beam,p.born,s.start(),now);
             }
         }
         return new Frame(List.copyOf(sprites),beams.values().stream().map(edge->edge.sample(now)).toList());
@@ -153,6 +157,10 @@ public final class HitEffectsState {
             result|=(int)Math.round(a+(b-a)*t)<<shift;
         }
         return result;
+    }
+
+    private void expireGround(double now) {
+        ground.removeIf(p -> now < p.born || now-p.born >= HitGroundPath.STEPS/9.0+.95);
     }
 
     public void clearParticles() { particles.clear(); }

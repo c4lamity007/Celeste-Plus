@@ -12,7 +12,8 @@ $tronClasses=Join-Path $OutputRoot 'classes'
 New-Item -ItemType Directory -Force -Path $tronClasses | Out-Null
 $tronHelpers=Join-Path $StagedRoot 'src/main/java/dev/c4lam/celeste/module/impl/visual/expansion'
 $tronBase=Join-Path $ProjectRoot 'src/main/java/dev/c4lam/celeste/module/impl/visual/expansion'
-$tronCompile=@(& (Join-Path $JdkHome 'bin/javac.exe') --release 21 -d $tronClasses (Join-Path $tronHelpers 'AmbientTronField.java') (Join-Path $tronHelpers 'AmbientField.java') (Join-Path $tronHelpers 'AmbientTesseractField.java') (Join-Path $tronHelpers 'AmbientTronGeometry.java') (Join-Path $tronBase 'JumpCircleAnimation.java') (Join-Path $PSScriptRoot 'AmbientTronCheck.java') 2>&1)
+function Tron-Source([string]$name) { $path=Join-Path $tronHelpers $name; if(Test-Path -LiteralPath $path){return $path}; return (Join-Path $tronBase $name) }
+$tronCompile=@(& (Join-Path $JdkHome 'bin/javac.exe') --release 21 -d $tronClasses (Tron-Source 'AmbientTronField.java') (Tron-Source 'AmbientField.java') (Tron-Source 'AmbientTesseractField.java') (Tron-Source 'AmbientTronGeometry.java') (Join-Path $tronBase 'JumpCircleAnimation.java') (Join-Path $PSScriptRoot 'AmbientTronCheck.java') 2>&1)
 $tronExit=$LASTEXITCODE
 $tronCompile | Set-Content -LiteralPath (Join-Path $OutputRoot 'compile.log') -Encoding utf8
 if($tronExit -ne 0){throw "Tron compile failed: $($tronCompile | Select-Object -Last 12 | Out-String)"}
@@ -31,7 +32,7 @@ $tronClasspath=$tronLibraries -join ';'
 $tronField=Join-Path $tronHelpers 'AmbientField.java'
 if(-not (Test-Path -LiteralPath $tronField)){$tronField=Join-Path $tronBase 'AmbientField.java'}
 if(-not $MinecraftJar){$MinecraftJar=Join-Path $ProjectRoot '.gradle/loom-cache/minecraftMaven/net/minecraft/minecraft-merged-b00516cda8/1.21.11-net.fabricmc.yarn.1_21_11.1.21.11+build.6-v2/minecraft-merged-b00516cda8-1.21.11-net.fabricmc.yarn.1_21_11.1.21.11+build.6-v2.jar'}
-$tronCompile=@(& (Join-Path $JdkHome 'bin/javac.exe') --release 21 -cp "$tronClasses;$tronClasspath" -d $tronClasses (Join-Path $tronBase 'CustomFogMath.java') $tronField (Join-Path $tronHelpers 'AmbientTesseractField.java') (Join-Path $ProjectRoot 'tools/qa/ImpactCheck.java') (Join-Path $ProjectRoot 'tools/qa/AtmosphereCheck.java') (Join-Path $PSScriptRoot 'AmbientTronGpuCheck.java') 2>&1)
+$tronCompile=@(& (Join-Path $JdkHome 'bin/javac.exe') --release 21 -cp "$tronClasses;$tronClasspath" -d $tronClasses (Join-Path $tronBase 'CustomFogMath.java') $tronField (Tron-Source 'AmbientTesseractField.java') (Join-Path $ProjectRoot 'tools/qa/ImpactCheck.java') (Join-Path $ProjectRoot 'tools/qa/AtmosphereCheck.java') (Join-Path $PSScriptRoot 'AmbientTronGpuCheck.java') 2>&1)
 $tronExit=$LASTEXITCODE
 $tronCompile | Set-Content -LiteralPath (Join-Path $OutputRoot 'gpu-compile.log') -Encoding utf8
 if($tronExit -ne 0){throw "Tron GPU compile failed: $($tronCompile | Select-Object -Last 12 | Out-String)"}

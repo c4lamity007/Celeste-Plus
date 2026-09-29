@@ -88,12 +88,14 @@ public final class HitDisplacementRenderer {
         Vec3d direction = Vec3d.fromPolar(rotation.serverPitchOr(client.player.getPitch()),
             rotation.serverYawOr(client.player.getYaw()));
         var box = target.getBoundingBox();
-        var point = HitDisplacementWorld.impact(point(eye), point(direction),
+        var hit = client.crosshairTarget instanceof EntityHitResult entityHit && entityHit.getEntity() == target
+            ? point(entityHit.getPos()) : null;
+        var point = HitDisplacementWorld.attackImpact(point(eye), point(direction),
             new HitDisplacementWorld.Point(box.minX, box.minY, box.minZ),
-            new HitDisplacementWorld.Point(box.maxX, box.maxY, box.maxZ));
+            new HitDisplacementWorld.Point(box.maxX, box.maxY, box.maxZ), hit, rotation.isActive());
         if (point == null) return;
         enqueue(client, new HitDisplacementWorld.Anchor(target.getId(),
-            point.subtract(point(target.getEntityPos())), point), rgb, size);
+            point.subtract(point(target.getEntityPos())), point, target.getUuid()), rgb, size);
     }
 
     private static void enqueue(MinecraftClient client, HitDisplacementWorld.Anchor anchor, int rgb, double size) {
@@ -112,14 +114,12 @@ public final class HitDisplacementRenderer {
                                                            HitDisplacementWorld.Anchor anchor) {
         var camera = client.gameRenderer.getCamera();
         if (camera == null || !camera.isReady()) return null;
-        var at = anchor.fallback();
         var target = client.world.getEntityById(anchor.entityId());
-        if (target != null && !target.isRemoved())
-            at = point(target.getLerpedPos(camera.getLastTickProgress())).add(anchor.offset());
+        var at = HitDisplacementWorld.follow(anchor, target == null ? null : target.getUuid(),
+            target != null && !target.isRemoved() ? point(target.getLerpedPos(camera.getLastTickProgress())) : null);
         Vec3d eye = context.worldState().cameraRenderState.pos;
-        Vector4f view = context.matrices().peek().getPositionMatrix().transform(new Vector4f(
-            (float) (at.x() - eye.x), (float) (at.y() - eye.y), (float) (at.z() - eye.z), 1));
-        return new HitDisplacementWorld.Point(view.x, view.y, view.z);
+        return HitDisplacementProjection.view(at, point(eye), context.matrices().peek().getPositionMatrix(),
+            RenderSystem.getModelViewMatrix());
     }
 
     private static boolean allowed(MinecraftClient client) {

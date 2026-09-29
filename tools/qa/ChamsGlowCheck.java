@@ -55,6 +55,48 @@ public final class ChamsGlowCheck extends ChamsAuroraCheck {
         glReadPixels(0,0,W,H,GL_DEPTH_COMPONENT,GL_FLOAT,depth);
         for(int i=0;i<depth.limit();i++)check(Math.abs(depth.get(i)-.63f)<1e-6,"World depth untouched");
     }
+    private static void skinCoverage() throws Exception {
+        int vertex = shader(GL_VERTEX_SHADER, preprocess(source("chams_glow_mask.vsh")));
+        int fragment = shader(GL_FRAGMENT_SHADER, preprocess(source("chams_glow_mask.fsh")));
+        int program = glCreateProgram(); glAttachShader(program, vertex); glAttachShader(program, fragment);
+        glBindAttribLocation(program, 0, "Position"); glBindAttribLocation(program, 1, "UV0");
+        glBindAttribLocation(program, 2, "Color"); glLinkProgram(program);
+        check(glGetProgrami(program, GL_LINK_STATUS) != 0, "Skin coverage shader links");
+        glUniformBlockBinding(program, glGetUniformBlockIndex(program, "DynamicTransforms"), 0);
+        glUniformBlockBinding(program, glGetUniformBlockIndex(program, "Projection"), 1);
+        int skin = glGenTextures(); glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, skin);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        ByteBuffer transparent = BufferUtils.createByteBuffer(4 * 4 * 4);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 4, 4, 0, GL_RGBA, GL_UNSIGNED_BYTE, transparent);
+        beginMask(); rect(-.4f,-.4f,.4f,.4f,.1f,TINT); float[] base = read();
+        glUseProgram(program); glUniform1i(glGetUniformLocation(program, "SkinSampler"), 0);
+        skinRect();
+        check(Arrays.equals(base, read()), "Transparent enlarged clothing preserves the exact base silhouette");
+        FloatBuffer depth = BufferUtils.createFloatBuffer(W * H);
+        glReadPixels(0,0,W,H,GL_DEPTH_COMPONENT,GL_FLOAT,depth);
+        check(depth.get(150 * W + 270) == 1F, "Discarded clothing does not write private depth");
+        ByteBuffer cutout = BufferUtils.createByteBuffer(4 * 4 * 4);
+        for (int y=0;y<4;y++) for(int x=0;x<4;x++)
+            cutout.put((byte)255).put((byte)255).put((byte)255).put((byte)(x==0?255:0));
+        cutout.flip(); glTexSubImage2D(GL_TEXTURE_2D,0,0,0,4,4,GL_RGBA,GL_UNSIGNED_BYTE,cutout);
+        skinRect(); float[] coverage = read();
+        check(alpha(coverage,270,300) > .6F, "Visible outer-layer texels extend the silhouette");
+        check(alpha(coverage,930,300) == 0F, "Transparent outer-layer texels never become a box outline");
+        check(alpha(coverage,600,300) == alpha(base,600,300), "Body under transparent clothing remains covered");
+        glDeleteProgram(program); glDeleteShader(vertex); glDeleteShader(fragment); glDeleteTextures(skin);
+        System.out.println("PASS skin-alpha mask: transparent hat/clothes excluded, visible texels kept, depth correct");
+    }
+    private static void skinRect() {
+        float[] xy={-.6f,-.6f,.6f,-.6f,.6f,.6f,-.6f,-.6f,.6f,.6f,-.6f,.6f};
+        FloatBuffer vertices=BufferUtils.createFloatBuffer(72);
+        for(int i=0;i<6;i++) vertices.put(xy[i*2]).put(xy[i*2+1]).put(-.3f)
+            .put((xy[i*2]+.6f)/1.2f).put((xy[i*2+1]+.6f)/1.2f).put(TINT).put(0).put(0).put(1);
+        vertices.flip();glBindBuffer(GL_ARRAY_BUFFER,vertexBuffer);glBufferData(GL_ARRAY_BUFFER,vertices,GL_STREAM_DRAW);
+        glDrawArrays(GL_TRIANGLES,0,6);
+    }
     private static void pixel(float[] mask,int x,int y,float opacity) {
         if(x<0||y<0||x>=W||y>=H)return;
         int at=(x+y*W)*4;
@@ -176,6 +218,7 @@ public final class ChamsGlowCheck extends ChamsAuroraCheck {
             mainDepth=attachment(true,W,H);main=fbo(attachment(false,W,H),mainDepth);
             glDepthMask(true);glClearDepth(.63);glClear(GL_DEPTH_BUFFER_BIT);
             contourPrecision(Files.readString(previousRim));
+            skinCoverage();
 
             beginMask();glViewport(W/3,0,W/3,H);body(false);float[] silhouette=read(),first=output();
             int exterior=0,soft=0;

@@ -1,7 +1,5 @@
 package dev.c4lam.celeste.auth;
 
-import com.google.gson.Gson;
-import com.google.gson.JsonParseException;
 import com.sun.jna.platform.win32.Crypt32Util;
 import com.sun.jna.platform.win32.KnownFolders;
 import com.sun.jna.platform.win32.Shell32Util;
@@ -39,7 +37,6 @@ final class CredentialStore {
     private static final byte[] KEY_SERVICE = "dev.c4lam.celeste.normal".getBytes(StandardCharsets.US_ASCII);
     private static final byte[] KEY_ACCOUNT = LAUNCHER_CHANNEL.getBytes(StandardCharsets.US_ASCII);
     private static final int MAX_PLAINTEXT_BYTES = 1024 * 1024;
-    private static final Gson GSON = new Gson();
     private final Path path;
     private final String product;
 
@@ -102,7 +99,9 @@ final class CredentialStore {
     }
 
     InstallCredential load() throws IOException, GeneralSecurityException {
-        byte[] stored = Files.readAllBytes(path);
+        byte[] stored;
+        try (var input = Files.newInputStream(path)) { stored = input.readNBytes(MAX_PLAINTEXT_BYTES + 65536 + MAGIC.length + 1); }
+        if (stored.length > MAX_PLAINTEXT_BYTES + 65536 + MAGIC.length) throw new GeneralSecurityException("Credential envelope exceeds size limit");
         if (stored.length <= MAGIC.length || !Arrays.equals(MAGIC, Arrays.copyOf(stored, MAGIC.length))) {
             throw new GeneralSecurityException("Credential envelope is invalid");
         }
@@ -118,14 +117,7 @@ final class CredentialStore {
             plain = portableUnprotect(protectedValue);
         }
         try {
-            InstallCredential credential = GSON.fromJson(new String(plain, StandardCharsets.UTF_8), InstallCredential.class);
-            if (credential == null) {
-                throw new GeneralSecurityException("Credential is empty");
-            }
-            credential.validate();
-            return credential;
-        } catch (JsonParseException exception) {
-            throw new GeneralSecurityException("Credential is damaged", exception);
+            return InstallCredential.decode(plain);
         } finally {
             Arrays.fill(plain, (byte) 0);
         }
@@ -133,7 +125,7 @@ final class CredentialStore {
 
     void save(InstallCredential credential) throws IOException, GeneralSecurityException {
         credential.validate();
-        byte[] plain = GSON.toJson(credential).getBytes(StandardCharsets.UTF_8);
+        byte[] plain = credential.encode();
         byte[] protectedValue;
         try {
             if (isWindows()) {

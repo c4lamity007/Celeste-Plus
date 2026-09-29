@@ -1,5 +1,8 @@
 import dev.c4lam.celeste.module.impl.visual.expansion.HitDisplacementAnimation;
 import dev.c4lam.celeste.module.impl.visual.expansion.HitDisplacementAnimation.Frame;
+import dev.c4lam.celeste.module.impl.visual.expansion.HitDisplacementProjection;
+import dev.c4lam.celeste.module.impl.visual.expansion.HitDisplacementWorld.Point;
+import org.joml.Matrix4f;
 import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.nio.ByteBuffer;
@@ -85,7 +88,19 @@ public final class HitDisplacementCheck {
         validateLocalized(projected,render(input,perspective,-2));
         check(Arrays.equals(scene,render(input,perspective,2)),"behind-camera hit rendered or moved to center");
         check(Arrays.equals(scene,render(input,perspective,-.05f)),"near-clipped hit rendered");
+        Point hit=new Point(4,1.4,.8);
+        var first=HitDisplacementProjection.view(hit,new Point(0,1.6,0),new Matrix4f(),new Matrix4f().rotateY((float)(Math.PI/2)));
+        validateWorld(first,perspective,.66f,.47f);
+        var third=HitDisplacementProjection.view(hit,new Point(8,2.4,0),new Matrix4f(),new Matrix4f().rotateY((float)(-Math.PI/2)));
+        validateWorld(third,perspective,.34f,.35f);
+        var bob=HitDisplacementProjection.view(hit,new Point(0,1.6,0),new Matrix4f().translate(.2f,.1f,0),new Matrix4f().rotateY((float)(Math.PI/2)));
+        validateWorld(bob,perspective,.65238095f,.4857143f);
         System.out.println("PASS actual Projection UBO: FOV/translation, perspective divide, behind-camera and near-plane rejection");
+    }
+    static void validateWorld(Point view,float[] projection,float expectedX,float expectedY) {
+        Frame original=HitDisplacementAnimation.at(.24,(float)(view.x()+1)*.5f,(float)(view.y()+1)*.5f,1.2f,0x33BBFF);
+        var expected=List.of(new Frame(expectedX,expectedY,original.radius(),original.strength(),original.color(),original.release()));
+        validateLocalized(expected,render(List.of(original),projection,(float)view.z()));
     }
     public static void main(String[] args)throws Exception{Path shaders=Path.of(args[0]),out=Path.of(args[2]);Files.createDirectories(out);animation();check(glfwInit(),"GLFW unavailable");glfwWindowHint(GLFW_VISIBLE,GLFW_FALSE);glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR,3);glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR,3);glfwWindowHint(GLFW_OPENGL_PROFILE,GLFW_OPENGL_CORE_PROFILE);long window=glfwCreateWindow(64,64,"Hit Displacement GPU QA",0,0);check(window!=0,"GL context missing");glfwMakeContextCurrent(window);GL.createCapabilities();glBindVertexArray(glGenVertexArrays());
         try(ZipFile game=new ZipFile(args[1])){int v=compile(GL_VERTEX_SHADER,imports(Files.readString(shaders.resolve("hit_displacement.vsh")),game)),f=compile(GL_FRAGMENT_SHADER,imports(Files.readString(shaders.resolve("hit_displacement.fsh")),game));program=glCreateProgram();glAttachShader(program,v);glAttachShader(program,f);glLinkProgram(program);check(glGetProgrami(program,GL_LINK_STATUS)!=0,glGetProgramInfoLog(program));glDeleteShader(v);glDeleteShader(f);}

@@ -11,7 +11,9 @@ public final class HitDisplacementWorld {
         public Point subtract(Point other) { return new Point(x - other.x, y - other.y, z - other.z); }
         public boolean finite() { return Double.isFinite(x) && Double.isFinite(y) && Double.isFinite(z); }
     }
-    public record Anchor(int entityId, Point offset, Point fallback) { }
+    public record Anchor(int entityId, Point offset, Point fallback, java.util.UUID identity) {
+        public Anchor(int entityId, Point offset, Point fallback) { this(entityId, offset, fallback, null); }
+    }
     public record Screen(float x, float y) { }
     public record WorldFrame(Point position, float radius, float strength, int color, float release) { }
     private record Pulse(long started, Anchor anchor, float size, int color) { }
@@ -65,13 +67,34 @@ public final class HitDisplacementWorld {
         if (eye == null || direction == null || min == null || max == null
             || !eye.finite() || !direction.finite() || !min.finite() || !max.finite()
             || min.x > max.x || min.y > max.y || min.z > max.z) return null;
-        Point result = intersect(eye, direction, min, max);
-        if (result != null) return result;
-        // Entity attack packets identify an entity, not a hit vector. If its action ray
-        // missed (for example, a moving target), anchor to its facing surface, never the HUD.
-        Point center = new Point((min.x + max.x) * .5, (min.y + max.y) * .5, (min.z + max.z) * .5);
-        result = intersect(eye, center.subtract(eye), min, max);
-        return result != null ? result : center;
+        return intersect(eye, direction, min, max);
+    }
+
+    /** Prefer vanilla's exact hit. A stale visible-camera result cannot override a silent action ray. */
+    public static Point attackImpact(Point eye, Point direction, Point min, Point max,
+                                     Point matchingHit, boolean directedLook) {
+        if (matchingHit != null && matchingHit.finite()
+            && (!directedLook || onRay(eye, direction, matchingHit))) return matchingHit;
+        return impact(eye, direction, min, max);
+    }
+
+    private static boolean onRay(Point eye, Point direction, Point hit) {
+        if (eye == null || direction == null || !eye.finite() || !direction.finite()) return false;
+        double length = direction.x*direction.x + direction.y*direction.y + direction.z*direction.z;
+        if (length < 1E-16) return false;
+        Point delta = hit.subtract(eye);
+        double along = (delta.x*direction.x + delta.y*direction.y + delta.z*direction.z) / length;
+        if (along < 0) return false;
+        double x=delta.x-direction.x*along, y=delta.y-direction.y*along, z=delta.z-direction.z*along;
+        return x*x+y*y+z*z <= .015*.015;
+    }
+
+    /** Follow the rendered position of the original entity, never an entity reusing its numeric ID. */
+    public static Point follow(Anchor anchor, java.util.UUID identity, Point renderedPosition) {
+        if (anchor == null) return null;
+        return renderedPosition != null && renderedPosition.finite()
+            && (anchor.identity == null || anchor.identity.equals(identity))
+            ? renderedPosition.add(anchor.offset) : anchor.fallback;
     }
 
     private static Point intersect(Point eye, Point dir, Point min, Point max) {

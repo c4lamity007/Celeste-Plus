@@ -195,7 +195,9 @@ def compileRuntimeAuthCheck = tasks.register('compileRuntimeAuthCheck', JavaComp
     dependsOn tasks.named('classes')
     source fileTree('beta-lab/runtime-auth-check/src') { include '**/*.java' }
     source fileTree('beta-lab/runtime-auth-check/stubs') { include '**/*.java' }
+    source file('beta-lab/bootstrap-a/test/dev/c4lam/celeste/beta/delivery/RuntimeInstallationSignerCheck.java')
     source file('runtime-overlay/src/main/java/dev/c4lam/celeste/auth/AuthServiceClient.java')
+    source file('runtime-overlay/src/main/java/dev/c4lam/celeste/auth/CredentialStore.java')
     source file('runtime-overlay/src/main/java/dev/c4lam/celeste/auth/HardwareIdentityV2.java')
     source file('runtime-overlay/src/main/java/dev/celestebeta/host/ResourceReloadBridge.java')
     ['Crypto', 'AuthConfig', 'InstallCredential'].each { name -> source file("build/runtime-core/src/main/java/dev/c4lam/celeste/auth/${name}.java") }
@@ -220,4 +222,16 @@ tasks.register('runtimeHardwareIdentityCheck', JavaExec) {
     mainClass = 'dev.c4lam.celeste.auth.HardwareIdentityV2Check'
     enableAssertions = true
     if (providers.gradleProperty('nativeHardwareParityFile').isPresent()) args providers.gradleProperty('nativeHardwareParityFile').get()
+}
+
+// Synthetic credential round trips and secret lifecycle; never opens a user credential.
+tasks.register('runtimeCredentialSecretCheck', JavaExec) {
+    dependsOn compileRuntimeAuthCheck
+    classpath = files(runtimeAuthCheckOutput) + sourceSets.main.runtimeClasspath + configurations.runtimeAuthCheckDependencies
+    mainClass = 'dev.c4lam.celeste.auth.CredentialSecretCheck'
+    enableAssertions = true
+    jvmArgs '-Xverify:all'
+    def fixture = layout.buildDirectory.dir('module-qa/credential-secret-fixture')
+    doFirst { fixture.get().asFile.mkdirs() }
+    args fixture.get().asFile.absolutePath
 }

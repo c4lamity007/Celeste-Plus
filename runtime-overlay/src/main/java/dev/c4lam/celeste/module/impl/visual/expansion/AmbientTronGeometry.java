@@ -2,7 +2,7 @@ package dev.c4lam.celeste.module.impl.visual.expansion;
 
 /** Flat grid ribbon: exact miter joints and soft caps contained inside exposed endpoints. */
 public final class AmbientTronGeometry {
-    public static final int MAX_VERTICES = 12;
+    public static final int MAX_VERTICES = 24;
     @FunctionalInterface public interface Vertex { void emit(double x,double y,double z,float u,float v,float opacity); }
     private AmbientTronGeometry() { }
     public static void beam(AmbientTronField.Segment s,double eyeX,double eyeY,double eyeZ,Vertex sink) {
@@ -19,7 +19,7 @@ public final class AmbientTronGeometry {
         double ex=miter(dx,dy,dz,s.normalAxis(),s.nextDirection(),width,0);
         double ey=miter(dx,dy,dz,s.normalAxis(),s.nextDirection(),width,1);
         double ez=miter(dx,dy,dz,s.normalAxis(),s.nextDirection(),width,2);
-        double cap=Math.min(length*.45,width*1.65);
+        double cap=Math.min(length*.45,width*2.4);
         double from=start?cap:0,to=end?length-cap:length;
         double ax=s.ax()+dx*from,ay=s.ay()+dy*from,az=s.az()+dz*from;
         double bx=s.ax()+dx*to,by=s.ay()+dy*to,bz=s.az()+dz*to;
@@ -34,9 +34,14 @@ public final class AmbientTronGeometry {
     private static void quad(double ax,double ay,double az,double sx,double sy,double sz,float a,
                              double bx,double by,double bz,double ex,double ey,double ez,float b,Vertex sink) {
         sink.emit(ax-sx,ay-sy,az-sz,2,0,a);
+        sink.emit(ax,ay,az,2.5f,0,a);
+        sink.emit(bx,by,bz,2.5f,1,b);
+        sink.emit(bx-ex,by-ey,bz-ez,2,1,b);
+        // Keep UV=.5 exactly on the centerline. One tapered quad bends its bright core diagonally.
+        sink.emit(ax,ay,az,2.5f,0,a);
         sink.emit(ax+sx,ay+sy,az+sz,3,0,a);
         sink.emit(bx+ex,by+ey,bz+ez,3,1,b);
-        sink.emit(bx-ex,by-ey,bz-ez,2,1,b);
+        sink.emit(bx,by,bz,2.5f,1,b);
     }
     private static double miter(double dx,double dy,double dz,int normalAxis,int adjacent,double width,int component) {
         double side=cross(normalAxis,component,dx,dy,dz);

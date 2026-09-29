@@ -35,6 +35,7 @@ public final class AuthBootstrap {
     private static volatile String expectedBetaCatalog;
     private static volatile HardwareFingerprint hardware;
     private static volatile InstallCredential sessionCredential;
+    private static volatile InstallCredential pendingCredential;
     private static volatile String sessionGrant;
     private static volatile long sessionDeadlineNanos;
     private static Runnable authorizedInitializer;
@@ -189,15 +190,18 @@ public final class AuthBootstrap {
         }
         status = "Binding this installation";
         WORKER.execute(() -> {
+            InstallCredential credential = null;
             try {
                 ensureReady();
-                AuthServiceClient.Enrollment enrollment = service.enroll(licenseKey, hardware);
-                STORE.save(enrollment.credential());
-                AuthServiceClient.Authenticated authenticated = service.authenticate(enrollment.credential(), hardware);
-                authorize(client, authenticated, enrollment.credential());
+                credential = service.enroll(licenseKey, hardware).credential();
+                STORE.save(credential);
+                AuthServiceClient.Authenticated authenticated = service.authenticate(credential, hardware);
+                authorize(client, authenticated, credential);
+                credential = null; // authorize owns the queued/active lifetime.
             } catch (Exception exception) {
                 fail(client, friendlyMessage(exception), exception);
             } finally {
+                discardCredential(credential);
                 BUSY.set(false);
             }
         });
@@ -254,14 +258,17 @@ public final class AuthBootstrap {
         status = "Verifying this installation";
         show(client, status);
         WORKER.execute(() -> {
+            InstallCredential credential = null;
             try {
                 ensureReady();
-                InstallCredential credential = STORE.load();
+                credential = STORE.load();
                 AuthServiceClient.Authenticated authenticated = service.authenticate(credential, hardware);
                 authorize(client, authenticated, credential);
+                credential = null;
             } catch (Exception exception) {
                 fail(client, friendlyMessage(exception), exception);
             } finally {
+                discardCredential(credential);
                 BUSY.set(false);
             }
         });
@@ -290,9 +297,9 @@ public final class AuthBootstrap {
         if (!STORE.exists()) {
             return;
         }
-        try {
-            AuthServiceClient reporter = new AuthServiceClient(loaded, GameIdentity.collect(), expectedBetaCatalog);
-            reporter.checkSession(STORE.load(), observedDigest, true);
+        try (AuthServiceClient reporter = new AuthServiceClient(loaded, GameIdentity.collect(), expectedBetaCatalog);
+             InstallCredential credential = STORE.load()) {
+            reporter.checkSession(credential, observedDigest, true);
         } catch (Exception ignored) {
             // The local client still fails closed even if the signed report cannot be delivered.
         }
@@ -303,17 +310,27 @@ public final class AuthBootstrap {
         AuthServiceClient.Authenticated authenticated,
         InstallCredential credential
     ) throws Exception {
-        if (STOPPED.get() || LOCKED.get()) return;
+        if (STOPPED.get() || LOCKED.get()) { discardCredential(credential); return; }
         // Grants authorize delivery; a fresh nonce-bound response authorizes
         // activation. Replaying a captured startup grant cannot satisfy this.
         String verifiedSession = service.checkSession(credential, config.releaseDigest(), false);
         long deadline = System.nanoTime() + service.sessionValidityNanos(verifiedSession);
-        client.execute(() -> {
+        synchronized (AuthBootstrap.class) {
+            if (STOPPED.get() || LOCKED.get()) { discardCredential(credential); return; }
+            if (pendingCredential != null) discardCredential(pendingCredential);
+            pendingCredential = credential;
+        }
+        try { client.execute(() -> {
             // A response queued before shutdown/revocation must never reactivate the client.
+            synchronized (AuthBootstrap.class) {
+            if (pendingCredential != credential) { discardCredential(credential); return; }
+            pendingCredential = null;
             if (STOPPED.get() || LOCKED.get() || AUTHORIZED.get()) {
+                discardCredential(credential);
                 return;
             }
             if (System.nanoTime() - deadline >= 0) {
+                discardCredential(credential);
                 fail(client, "Authorization expired before initialization");
                 return;
             }
@@ -321,13 +338,15 @@ public final class AuthBootstrap {
             sessionGrant = verifiedSession;
             sessionDeadlineNanos = deadline;
             // Publish the complete session before the worker can observe it.
-            if (!AUTHORIZED.compareAndSet(false, true)) return;
+            if (!AUTHORIZED.compareAndSet(false, true)) { discardCredential(credential); return; }
             if (STOPPED.get() || LOCKED.get()) {
                 AUTHORIZED.set(false);
                 sessionCredential = null;
+                discardCredential(credential);
                 sessionGrant = null;
                 sessionDeadlineNanos = 0;
                 return;
+            }
             }
             try {
                 LicenseIdentity.accept(authenticated.uid());
@@ -338,7 +357,11 @@ public final class AuthBootstrap {
             } catch (RuntimeException | LinkageError exception) {
                 lockSession("Client initialization failed; restart Minecraft before trying again", exception);
             }
-        });
+        }); } catch (RuntimeException | Error failure) {
+            synchronized (AuthBootstrap.class) { if (pendingCredential == credential) pendingCredential = null; }
+            discardCredential(credential);
+            throw failure;
+        }
     }
 
     private static void heartbeat() {
@@ -415,6 +438,22 @@ public final class AuthBootstrap {
         authorized();
     }
 
+    private static void discardCredential(InstallCredential credential) {
+        if (credential == null) return;
+        AuthServiceClient current = service;
+        if (current != null) current.releaseCredential(credential);
+        credential.close();
+    }
+
+    private static void closeSessionMaterial() {
+        InstallCredential active = sessionCredential, pending = pendingCredential;
+        sessionCredential = null; pendingCredential = null;
+        discardCredential(active);
+        if (pending != active) discardCredential(pending);
+        AuthServiceClient current = service;
+        if (current != null) current.close();
+    }
+
     private static void lockSession(String message) {
         lockSession(message, new SecurityException(message));
     }
@@ -424,7 +463,7 @@ public final class AuthBootstrap {
             return;
         }
         LOCKED.set(true);
-        sessionCredential = null;
+        closeSessionMaterial();
         sessionGrant = null;
         sessionDeadlineNanos = 0;
         status = message;
@@ -446,7 +485,7 @@ public final class AuthBootstrap {
         }
         LOCKED.set(true);
         AUTHORIZED.set(false);
-        sessionCredential = null;
+        closeSessionMaterial();
         sessionGrant = null;
         sessionDeadlineNanos = 0;
         SUPERVISOR.shutdownNow();

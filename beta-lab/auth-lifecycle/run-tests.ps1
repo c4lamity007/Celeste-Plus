@@ -22,6 +22,8 @@ $sources += Join-Path $repositoryRoot 'build\runtime-core\src\main\java\dev\cele
 if ($LASTEXITCODE -ne 0) { throw 'Auth lifecycle compilation failed.' }
 
 $scenarios = @(
+    'credential-cleanup-failure', 'credential-cleanup-queued-stop', 'credential-cleanup-active-stop', 'credential-cleanup-revocation',
+    'credential-queued-replacement',
     'startup-deferred', 'late-start-once', 'late-failure-observer', 'late-scoped-stop', 'duplicate-owner',
     'initializer-runtime-failure', 'initializer-linkage-failure',
     'initializer-stops', 'initializer-revokes',

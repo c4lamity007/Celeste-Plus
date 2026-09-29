@@ -24,22 +24,27 @@
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/auth/AuthBootstrap.java",
-      "sha256": "fc1584ed4c461f5c8f27d4ce07586551f654cd01a99f47bc34f8788b3b901d7e",
+      "sha256": "1a48cd20779ebadc51038391b5b5dab678e61495f0289f0820505e727829fb73",
       "baseSha256": "4fd99b1932863ebb17cb99d970ab466b3e3032d267d7fe21d5ec0e8fab369717"
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/auth/AuthServiceClient.java",
-      "sha256": "a563b9f1e2fb7d263a280b8662fa33732570ab2ba3b1dd995a65caa57df35a8c",
+      "sha256": "f9d3dbef2c36348fa2f460c080096c8473ba23ed6921cc1695cf5051d659897d",
       "baseSha256": "00c18092c9d59746a78b238158b93442cbb87972803888a9ac027b26717b7e57"
     },
     {
+      "path": "src/main/java/dev/c4lam/celeste/auth/CredentialMaterial.java",
+      "sha256": "2c263a3aa0bde5c82216ba0de62ee6f9879c39e322461bf06ef58b4120419cf2",
+      "baseSha256": null
+    },
+    {
       "path": "src/main/java/dev/c4lam/celeste/auth/CredentialStore.java",
-      "sha256": "9cdb22bb137387ebebf39b373fb21e18315f8e6efb11eddc8c5d6db55f69420c",
+      "sha256": "7466b1613cee7826df2f5f3e320425aaafa8fc3e34d905ff401aa8e9b2a904c0",
       "baseSha256": "0d74f6865565120accb9ef85cc40b3b33a772001b4f3574f5fbea8037ad32763"
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/auth/DpopProofSigner.java",
-      "sha256": "500684da9754c7fc726933e4d0bb226a97356a6ed8864d6c236907e4931b0524",
+      "sha256": "da8c4433c01cb8e781a0c176ccce59703df818a5cc4f04a80c399a92d10667d6",
       "baseSha256": "557bbb42633f8ebb29610613919c4ccac1221f4a94a54b17b47c7ac6ad04d722"
     },
     {
@@ -56,6 +61,11 @@
       "path": "src/main/java/dev/c4lam/celeste/auth/HardwareIdentityV2.java",
       "sha256": "9dec32ce405a8cb910d5aa62344e842ad7a0f06e0a2fa5998ded393e7dced809",
       "baseSha256": null
+    },
+    {
+      "path": "src/main/java/dev/c4lam/celeste/auth/InstallCredential.java",
+      "sha256": "aca0223c837c4133463ba60f219ec8c4803223d67bba3905956f83f28d773938",
+      "baseSha256": "b4766056c3af01f12effb69dcee34eec8c4cc3da5bac31fd5cc28b7fdd51b21a"
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/auth/PinnedTls.java",
@@ -704,12 +714,12 @@
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/AmbientTronField.java",
-      "sha256": "84d5d5f177b1a096c662f96af62f20283a626e7b08ba0e6a52dbdaba623b07e7",
+      "sha256": "f4101ad2f9af4050b41fdc93499f9cc7c48fb51e337084ee8e33a9cbd1de9246",
       "baseSha256": null
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/AmbientTronGeometry.java",
-      "sha256": "282f6718153c169b3899b1bd389746f87bc613d4ef94979abc28c81fb6df27c7",
+      "sha256": "dc353af1cc7431a267713cf7a6c67d7850888ff7778abd13e7e6c04d8b32c6da",
       "baseSha256": null
     },
     {
@@ -813,13 +823,18 @@
       "baseSha256": null
     },
     {
+      "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/HitDisplacementProjection.java",
+      "sha256": "1e42fe89f97d8cd7174cd85660e3b3ba1b424fb3d516c01fda398f046f706f67",
+      "baseSha256": null
+    },
+    {
       "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/HitDisplacementRenderer.java",
-      "sha256": "a96c1654f9360d91b8093a6f35309b3530ebb70fb5c81830930ce40cc07d8deb",
+      "sha256": "3b64ec05374a60d4e57f1214a852659800e5c1fcca98815be55bda6bf05003a3",
       "baseSha256": null
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/HitDisplacementWorld.java",
-      "sha256": "4780b314b3f7a741ebb1f90abdc780785b07fbfcd6299ea9e6dddc2992d34e92",
+      "sha256": "3d7e4b34e1885691f1e0f1dfcc4f431794fadd4d9df96fbff50d72705f4bcaa6",
       "baseSha256": null
     },
     {
@@ -834,7 +849,7 @@
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/HitEffectsState.java",
-      "sha256": "f610a38c02407178f1f0994f3b24f36bbc0a5044d6bafda062d6b73e75ccbfe9",
+      "sha256": "a8a2301a29daec4e25819b4a0525283b804cf18bcea72ad9a3a0e7d65d0769d0",
       "baseSha256": null
     },
     {
@@ -866,6 +881,11 @@
       "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/JumpCirclesFeature.java",
       "sha256": "0a73113394362a0bf57eb50a6ac1aed733aa348baf827e2eb88ffa0adefe7e6a",
       "baseSha256": "0b1f2e7978eebf8b80aab09f012e76eeb9aaec58b1087be7db09f70c08194ff0"
+    },
+    {
+      "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/PlayerModelSnapshot.java",
+      "sha256": "fdb82e12a332fdd8ad371295191243286316ed7c2d513418b817f9d2108e7979",
+      "baseSha256": "96d278139967692acbad9dfef3ec7a272d9edff108cb07a15da359212d2aaa81"
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/PlayerTrailHistory.java",
@@ -934,7 +954,7 @@
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/UnifiedChamsRenderer.java",
-      "sha256": "4f0563e59002fa2f5b05f9594af94b23b5411449e147852030d2321ff114237d",
+      "sha256": "9a621a31e920f6d107f5909a75833a475bd25768348e8697e50cabc412067fd9",
       "baseSha256": "cbcddc5bb698979ada2821c28122f79e97c0fee3bde252eb3e2e03fbd5131696"
     },
     {
@@ -1110,6 +1130,16 @@
     {
       "path": "src/main/resources/assets/celeste/shaders/core/chams_glow_blur.fsh",
       "sha256": "9b1bc89070f8a1a588ba429a360cbe9a9768624783e21997c66212102f7881d3",
+      "baseSha256": null
+    },
+    {
+      "path": "src/main/resources/assets/celeste/shaders/core/chams_glow_mask.fsh",
+      "sha256": "e2e45d8743f0ec8e38698be55cf1f3fa00f1b983cb5a4f3f744a891ce48db81c",
+      "baseSha256": null
+    },
+    {
+      "path": "src/main/resources/assets/celeste/shaders/core/chams_glow_mask.vsh",
+      "sha256": "23da7a9a9ae384f41fafd22b02b86aa4b9592c76ac10f24415d109b0e8abdb10",
       "baseSha256": null
     },
     {

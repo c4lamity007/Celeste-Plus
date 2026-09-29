@@ -1,5 +1,5 @@
 dev/c4lam/celeste/auth/AuthBootstrap#authorize(Lnet/minecraft/class_310;Ldev/c4lam/celeste/auth/AuthServiceClient$Authenticated;Ldev/c4lam/celeste/auth/InstallCredential;)V
-dev/c4lam/celeste/auth/AuthBootstrap#lambda$authorize$6(JLnet/minecraft/class_310;Ldev/c4lam/celeste/auth/InstallCredential;Ljava/lang/String;Ldev/c4lam/celeste/auth/AuthServiceClient$Authenticated;)V
+dev/c4lam/celeste/auth/AuthBootstrap#lambda$authorize$6(Ldev/c4lam/celeste/auth/InstallCredential;JLnet/minecraft/class_310;Ljava/lang/String;Ldev/c4lam/celeste/auth/AuthServiceClient$Authenticated;)V
 dev/c4lam/celeste/auth/AuthBootstrap#heartbeat()V
 dev/c4lam/celeste/auth/AuthBootstrap#superviseHeartbeat()V
 dev/c4lam/celeste/auth/AuthBootstrap#lockSession(Ljava/lang/String;Ljava/lang/Throwable;)V

@@ -95,7 +95,7 @@ def source_inputs():
     paths = list((ROOT / 'beta-lab').rglob('*.java')) + list(PROFILES.glob('*.json'))
     paths += [ROOT / path for path in ('build.gradle', 'gradle.properties', 'settings.gradle',
         'core.lock.json', 'runtime-overlay/manifest.json',
-        'tools/protect_java_release.py', 'tools/prepare_runtime.py', 'tools/build_media_cleanup.py', 'tools/native_auth_resources.py',
+        'tools/protect_java_release.py', 'tools/packaging/AuthNamespacePass.java', 'tools/prepare_runtime.py', 'tools/build_media_cleanup.py', 'tools/native_auth_resources.py',
         'tools/validate_package.py',
         'beta-lab/obfuscation/check.init.gradle', 'beta-lab/obfuscation/prepare_obfuscation.py',
         'beta-lab/release-package/package_beta.py')]
@@ -151,6 +151,13 @@ def run(args, *, payload_mode="full", final_payload=None, final_payload_sha256=N
     environment['JAVA_HOME'] = str(java_home)
     def save():
         (output / 'receipt.json').write_text(json.dumps(report, indent=2) + '\n', encoding='utf-8')
+    def verify_namespace_outputs():
+        if 'auth_namespace' not in report:
+            return
+        namespace = report['auth_namespace']
+        require(digest(bounded(output / 'auth-namespace.json')) == namespace['mapping_sha256'], 'Auth namespace mapping changed')
+        require(digest(bounded(output / 'runtime-auth-aliases.jar')) == namespace['renamed_input_sha256'], 'Auth namespace input changed')
+        require(digest(bounded(output / 'payload-boundaries.log')) == namespace['boundary_receipt_sha256'], 'Auth namespace boundary receipt changed')
     def step(name, command):
         started = time.perf_counter()
         with (output / (name + '.log')).open('xb') as log:
@@ -181,13 +188,35 @@ def run(args, *, payload_mode="full", final_payload=None, final_payload_sha256=N
             (output / 'payload-protected.jar').write_bytes(final_bytes)
             report['native_checkpoint'] = native_checkpoint
         else:
-            step('payload-stage', [python, staging, 'stage-payload', '--source', source, '--output', output / 'payload-stage'])
+            # Apply the names-only credential-helper mapping before encrypted
+            # strings and selected native conversion can bind to class names.
+            namespace_classes = output / 'auth-namespace-tool'
+            namespace_classes.mkdir()
+            namespace_libraries = os.pathsep.join(str(toolchain / name) for name in producer['files']
+                                                 if name.startswith('lib/') and name.endswith('.jar'))
+            javac = java_home / 'bin' / ('javac.exe' if os.name == 'nt' else 'javac')
+            step('auth-namespace-compile', [javac, '--release', '21', '-classpath', namespace_libraries,
+                 '-d', namespace_classes, ROOT / 'tools/packaging/AuthNamespacePass.java'])
+            renamed_source = output / 'runtime-auth-aliases.jar'
+            namespace_receipt = output / 'auth-namespace.json'
+            step('auth-namespace', [java, '-Xmx768m', '-classpath', str(namespace_classes) + os.pathsep + namespace_libraries,
+                 'AuthNamespacePass', source, renamed_source, namespace_receipt])
+            report['auth_namespace'] = {'mapping_sha256': digest(bounded(namespace_receipt)),
+                                       'renamed_input_sha256': digest(bounded(renamed_source))}
+            step('payload-stage', [python, staging, 'stage-payload', '--source', renamed_source, '--output', output / 'payload-stage'])
             protect('payload-protection', '04-payload-protected-v2.json', output / 'payload-stage/payload-thin.jar',
                     output / 'payload-implementation.jar', [output / 'payload-stage/payload-stable.jar', *parents])
             step('payload-merge', [python, staging, 'merge-payload', '--stage', output / 'payload-stage', '--protected', output / 'payload-implementation.jar',
                                   '--mapping', output / 'payload-implementation.jar.mapping.json', '--output', output / 'payload-protected.jar', *native_cli])
+            # The first proof permits only exact inverse-verified private helper
+            # references. The second keeps all resulting boundary bytes frozen.
+            step('payload-boundaries', [python, staging, 'check-payload-boundaries',
+                 '--source', renamed_source, '--protected', output / 'payload-protected.jar', *native_cli])
+            report['auth_namespace']['boundary_receipt'] = json.loads((output / 'payload-boundaries.log').read_text(encoding='utf-8'))
+            report['auth_namespace']['boundary_receipt_sha256'] = digest(bounded(output / 'payload-boundaries.log'))
 
         report['payload_merged_sha256'] = digest(bounded(output / 'payload-protected.jar'))
+        verify_namespace_outputs()
         if payload_mode == "checkpoint":
             require(digest(bounded(args.input)) == report['input_sha256'], "Runtime input changed")
             require(digest(bounded(descriptor)) == report['descriptor_sha256'], "Descriptor changed")
@@ -230,6 +259,7 @@ def run(args, *, payload_mode="full", final_payload=None, final_payload_sha256=N
         require(digest(bounded(descriptor)) == report['descriptor_sha256'], 'Descriptor codec changed during protection')
         require(all(digest(bounded(Path(name))) == value for name, value in parent_hashes.items()), 'Parent dependency changed during protection')
         require(all(digest(bounded(toolchain / name)) == value for name, value in producer['files'].items()), 'Producer changed during protection')
+        verify_namespace_outputs()
         require(source_inputs() == report['source_inputs'], 'Java build or release sources changed during protection')
         require(all(digest(bounded(output / name)) == value for name, value in report['profiles'].items()), 'Protection profile changed during execution')
         report['artifacts'] = {p.name: {'sha256': digest(bounded(p)), 'bytes': p.stat().st_size} for p in (output / 'release').iterdir() if p.is_file()}

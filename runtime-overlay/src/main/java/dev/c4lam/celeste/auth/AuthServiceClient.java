@@ -30,7 +30,7 @@ import javax.crypto.KeyAgreement;
 import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 
-final class AuthServiceClient {
+final class AuthServiceClient implements AutoCloseable {
     record RemoteChunk(String url, String sha256) {
     }
 
@@ -61,6 +61,8 @@ final class AuthServiceClient {
     private final GameIdentity identity;
     private final String expectedBetaCatalog;
     private volatile DpopProofSigner proofSigner;
+    private InstallCredential boundCredential;
+    private boolean closed;
     private volatile SessionBinding sessionBinding;
     record SessionBinding(String hardware, String hwid, long pid, String session) {
         SessionBinding {
@@ -123,8 +125,10 @@ final class AuthServiceClient {
 
     Enrollment enroll(String licenseKey, HardwareFingerprint hardware) throws Exception {
         KeyPair installSigning = Crypto.generateEd25519();
-        KeyPair installEncryption = Crypto.generateX25519();
-        DpopProofSigner enrollmentProof = new DpopProofSigner(installSigning.getPrivate(), Crypto.rawPublic(installSigning.getPublic()));
+        KeyPair installEncryption = null;
+        try {
+        installEncryption = Crypto.generateX25519();
+        try (DpopProofSigner enrollmentProof = new DpopProofSigner(installSigning.getPrivate(), Crypto.rawPublic(installSigning.getPublic()))) {
 
         JsonObject startBody = releaseBody();
         startBody.addProperty("license_key", licenseKey.strip());
@@ -152,26 +156,36 @@ final class AuthServiceClient {
             throw new GeneralSecurityException("Installation certificate does not match this device");
         }
 
-        byte[] tokenSeed = decryptToken(
+        byte[] tokenSeed = null, signingEncoding = null, encryptionEncoding = null;
+        try {
+        tokenSeed = decryptToken(
             requiredObject(complete, "token_envelope"),
             installEncryption.getPrivate(),
             message
         );
-        try {
+        signingEncoding = installSigning.getPrivate().getEncoded();
+        encryptionEncoding = installEncryption.getPrivate().getEncoded();
             InstallCredential credential = new InstallCredential(
                 deviceId,
                 uid,
-                Crypto.b64(installSigning.getPrivate().getEncoded()),
-                Crypto.b64(installEncryption.getPrivate().getEncoded()),
-                Crypto.b64(tokenSeed),
+                signingEncoding,
+                encryptionEncoding,
+                tokenSeed,
                 certificate,
                 identity.uuid(),
                 identity.username()
             );
-            credential.validate();
-            return new Enrollment(credential);
+            try { credential.validate(); return new Enrollment(credential); }
+            catch (Exception | Error failure) { credential.close(); throw failure; }
         } finally {
-            Arrays.fill(tokenSeed, (byte) 0);
+            if (tokenSeed != null) Arrays.fill(tokenSeed, (byte) 0);
+            if (signingEncoding != null) Arrays.fill(signingEncoding, (byte) 0);
+            if (encryptionEncoding != null) Arrays.fill(encryptionEncoding, (byte) 0);
+        }
+        }
+        } finally {
+            CredentialMaterial.destroy(installSigning.getPrivate());
+            if (installEncryption != null) CredentialMaterial.destroy(installEncryption.getPrivate());
         }
     }
 
@@ -191,8 +205,8 @@ final class AuthServiceClient {
 
         JsonObject completeBody = new JsonObject();
         completeBody.addProperty("challenge_id", requiredString(start, "challenge_id"));
-        completeBody.addProperty("install_signature", Crypto.b64(Crypto.sign(credential.signingKey(), message)));
-        completeBody.addProperty("token_signature", Crypto.b64(Crypto.sign(credential.tokenKey(), message)));
+        completeBody.addProperty("install_signature", Crypto.b64(credential.signInstallation(message)));
+        completeBody.addProperty("token_signature", Crypto.b64(credential.signToken(message)));
         JsonObject complete = post("/v1/auth/complete", completeBody, signer);
         String grant = requiredString(complete, "grant");
         long uid = requiredLong(complete, "uid");
@@ -364,8 +378,8 @@ final class AuthServiceClient {
             if (!bound.hwid().isEmpty()) body.addProperty("hwid_sha256", bound.hwid());
             body.addProperty("process_id", bound.pid()); body.addProperty("session_id", bound.session());
         }
-        body.addProperty("install_signature", Crypto.b64(Crypto.sign(credential.signingKey(), message)));
-        body.addProperty("token_signature", Crypto.b64(Crypto.sign(credential.tokenKey(), message)));
+        body.addProperty("install_signature", Crypto.b64(credential.signInstallation(message)));
+        body.addProperty("token_signature", Crypto.b64(credential.signToken(message)));
         JsonObject response = post("/v1/session/check", body, signer);
         if (integrityMismatch) {
             throw new GeneralSecurityException("Client integrity verification failed");
@@ -528,18 +542,21 @@ final class AuthServiceClient {
         KeyAgreement exchange = KeyAgreement.getInstance("X25519");
         exchange.init(privateKey);
         exchange.doPhase(Crypto.x25519Public(ephemeralRaw), true);
-        byte[] wrappingKey = Crypto.hkdf(exchange.generateSecret(), salt, TOKEN_INFO, 32);
+        byte[] sharedSecret = exchange.generateSecret(), wrappingKey = null;
         try {
+            wrappingKey = Crypto.hkdf(sharedSecret, salt, TOKEN_INFO, 32);
             Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
             cipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(wrappingKey, "AES"), new GCMParameterSpec(128, nonce));
             cipher.updateAAD(message);
             byte[] seed = cipher.doFinal(ciphertext);
             if (seed.length != 32) {
+                Arrays.fill(seed, (byte) 0);
                 throw new GeneralSecurityException("Invalid installation token length");
             }
             return seed;
         } finally {
-            Arrays.fill(wrappingKey, (byte) 0);
+            Arrays.fill(sharedSecret, (byte) 0);
+            if (wrappingKey != null) Arrays.fill(wrappingKey, (byte) 0);
         }
     }
 
@@ -731,17 +748,36 @@ final class AuthServiceClient {
         return endpoint;
     }
 
-    DpopProofSigner bindCredential(InstallCredential credential) throws GeneralSecurityException {
+    synchronized DpopProofSigner bindCredential(InstallCredential credential) throws GeneralSecurityException {
+        if (closed || credential.isDestroyed()) throw new GeneralSecurityException("Installation session has been closed");
         JsonObject certificate = verifyToken(credential.certificate(), "celeste-installation");
         if (!credential.deviceId().equals(requiredString(certificate, "device"))
             || !Long.toString(credential.uid()).equals(requiredString(certificate, "sub"))) {
             throw new GeneralSecurityException("Installation certificate does not match this device");
         }
-        DpopProofSigner signer = new DpopProofSigner(credential.signingKey(), Crypto.b64(requiredString(certificate, "install_key")));
-        // Existing signed activation certificates can predate DPoP; new access grants cannot.
-        if (certificate.has("cnf")) signer.requireBinding(certificate);
-        proofSigner = signer;
-        return signer;
+        if (boundCredential == credential && proofSigner != null && !proofSigner.isDestroyed()) return proofSigner;
+        DpopProofSigner signer = credential.signer(Crypto.b64(requiredString(certificate, "install_key")));
+        try {
+            // Existing signed activation certificates can predate DPoP; new access grants cannot.
+            if (certificate.has("cnf")) signer.requireBinding(certificate);
+            if (proofSigner != null) proofSigner.close();
+            proofSigner = signer;
+            boundCredential = credential;
+            return signer;
+        } catch (GeneralSecurityException | RuntimeException | Error failure) { signer.close(); throw failure; }
+    }
+
+    synchronized void releaseCredential(InstallCredential credential) {
+        if (boundCredential == credential) {
+            if (proofSigner != null) proofSigner.close();
+            proofSigner = null; boundCredential = null;
+        }
+    }
+
+    @Override public synchronized void close() {
+        closed = true;
+        if (proofSigner != null) proofSigner.close();
+        proofSigner = null; boundCredential = null;
     }
 
     private String requestProof(String method, URI endpoint, String token) throws IOException {

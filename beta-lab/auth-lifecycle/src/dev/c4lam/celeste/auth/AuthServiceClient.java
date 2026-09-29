@@ -5,7 +5,10 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
 import net.minecraft.client.MinecraftClient;
 
-final class AuthServiceClient {
+final class AuthServiceClient implements AutoCloseable {
+    static final AtomicInteger closed = new AtomicInteger();
+    void releaseCredential(InstallCredential credential) { }
+    @Override public void close() { closed.incrementAndGet(); }
     static final AtomicInteger authentications = new AtomicInteger();
     static final AtomicInteger enrollments = new AtomicInteger();
     static final AtomicInteger checks = new AtomicInteger();

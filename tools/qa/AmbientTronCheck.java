@@ -73,8 +73,13 @@ public final class AmbientTronCheck {
         var field = new AmbientTronField(20);
         var first = field.sample(10,70,-10,0,.6,1,AIR);
         check(!first.isEmpty(), "enable produces visible trails");
+        check(first.stream().allMatch(s->s.startOpacity()==0&&s.endOpacity()==0),"enabling starts fully transparent");
         check(first.equals(field.sample(10,70,-10,0,.6,1,AIR)), "paused time gives identical geometry");
         var moved = field.sample(10,70,-10,.02,.6,1,AIR);
+        double earlyAlpha=moved.stream().mapToDouble(AmbientTronField.Segment::endOpacity).max().orElse(0);
+        var fading=new AmbientTronField(20);fading.sample(10,70,-10,0,.6,1,AIR);
+        double fullAlpha=fading.sample(10,70,-10,.65,.6,1,AIR).stream().mapToDouble(AmbientTronField.Segment::endOpacity).max().orElse(0);
+        check(earlyAlpha>0&&fullAlpha>earlyAlpha*20,"initial field fades in gradually before full brightness");
         check(!first.equals(moved), "head interpolates between ticks");
         var groups0 = grouped(first); var groups1 = grouped(moved);
         int smooth = 0;
@@ -153,12 +158,14 @@ public final class AmbientTronCheck {
             AmbientTronGeometry.beam(s,eye[0],eye[1],eye[2],(x,y,z,u,v,a)->vertices.add(new double[]{x,y,z,u,v,a}));
             check(vertices.size()==AmbientTronGeometry.MAX_VERTICES, "bounded middle strip and two soft caps");
             for(var v:vertices) check(Double.isFinite(Arrays.stream(v).sum()), "edge-on beam finite");
-            check(vertices.get(0)[3]==2 && vertices.get(1)[3]==3, "uses production bright core and glow shader branch");
+            check(vertices.get(0)[3]==2 && vertices.get(1)[3]==2.5 && vertices.get(5)[3]==3, "split halves share a fixed bright-core centerline");
             check(vertices.get(0)[5]==0 && vertices.get(vertices.size()-1)[5]==0, "exposed tips must fade to zero");
-            double[] a=vertices.get(4),b=vertices.get(5);
+            double[] a=vertices.get(8),b=vertices.get(13);
             for(var v:vertices)check(v[1]==0,"width stays in world plane, never faces camera");
             for(var v:vertices)check(v[0]>=0&&v[0]<=1,"terminal cap protrudes beyond endpoint");
             check(Math.abs(Math.sqrt((a[0]-b[0])*(a[0]-b[0])+(a[1]-b[1])*(a[1]-b[1])+(a[2]-b[2])*(a[2]-b[2]))-.22)<1E-8, "beam retains configured width");
+            for(var v:vertices)if(v[3]==2.5)check(v[2]==0,"every core vertex stays exactly on final segment axis through pointed caps");
+            for(var v:vertices)if(v[0]==0||v[0]==1)check(v[2]==0,"terminal endpoint is a single centered point");
         }
     }
     private static void joints() {
@@ -173,7 +180,7 @@ public final class AmbientTronCheck {
             AmbientTronGeometry.beam(right,0,0,0,(x,y,z,u,v,o)->r.add(new double[]{x,y,z}));
             AmbientTronGeometry.beam(left,300,15,-120,(x,y,z,u,v,o)->moved.add(new double[]{x,y,z}));
             for(int i=0;i<3;i++) {
-                check(l.get(l.size()-2)[i]==r.get(1)[i] && l.get(l.size()-1)[i]==r.get(0)[i],"miter joints share identical edge positions");
+                check(l.get(l.size()-2)[i]==r.get(5)[i] && l.get(l.size()-5)[i]==r.get(0)[i],"miter joints share identical edge positions");
                 for(int v=0;v<l.size();v++)check(l.get(v)[i]==moved.get(v)[i],"camera motion cannot rotate flat geometry");
             }
             for(var v:l)check(v[normal]==mid[normal],"all corner vertices remain strictly planar");

@@ -17,7 +17,7 @@ public final class AmbientTronGpuCheck extends ImpactCheck {
     static final int W=AtmosphereCheck.W,H=AtmosphereCheck.H;
     static int glow,indices,checks;
     static void check(boolean ok,String message){checks++;if(!ok)throw new AssertionError(message);}
-    static List<AmbientTronField.Segment> field(double time){var field=new AmbientTronField(38);field.sample(0,0,0,0,1,1,(x,y,z)->true);return field.sample(0,0,0,time,1,1,(x,y,z)->true);}
+    static List<AmbientTronField.Segment> field(double time){var field=new AmbientTronField(38);field.sample(0,0,0,0,1,1,(x,y,z)->true);return field.sample(0,0,0,.8+time,1,1,(x,y,z)->true);}
     static float[] draw(List<AmbientTronField.Segment> lines,float opacity,float depth,float fogEnd,boolean background){
         AtmosphereCheck.clear(depth);
         if(background){glClearColor(.018f,.026f,.044f,1);glClear(GL_COLOR_BUFFER_BIT);}
@@ -80,6 +80,22 @@ public final class AmbientTronGpuCheck extends ImpactCheck {
             int leftSoft=0,rightSoft=0;
             for(int x=0;x<W;x++)if(columns[x]>brightest*.02&&columns[x]<brightest*.8){if(x<W/2)leftSoft++;else rightSoft++;}
             check(leftSoft>=4&&rightSoft>=4,"exposed endpoints need visible soft longitudinal falloff");
+            double maxCenterError=0;int measured=0;
+            for(int x=0;x<W;x++)if(columns[x]>brightest*.03){double weighted=0;
+                for(int y=0;y<H;y++)weighted+=(y+.5)*line[(y*W+x)*4+1];
+                maxCenterError=Math.max(maxCenterError,Math.abs(weighted/columns[x]-H*.5));measured++;
+            }
+            System.out.println("Tip center: columns="+measured+", maximum centroid error="+maxCenterError+" pixels");
+            ImageIO.write(AtmosphereCheck.image(line),"PNG",output.resolve("ambient-tip-detail.png").toFile());
+            // Derivative AA can shift a subpixel tip by roughly one pixel; the old single-quad
+            // taper deviates by ~4 pixels at this fixed resolution and fails this bound.
+            check(measured>30&&maxCenterError<1.25,"pointed moving tip must keep its light centered, without diagonal UV kink");
+            var fadeField=new AmbientTronField(38);
+            for(float v:draw(fadeField.sample(0,0,0,0,1,1,(x,y,z)->true),1,1,40,false))check(v==0,"enable fade starts without a brightness flash");
+            double dim=0,bright=0;
+            for(float v:draw(fadeField.sample(0,0,0,.1,1,1,(x,y,z)->true),1,1,40,false))dim+=v;
+            for(float v:draw(fadeField.sample(0,0,0,.65,1,1,(x,y,z)->true),1,1,40,false))bright+=v;
+            check(dim>0&&bright>dim*2,"production material shows the enable fade-in animation");
             sheet(draw(initial,1,1,40,true),draw(field(.5),1,1,40,true));
             System.out.println("PASS ambient-tron GPU: "+checks+" checks, "+coverage+" visible pixels; core/glow, sub-frame motion, fog, occlusion, depth preservation and clear. GPU="+glGetString(GL_RENDERER));
         }finally{minecraft.close();glfwDestroyWindow(window);glfwTerminate();}

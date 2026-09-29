@@ -1,0 +1,600 @@
+{
+  "schema": "celeste-auth-native-selector-update-1",
+  "release_id": "celeste-plus-20260929-auth-visuals-03",
+  "scope": "One exact synthetic lambda capture-descriptor update; no producer implementation or protection approval change",
+  "previous_bundle_sha256": "b558f2e5f5741d5541ee80048052a95545708965103081b51856dd4732437369",
+  "previous_provenance_sha256": "28688ba39f7208b86a9a3fb826c261ebfb09adc006bfee8b6ef93838f26f6264",
+  "runtime_path": "C:\\Users\\c4lam\\OneDrive\\Documents\\ChatGPT\\Celeste Client\\build\\visual-auth-integration-20260929\\source\\build\\runtime-core\\build\\libs\\celeste-client-1.0.0.jar",
+  "runtime_sha256": "1bdcf9ac0d774c4a19cf3ebc7b694c095568cd4a95f6609d990c38fce410e181",
+  "runtime_class_sha256": {
+    "dev/c4lam/celeste/auth/AuthServiceClient": "bdc3dfad4e4f7844729106251dd24b550e231f2eecac8a530c1ecf34c76e9b84",
+    "dev/c4lam/celeste/auth/DpopProofSigner": "448c7a07be48c07cc1c8ac2793bc53a25b3486ca662ca1de4fce42b0483ac84f",
+    "dev/c4lam/celeste/auth/AuthBootstrap": "7c712e40394fdcbbfeca199e78e710c8a9e9b0250b869893b860e708a9b4b684"
+  },
+  "selector_path": "final-native-auth/bootstrap.methods",
+  "previous_selector_sha256": "428520d872ba60310ec9260ad33214f49c3d05236f85ed4996732dcc509f8814",
+  "selector_sha256": "41a28d2d1f79f7ad9be4853b51c6df8bd9059e9126563353d6bbc3c2a9b69e5f",
+  "before": "dev/c4lam/celeste/auth/AuthBootstrap#lambda$authorize$6(JLnet/minecraft/class_310;Ldev/c4lam/celeste/auth/InstallCredential;Ljava/lang/String;Ldev/c4lam/celeste/auth/AuthServiceClient$Authenticated;)V",
+  "after": "dev/c4lam/celeste/auth/AuthBootstrap#lambda$authorize$6(Ldev/c4lam/celeste/auth/InstallCredential;JLnet/minecraft/class_310;Ljava/lang/String;Ldev/c4lam/celeste/auth/AuthServiceClient$Authenticated;)V",
+  "selected_bodies": 16,
+  "counts": {
+    "auth": 8,
+    "signer": 3,
+    "bootstrap": 5
+  },
+  "compiled_method_declarations": {
+    "auth": [
+      {
+        "name": "<init>",
+        "descriptor": "(Ldev/c4lam/celeste/auth/AuthConfig;Ldev/c4lam/celeste/auth/GameIdentity;Ljava/lang/String;Ljava/net/http/HttpClient;Ldev/c4lam/celeste/auth/AuthServiceClient$SessionBinding;)V",
+        "access": 0
+      },
+      {
+        "name": "coreHardwareDigest",
+        "descriptor": "(Ldev/c4lam/celeste/auth/HardwareFingerprint;)Ljava/lang/String;",
+        "access": 8
+      },
+      {
+        "name": "binding",
+        "descriptor": "(Ldev/c4lam/celeste/auth/HardwareFingerprint;)Ldev/c4lam/celeste/auth/AuthServiceClient$SessionBinding;",
+        "access": 34
+      },
+      {
+        "name": "addHardwareIdentity",
+        "descriptor": "(Lcom/google/gson/JsonObject;Ldev/c4lam/celeste/auth/HardwareFingerprint;)V",
+        "access": 2
+      },
+      {
+        "name": "<init>",
+        "descriptor": "(Ldev/c4lam/celeste/auth/AuthConfig;Ldev/c4lam/celeste/auth/GameIdentity;)V",
+        "access": 0
+      },
+      {
+        "name": "<init>",
+        "descriptor": "(Ldev/c4lam/celeste/auth/AuthConfig;Ldev/c4lam/celeste/auth/GameIdentity;Ljava/lang/String;)V",
+        "access": 0
+      },
+      {
+        "name": "<init>",
+        "descriptor": "(Ldev/c4lam/celeste/auth/AuthConfig;Ldev/c4lam/celeste/auth/GameIdentity;Ljava/lang/String;Ljava/net/http/HttpClient;)V",
+        "access": 0
+      },
+      {
+        "name": "transport",
+        "descriptor": "()Ljava/net/http/HttpClient;",
+        "access": 2
+      },
+      {
+        "name": "enroll",
+        "descriptor": "(Ljava/lang/String;Ldev/c4lam/celeste/auth/HardwareFingerprint;)Ldev/c4lam/celeste/auth/AuthServiceClient$Enrollment;",
+        "access": 0
+      },
+      {
+        "name": "authenticate",
+        "descriptor": "(Ldev/c4lam/celeste/auth/InstallCredential;Ldev/c4lam/celeste/auth/HardwareFingerprint;)Ldev/c4lam/celeste/auth/AuthServiceClient$Authenticated;",
+        "access": 0
+      },
+      {
+        "name": "validateStartupGrant",
+        "descriptor": "(Ljava/lang/String;Ldev/c4lam/celeste/auth/DpopProofSigner;Ldev/c4lam/celeste/auth/AuthServiceClient$SessionBinding;Lcom/google/gson/JsonObject;)V",
+        "access": 2
+      },
+      {
+        "name": "consumeInstallerTicket",
+        "descriptor": "(Ljava/lang/String;Ldev/c4lam/celeste/auth/InstallCredential;)V",
+        "access": 0
+      },
+      {
+        "name": "download",
+        "descriptor": "(Ljava/lang/String;Ljava/lang/String;)[B",
+        "access": 0
+      },
+      {
+        "name": "checkSession",
+        "descriptor": "(Ldev/c4lam/celeste/auth/InstallCredential;Ljava/lang/String;Z)Ljava/lang/String;",
+        "access": 0
+      },
+      {
+        "name": "checkSessionResponse",
+        "descriptor": "(Ldev/c4lam/celeste/auth/InstallCredential;Ljava/lang/String;Z)Ljava/lang/String;",
+        "access": 2
+      },
+      {
+        "name": "requireBetaContext",
+        "descriptor": "(Lcom/google/gson/JsonObject;)V",
+        "access": 2
+      },
+      {
+        "name": "sessionValidityNanos",
+        "descriptor": "(Ljava/lang/String;)J",
+        "access": 0
+      },
+      {
+        "name": "cloudRequest",
+        "descriptor": "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;[BLjava/lang/String;)Ldev/c4lam/celeste/auth/AuthServiceClient$CloudResponse;",
+        "access": 0
+      },
+      {
+        "name": "sessionMessage",
+        "descriptor": "(Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)[B",
+        "access": 2
+      },
+      {
+        "name": "product",
+        "descriptor": "()Ljava/lang/String;",
+        "access": 2
+      },
+      {
+        "name": "requireChallenge",
+        "descriptor": "(Lcom/google/gson/JsonObject;Ldev/c4lam/celeste/auth/HardwareFingerprint;)V",
+        "access": 2
+      },
+      {
+        "name": "requireProduct",
+        "descriptor": "(Lcom/google/gson/JsonObject;)V",
+        "access": 2
+      },
+      {
+        "name": "releaseBody",
+        "descriptor": "()Lcom/google/gson/JsonObject;",
+        "access": 2
+      },
+      {
+        "name": "hardwareJson",
+        "descriptor": "(Ldev/c4lam/celeste/auth/HardwareFingerprint;)Lcom/google/gson/JsonObject;",
+        "access": 10
+      },
+      {
+        "name": "decryptToken",
+        "descriptor": "(Lcom/google/gson/JsonObject;Ljava/security/PrivateKey;[B)[B",
+        "access": 2
+      },
+      {
+        "name": "verifyToken",
+        "descriptor": "(Ljava/lang/String;Ljava/lang/String;)Lcom/google/gson/JsonObject;",
+        "access": 2
+      },
+      {
+        "name": "post",
+        "descriptor": "(Ljava/lang/String;Lcom/google/gson/JsonObject;)Lcom/google/gson/JsonObject;",
+        "access": 2
+      },
+      {
+        "name": "post",
+        "descriptor": "(Ljava/lang/String;Lcom/google/gson/JsonObject;Ldev/c4lam/celeste/auth/DpopProofSigner;)Lcom/google/gson/JsonObject;",
+        "access": 2
+      },
+      {
+        "name": "sendAuth",
+        "descriptor": "(Ljava/net/http/HttpRequest;)Ljava/net/http/HttpResponse;",
+        "access": 2
+      },
+      {
+        "name": "boundedBytes",
+        "descriptor": "(I)Ljava/net/http/HttpResponse$BodyHandler;",
+        "access": 10
+      },
+      {
+        "name": "sameOrigin",
+        "descriptor": "(Ljava/lang/String;)Ljava/net/URI;",
+        "access": 2
+      },
+      {
+        "name": "bindCredential",
+        "descriptor": "(Ldev/c4lam/celeste/auth/InstallCredential;)Ldev/c4lam/celeste/auth/DpopProofSigner;",
+        "access": 32
+      },
+      {
+        "name": "releaseCredential",
+        "descriptor": "(Ldev/c4lam/celeste/auth/InstallCredential;)V",
+        "access": 32
+      },
+      {
+        "name": "close",
+        "descriptor": "()V",
+        "access": 33
+      },
+      {
+        "name": "requestProof",
+        "descriptor": "(Ljava/lang/String;Ljava/net/URI;Ljava/lang/String;)Ljava/lang/String;",
+        "access": 2
+      },
+      {
+        "name": "effectivePort",
+        "descriptor": "(Ljava/net/URI;)I",
+        "access": 10
+      },
+      {
+        "name": "requiredString",
+        "descriptor": "(Lcom/google/gson/JsonObject;Ljava/lang/String;)Ljava/lang/String;",
+        "access": 10
+      },
+      {
+        "name": "requiredLong",
+        "descriptor": "(Lcom/google/gson/JsonObject;Ljava/lang/String;)J",
+        "access": 10
+      },
+      {
+        "name": "requiredLong",
+        "descriptor": "(Lcom/google/gson/JsonObject;Ljava/lang/String;J)J",
+        "access": 10
+      },
+      {
+        "name": "requiredB64",
+        "descriptor": "(Lcom/google/gson/JsonObject;Ljava/lang/String;)[B",
+        "access": 10
+      },
+      {
+        "name": "requiredObject",
+        "descriptor": "(Lcom/google/gson/JsonObject;Ljava/lang/String;)Lcom/google/gson/JsonObject;",
+        "access": 10
+      },
+      {
+        "name": "requiredHex",
+        "descriptor": "(Lcom/google/gson/JsonObject;Ljava/lang/String;)Ljava/lang/String;",
+        "access": 10
+      },
+      {
+        "name": "rejected",
+        "descriptor": "(ILjava/lang/String;)Ldev/c4lam/celeste/auth/AuthServiceClient$AuthRejectedException;",
+        "access": 2
+      },
+      {
+        "name": "lambda$requiredHex$4",
+        "descriptor": "(I)Z",
+        "access": 4106
+      },
+      {
+        "name": "lambda$boundedBytes$3",
+        "descriptor": "(ILjava/net/http/HttpResponse$ResponseInfo;)Ljava/net/http/HttpResponse$BodySubscriber;",
+        "access": 4106
+      },
+      {
+        "name": "lambda$sendAuth$2",
+        "descriptor": "(Ljava/net/http/HttpResponse$ResponseInfo;)Ljava/net/http/HttpResponse$BodySubscriber;",
+        "access": 4106
+      },
+      {
+        "name": "lambda$sendAuth$1",
+        "descriptor": "([B)Ljava/lang/String;",
+        "access": 4106
+      },
+      {
+        "name": "lambda$authenticate$0",
+        "descriptor": "(Lcom/google/gson/JsonObject;)Ldev/c4lam/celeste/auth/AuthServiceClient$RemoteChunk;",
+        "access": 4106
+      },
+      {
+        "name": "<clinit>",
+        "descriptor": "()V",
+        "access": 8
+      }
+    ],
+    "signer": [
+      {
+        "name": "<init>",
+        "descriptor": "(Ljava/security/PrivateKey;[B)V",
+        "access": 1
+      },
+      {
+        "name": "<init>",
+        "descriptor": "(Ljava/security/PrivateKey;[BLjava/time/Clock;)V",
+        "access": 1
+      },
+      {
+        "name": "fromEncoded",
+        "descriptor": "([B[BLjava/time/Clock;)Ldev/c4lam/celeste/auth/DpopProofSigner;",
+        "access": 9
+      },
+      {
+        "name": "<init>",
+        "descriptor": "([B[BLjava/time/Clock;Z)V",
+        "access": 2
+      },
+      {
+        "name": "thumbprint",
+        "descriptor": "()Ljava/lang/String;",
+        "access": 1
+      },
+      {
+        "name": "requireBinding",
+        "descriptor": "(Lcom/google/gson/JsonObject;)V",
+        "access": 1
+      },
+      {
+        "name": "proof",
+        "descriptor": "(Ljava/lang/String;Ljava/net/URI;Ljava/lang/String;)Ljava/lang/String;",
+        "access": 1
+      },
+      {
+        "name": "proof",
+        "descriptor": "(Ljava/lang/String;Ljava/net/URI;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;",
+        "access": 1
+      },
+      {
+        "name": "proofForDevice",
+        "descriptor": "(Ljava/lang/String;Ljava/net/URI;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;",
+        "access": 1
+      },
+      {
+        "name": "proofForArtifact",
+        "descriptor": "(Ljava/lang/String;Ljava/net/URI;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;",
+        "access": 1
+      },
+      {
+        "name": "proof",
+        "descriptor": "(Ljava/lang/String;Ljava/net/URI;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;",
+        "access": 2
+      },
+      {
+        "name": "target",
+        "descriptor": "(Ljava/net/URI;)Ljava/lang/String;",
+        "access": 9
+      },
+      {
+        "name": "sign",
+        "descriptor": "([B)[B",
+        "access": 34
+      },
+      {
+        "name": "isDestroyed",
+        "descriptor": "()Z",
+        "access": 33
+      },
+      {
+        "name": "close",
+        "descriptor": "()V",
+        "access": 33
+      },
+      {
+        "name": "hash",
+        "descriptor": "(Ljava/lang/String;)Ljava/lang/String;",
+        "access": 10
+      },
+      {
+        "name": "lambda$proof$0",
+        "descriptor": "(I)Z",
+        "access": 4106
+      },
+      {
+        "name": "<clinit>",
+        "descriptor": "()V",
+        "access": 8
+      }
+    ],
+    "bootstrap": [
+      {
+        "name": "<init>",
+        "descriptor": "()V",
+        "access": 2
+      },
+      {
+        "name": "executor",
+        "descriptor": "(Ljava/lang/String;)Ljava/util/concurrent/ScheduledExecutorService;",
+        "access": 10
+      },
+      {
+        "name": "install",
+        "descriptor": "(Ljava/lang/Runnable;Ljava/lang/Runnable;)V",
+        "access": 9
+      },
+      {
+        "name": "installAfterClientStarted",
+        "descriptor": "(Ljava/lang/Runnable;Ljava/lang/Runnable;)V",
+        "access": 9
+      },
+      {
+        "name": "installAfterClientStarted",
+        "descriptor": "(Ljava/lang/Runnable;Ljava/lang/Runnable;Ljava/util/function/Consumer;)V",
+        "access": 9
+      },
+      {
+        "name": "stopAfterClientStarted",
+        "descriptor": "()Ljava/util/concurrent/CompletionStage;",
+        "access": 41
+      },
+      {
+        "name": "configureBetaRuntime",
+        "descriptor": "(Ljava/lang/String;)V",
+        "access": 41
+      },
+      {
+        "name": "install",
+        "descriptor": "(Ljava/lang/Runnable;Ljava/lang/Runnable;Z)V",
+        "access": 42
+      },
+      {
+        "name": "install",
+        "descriptor": "(Ljava/lang/Runnable;Ljava/lang/Runnable;ZLjava/util/function/Consumer;)V",
+        "access": 42
+      },
+      {
+        "name": "status",
+        "descriptor": "()Ljava/lang/String;",
+        "access": 9
+      },
+      {
+        "name": "busy",
+        "descriptor": "()Z",
+        "access": 9
+      },
+      {
+        "name": "locked",
+        "descriptor": "()Z",
+        "access": 9
+      },
+      {
+        "name": "authorized",
+        "descriptor": "()Z",
+        "access": 9
+      },
+      {
+        "name": "hasLocalCredential",
+        "descriptor": "()Z",
+        "access": 9
+      },
+      {
+        "name": "cloudRequest",
+        "descriptor": "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;[B)Ldev/c4lam/celeste/auth/AuthBootstrap$CloudResponse;",
+        "access": 9
+      },
+      {
+        "name": "submitLicense",
+        "descriptor": "(Ljava/lang/String;)V",
+        "access": 9
+      },
+      {
+        "name": "retry",
+        "descriptor": "()V",
+        "access": 9
+      },
+      {
+        "name": "clearLocalBinding",
+        "descriptor": "()V",
+        "access": 9
+      },
+      {
+        "name": "start",
+        "descriptor": "(Lnet/minecraft/class_310;)V",
+        "access": 10
+      },
+      {
+        "name": "authenticateStored",
+        "descriptor": "(Lnet/minecraft/class_310;)V",
+        "access": 10
+      },
+      {
+        "name": "ensureReady",
+        "descriptor": "()V",
+        "access": 42
+      },
+      {
+        "name": "reportStartupIntegrityFailure",
+        "descriptor": "(Ldev/c4lam/celeste/auth/AuthConfig;Ljava/lang/String;)V",
+        "access": 10
+      },
+      {
+        "name": "authorize",
+        "descriptor": "(Lnet/minecraft/class_310;Ldev/c4lam/celeste/auth/AuthServiceClient$Authenticated;Ldev/c4lam/celeste/auth/InstallCredential;)V",
+        "access": 10
+      },
+      {
+        "name": "heartbeat",
+        "descriptor": "()V",
+        "access": 10
+      },
+      {
+        "name": "superviseHeartbeat",
+        "descriptor": "()V",
+        "access": 42
+      },
+      {
+        "name": "lockAfterHeartbeatGrace",
+        "descriptor": "()V",
+        "access": 10
+      },
+      {
+        "name": "discardCredential",
+        "descriptor": "(Ldev/c4lam/celeste/auth/InstallCredential;)V",
+        "access": 10
+      },
+      {
+        "name": "closeSessionMaterial",
+        "descriptor": "()V",
+        "access": 10
+      },
+      {
+        "name": "lockSession",
+        "descriptor": "(Ljava/lang/String;)V",
+        "access": 10
+      },
+      {
+        "name": "lockSession",
+        "descriptor": "(Ljava/lang/String;Ljava/lang/Throwable;)V",
+        "access": 42
+      },
+      {
+        "name": "stop",
+        "descriptor": "(Lnet/minecraft/class_310;)V",
+        "access": 42
+      },
+      {
+        "name": "fail",
+        "descriptor": "(Lnet/minecraft/class_310;Ljava/lang/String;)V",
+        "access": 10
+      },
+      {
+        "name": "fail",
+        "descriptor": "(Lnet/minecraft/class_310;Ljava/lang/String;Ljava/lang/Throwable;)V",
+        "access": 10
+      },
+      {
+        "name": "show",
+        "descriptor": "(Lnet/minecraft/class_310;Ljava/lang/String;)V",
+        "access": 10
+      },
+      {
+        "name": "friendlyMessage",
+        "descriptor": "(Ljava/lang/Exception;)Ljava/lang/String;",
+        "access": 10
+      },
+      {
+        "name": "lambda$fail$9",
+        "descriptor": "(Ljava/util/function/Consumer;Ljava/lang/Throwable;)V",
+        "access": 4106
+      },
+      {
+        "name": "lambda$stop$8",
+        "descriptor": "()V",
+        "access": 4106
+      },
+      {
+        "name": "lambda$lockSession$7",
+        "descriptor": "(Ljava/lang/Throwable;)V",
+        "access": 4106
+      },
+      {
+        "name": "lambda$authorize$6",
+        "descriptor": "(Ldev/c4lam/celeste/auth/InstallCredential;JLnet/minecraft/class_310;Ljava/lang/String;Ldev/c4lam/celeste/auth/AuthServiceClient$Authenticated;)V",
+        "access": 4106
+      },
+      {
+        "name": "lambda$authenticateStored$5",
+        "descriptor": "(Lnet/minecraft/class_310;)V",
+        "access": 4106
+      },
+      {
+        "name": "lambda$start$4",
+        "descriptor": "(Lnet/minecraft/class_310;)V",
+        "access": 4106
+      },
+      {
+        "name": "lambda$submitLicense$3",
+        "descriptor": "(Ljava/lang/String;Lnet/minecraft/class_310;)V",
+        "access": 4106
+      },
+      {
+        "name": "lambda$install$2",
+        "descriptor": "(Lnet/minecraft/class_310;)V",
+        "access": 4106
+      },
+      {
+        "name": "lambda$stopAfterClientStarted$1",
+        "descriptor": "()V",
+        "access": 4106
+      },
+      {
+        "name": "lambda$executor$0",
+        "descriptor": "(Ljava/lang/String;Ljava/lang/Runnable;)Ljava/lang/Thread;",
+        "access": 4106
+      },
+      {
+        "name": "<clinit>",
+        "descriptor": "()V",
+        "access": 8
+      }
+    ]
+  },
+  "producer_implementation_changed": false,
+  "production_approved": false
+}

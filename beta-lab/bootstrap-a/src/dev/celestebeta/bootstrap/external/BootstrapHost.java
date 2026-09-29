@@ -71,7 +71,7 @@ public final class BootstrapHost {
         java.util.function.Consumer<Runnable> retirementQueue = retirementQueue(target.client());
         JsonObject trust = validatedTrust(resourceObject("META-INF/celeste-beta/bootstrap-trust.json", BootstrapHost.class.getClassLoader()));
         byte[] serverKey = Base64.getUrlDecoder().decode(trust.get("server_key").getAsString());
-        var signer = RuntimeInstallationSigner.load(verifiedGameDirectory, target.loader(), serverKey, device, uid);
+        try (var signer = RuntimeInstallationSigner.load(verifiedGameDirectory, target.loader(), serverKey, device, uid)) {
         BetaDeliveryClient delivery = new BetaDeliveryClient(URI.create(trust.get("origin").getAsString()),
             serverKey, installer, device, uid, signer, dev.c4lam.celeste.auth.ArtifactHardwareIdentity.forGame(target.loader()));
         BetaDeliveryClient.VerifiedCatalog catalog = delivery.fetchCatalog();
@@ -161,6 +161,7 @@ public final class BootstrapHost {
             throw failure;
         } finally {
             if (!enteredPayload || readinessRejected[0]) rollbackPreparation(hooks, internal, support, startupFailure);
+        }
         }
     }
 

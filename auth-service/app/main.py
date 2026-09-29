@@ -8,6 +8,7 @@ import os
 import re
 import secrets
 import sqlite3
+import threading
 import time
 import uuid
 from datetime import datetime, timezone
@@ -24,7 +25,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field, field_validator
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from .beta_delivery import beta_enabled, beta_runtime_catalog, create_beta_router
+from .beta_delivery import beta_enabled, beta_runtime_catalog, create_beta_router, require_current_runtime_catalog
 from .api_responses import ApiResponseMiddleware
 from .native_manifest import create_native_manifest_router
 from .native_download import create_native_download_router
@@ -59,6 +60,8 @@ from .security import (
 
 ROOT = Path(__file__).resolve().parent
 COOKIE_NAME = "__Host-cst-admin"
+# One expensive password verification per process, across app instances.
+_ADMIN_PASSWORD_SLOT = threading.BoundedSemaphore(1)
 
 
 def _hex_digest(value: str) -> str:
@@ -429,6 +432,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             (int(time.time()), event, license_uid, subject[:80], details[:500]),
         )
 
+    def reject_proof(connection, event: str, license_uid: int, subject: str, detail: str) -> None:
+        # Never retain partial authentication state merely to preserve a denial.
+        # Roll it back, then commit only the audit row before raising the response.
+        connection.rollback()
+        audit(connection, event, license_uid, subject)
+        connection.commit()
+        raise HTTPException(401, detail)
+
     def security_event(
         connection,
         event_type: str,
@@ -695,8 +706,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 raise HTTPException(409, "device limit reached")
             message = _message(row)
             if not verify_ed25519(bytes(row["install_signing_key"]), message, body.install_signature):
-                audit(connection, "enroll_bad_signature", int(row["license_uid"]), body.challenge_id)
-                raise HTTPException(401, "challenge rejected")
+                reject_proof(connection, "enroll_bad_signature", int(row["license_uid"]), body.challenge_id, "challenge rejected")
             dpop.require(connection, request, bytes(row["install_signing_key"]))
             if rebinding is not None:
                 previous, _ = rebinding
@@ -845,6 +855,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         require_runtime_enabled()
         if body.token_signature is None:
             raise HTTPException(401, "authentication denied")
+        runtime = None
+        with database.connect() as connection:
+            pending = connection.execute("""SELECT c.*,d.token_signing_key
+                FROM challenges c JOIN devices d ON d.device_id=c.device_id
+                JOIN licenses l ON l.uid=c.license_uid
+                WHERE c.challenge_id=? AND c.kind='auth' AND c.scope LIKE 'beta:%'
+                  AND c.consumed_at IS NULL AND c.expires_at>?
+                  AND d.license_uid=c.license_uid AND d.status='active' AND l.status='active'
+                  AND (l.expires_at IS NULL OR l.expires_at>?)""",
+                (body.challenge_id, int(time.time()), int(time.time()))).fetchone()
+        if pending is not None:
+            message = _message(pending)
+            if (verify_ed25519(bytes(pending["install_signing_key"]), message, body.install_signature)
+                    and verify_ed25519(bytes(pending["token_signing_key"]), message, body.token_signature)):
+                runtime = beta_runtime_catalog(settings, int(pending["license_uid"]))
         now = int(time.time())
         with database.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -870,26 +895,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 or (row["license_expires"] is not None and int(row["license_expires"]) <= now)
             ):
                 raise HTTPException(401, "authentication denied")
-            runtime = None
             product = CELESTE if row["scope"] == "client" else PLUS
             if row["product"] != product:
                 raise HTTPException(401, "authentication denied")
             require_entitlement(connection, int(row["license_uid"]), product)
             if int(row["device_license_uid"]) != int(row["license_uid"]):
                 raise HTTPException(401, "authentication denied")
-            if row["scope"] != "client":
-                if int(row["device_license_uid"]) != int(row["license_uid"]):
-                    raise HTTPException(401, "authentication denied")
-                runtime = beta_runtime_catalog(settings, int(row["license_uid"]))
-                now = int(time.time())
-                if int(row["expires_at"]) <= now or (
-                    row["license_expires"] is not None and int(row["license_expires"]) <= now
-                ):
-                    raise HTTPException(401, "authentication denied")
-                if (row["scope"] != "beta:" + runtime["catalog_sha256"]
-                        or row["release_id"] != runtime["release_id"]
-                        or row["client_sha256"] != runtime["runtime_sha256"]):
-                    raise HTTPException(409, "unsupported release")
             message = _message(row)
             try:
                 install_ok = verify_ed25519(bytes(row["install_signing_key"]), message, body.install_signature)
@@ -899,8 +910,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     raise
                 install_ok = token_ok = False
             if not install_ok or not token_ok:
-                audit(connection, "auth_bad_proof", int(row["license_uid"]), body.challenge_id)
-                raise HTTPException(401, "authentication denied")
+                reject_proof(connection, "auth_bad_proof", int(row["license_uid"]), body.challenge_id, "authentication denied")
+            if row["scope"] != "client":
+                if int(row["device_license_uid"]) != int(row["license_uid"]):
+                    raise HTTPException(401, "authentication denied")
+                if runtime is None:
+                    raise HTTPException(409, "unsupported release")
+                require_current_runtime_catalog(settings, runtime)
+                now = int(time.time())
+                if int(row["expires_at"]) <= now or (
+                    row["license_expires"] is not None and int(row["license_expires"]) <= now
+                ):
+                    raise HTTPException(401, "authentication denied")
+                if (row["scope"] != "beta:" + runtime["catalog_sha256"]
+                        or row["release_id"] != runtime["release_id"]
+                        or row["client_sha256"] != runtime["runtime_sha256"]):
+                    raise HTTPException(409, "unsupported release")
             dpop.require(connection, request, bytes(row["install_signing_key"]))
             if row["product"] == PLUS:
                 complete_hardware_auth(connection, row, int(time.time()))
@@ -1100,8 +1125,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 not verify_ed25519(bytes(row["install_signing_key"]), message, body.install_signature)
                 or not verify_ed25519(bytes(row["token_signing_key"]), message, body.token_signature)
             ):
-                audit(connection, f"{label}_bad_proof", int(row["license_uid"]), body.challenge_id)
-                raise HTTPException(401, f"{label} authentication denied")
+                reject_proof(connection, f"{label}_bad_proof", int(row["license_uid"]), body.challenge_id, f"{label} authentication denied")
             dpop.require(connection, request, bytes(row["install_signing_key"]))
             if row["product"] == PLUS:
                 complete_hardware_auth(connection, row, int(time.time()))
@@ -1749,9 +1773,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.post("/admin/login")
     def admin_login(request: Request, password: Annotated[str, Form(min_length=1, max_length=256)]):
-        check_limit(request, "admin-login", 900)
-        if not verify_admin_password(settings.admin_password_hash, password):
+        if not _ADMIN_PASSWORD_SLOT.acquire(blocking=False):
+            raise HTTPException(503, "Admin sign-in is busy", headers={"Retry-After": "1"})
+        try:
+            # Reserve the attempt atomically before entering the expensive hash.
             apply_limit(request, "admin-login", 5, 900)
+            valid = verify_admin_password(settings.admin_password_hash, password)
+            if valid:
+                clear_limit(request, "admin-login")
+        finally:
+            _ADMIN_PASSWORD_SLOT.release()
+        if not valid:
             with database.connect() as connection:
                 security_event(
                     connection,
@@ -1763,7 +1795,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     request,
                 )
             return templates.TemplateResponse(request, "login.html", {"error": "Login failed"}, status_code=401)
-        clear_limit(request, "admin-login")
         now = int(time.time())
         session_id = secrets.token_urlsafe(32)
         ip_hash = keyed_digest(settings.session_secret, "admin-session-ip", client_ip(request))

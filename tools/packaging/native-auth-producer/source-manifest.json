@@ -88,9 +88,9 @@
       "path": "selectors/bootstrap.methods",
       "source_path": "final-native-auth/bootstrap.methods",
       "original_sha256": "428520d872ba60310ec9260ad33214f49c3d05236f85ed4996732dcc509f8814",
-      "sha256": "f4da410572b579b08c48dce0dac9c9e6df5d36a9ed25c271ab511b40365b8b91",
+      "sha256": "946cda56a473495bd4047dd275b8bdd84393d70fe20b4acd7b2c7fbf2aac406a",
       "bytes": 574,
-      "normalization": "UTF-8/LF only"
+      "normalization": "Exact synthetic lambda ABI update; prior original_sha256 retained; see provenance/selection-update-20260929.json"
     },
     {
       "path": "README.md",
@@ -107,6 +107,14 @@
       "sha256": "fc145b4d66b02f102ad7ff456707663449e782fcf2abbe9e1615f89a810b88c7",
       "bytes": 2311,
       "normalization": "new UTF-8/LF source"
+    },
+    {
+      "path": "provenance/selection-update-20260929.json",
+      "source_path": "current runtime class metadata",
+      "original_sha256": "dfc5232f9a2f892bae5069caf7e89cf8904d52e0a9610ec6bdcb97ccd3e9da1a",
+      "sha256": "dfc5232f9a2f892bae5069caf7e89cf8904d52e0a9610ec6bdcb97ccd3e9da1a",
+      "bytes": 18614,
+      "normalization": "UTF-8/LF"
     }
   ],
   "scope": "Source preservation and rebuild comparison only; no VMP/JNI/publication approval."

@@ -1,8 +1,8 @@
 {
   "schema": "celeste-auth-native-producer-policy-1",
   "scope": "Reviewed isolated source adaptation and executable producer inputs only; not a native protection or production publication approval.",
-  "native_tool_bundle_sha256": "b558f2e5f5741d5541ee80048052a95545708965103081b51856dd4732437369",
-  "adaptation_provenance_sha256": "28688ba39f7208b86a9a3fb826c261ebfb09adc006bfee8b6ef93838f26f6264",
+  "native_tool_bundle_sha256": "cccc3da3a02ef3c6bd68ec675e40f86c27d121b5e64530b8fe4b11fec03f969b",
+  "adaptation_provenance_sha256": "ed4a71546d5f68accff8deb4d482070f5078dc2154668c530c8a4746c1051c25",
   "source_patch_sha256": "11010fd2e68060eabfe7b74825dd73682ba3ee98b1960031ca42ac8a1d36b620",
   "required_properties": {
     "celeste.prototype.callLocalJni": "true",
@@ -24,7 +24,7 @@
     },
     "bootstrap": {
       "path": "final-native-auth/bootstrap.methods",
-      "sha256": "428520d872ba60310ec9260ad33214f49c3d05236f85ed4996732dcc509f8814"
+      "sha256": "41a28d2d1f79f7ad9be4853b51c6df8bd9059e9126563353d6bbc3c2a9b69e5f"
     }
   },
   "known_checks": {

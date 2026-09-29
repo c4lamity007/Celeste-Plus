@@ -27,6 +27,11 @@ public final class AuthBootstrapLifecycleTest {
         if (args.length != 1) throw new IllegalArgumentException("Supply one scenario");
         try {
             switch (args[0]) {
+                case "credential-cleanup-failure" -> credentialCleanup("failure");
+                case "credential-cleanup-queued-stop" -> credentialCleanup("queued");
+                case "credential-cleanup-active-stop" -> credentialCleanup("active");
+                case "credential-cleanup-revocation" -> credentialCleanup("revoked");
+                case "credential-queued-replacement" -> credentialQueuedReplacement();
                 case "startup-deferred" -> startupDeferred();
                 case "late-start-once" -> lateStartOnce();
                 case "late-failure-observer" -> lateFailureObserver();
@@ -74,6 +79,45 @@ public final class AuthBootstrapLifecycleTest {
             worker().shutdownNow();
             supervisor().shutdownNow();
         }
+    }
+
+    private static void credentialCleanup(String scenario) throws Exception {
+        if (scenario.equals("failure")) AuthServiceClient.checkFailure = new java.security.GeneralSecurityException("fixture denial");
+        AuthBootstrap.install(AuthBootstrapLifecycleTest::initialize, AuthBootstrapLifecycleTest::cleanup);
+        ClientLifecycleEvents.CLIENT_STARTED.fire(CLIENT);
+        workerBarrier();
+        if (scenario.equals("queued")) {
+            require(CLIENT.queuedCount() > 0, "Authorization remains queued");
+            stop(); // Pending material must disappear before its queued task is drained.
+        } else if (scenario.equals("active") || scenario.equals("revoked")) {
+            completeAuthorization();
+            require(InstallCredential.created.stream().anyMatch(c -> !c.isDestroyed()), "Active session owns its credential");
+            if (scenario.equals("active")) stop();
+            else invoke("lockSession", new Class<?>[]{String.class}, "fixture revocation");
+        }
+        require(!InstallCredential.created.isEmpty(), "Actual credential lifetime exercised");
+        require(InstallCredential.created.stream().allMatch(InstallCredential::isDestroyed), "Every credential is destroyed at the terminal boundary");
+        CLIENT.drain();
+        require(!AuthBootstrap.authorized(), "Cleanup cannot reactivate the client");
+        if (!scenario.equals("failure")) require(AuthServiceClient.closed.get()>0,"Session signer owner closed");
+    }
+
+    private static void credentialQueuedReplacement() throws Exception {
+        AuthBootstrap.install(AuthBootstrapLifecycleTest::initialize, AuthBootstrapLifecycleTest::cleanup);
+        ClientLifecycleEvents.CLIENT_STARTED.fire(CLIENT);
+        workerBarrier();
+        require(InstallCredential.created.size() == 1 && CLIENT.queuedCount() > 0, "First response remains queued");
+        InstallCredential first = InstallCredential.created.get(0);
+        AuthBootstrap.retry();
+        workerBarrier();
+        require(InstallCredential.created.size() == 2 && first.isDestroyed(), "Replacement destroys previous pending credential");
+        InstallCredential second = InstallCredential.created.get(1);
+        CLIENT.drain();
+        require(AuthBootstrap.authorized() && INITIALIZATIONS.get() == 1, "Only current queued response activates");
+        Field active = AuthBootstrap.class.getDeclaredField("sessionCredential"); active.setAccessible(true);
+        require(active.get(null) == second && !second.isDestroyed(), "Superseded response cannot publish destroyed material");
+        stop();
+        require(InstallCredential.created.stream().allMatch(InstallCredential::isDestroyed), "Both attempt lifetimes close");
     }
 
     private static void initialize() {

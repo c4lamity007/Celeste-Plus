@@ -33,9 +33,10 @@ public final class AmbientTronField {
     private final Trail[] slots = new Trail[MAX_TRAILS];
     private long serial;
     private double lastSeconds = Double.NaN, lastX, lastY, lastZ;
+    private double activationSeconds = Double.NaN;
 
     public AmbientTronField(long seed) { this.seed = seed; }
-    public void reset() { java.util.Arrays.fill(slots, null); lastSeconds = Double.NaN; serial = 0; }
+    public void reset() { java.util.Arrays.fill(slots, null); lastSeconds = Double.NaN; activationSeconds = Double.NaN; serial = 0; }
 
     /** Fixed cell probes only, once per time slice; this never searches or loads terrain. */
     public List<Segment> sample(double eyeX, double eyeY, double eyeZ, double seconds,
@@ -48,7 +49,9 @@ public final class AmbientTronField {
         lastSeconds = seconds; lastX = eyeX; lastY = eyeY; lastZ = eyeZ;
         density = finiteRange(density, 0, 1, .6); size = finiteRange(size, .5, 2, 1);
         int count = trailCount(density);
-        if (count == 0) return List.of();
+        if (count == 0) { activationSeconds = Double.NaN; return List.of(); }
+        if (!Double.isFinite(activationSeconds)) activationSeconds = seconds;
+        double activation = smooth((seconds - activationSeconds) / .65);
         long slice = (long)Math.floor(seconds * 20);
         List<Segment> out = new ArrayList<>(count * MAX_SEGMENTS_PER_TRAIL);
         for (int slot = 0; slot < count; slot++) {
@@ -80,7 +83,7 @@ public final class AmbientTronField {
                         trail.x[step+1],trail.y[step+1],trail.z[step+1],trail.direction[step],air);
                 }
                 if (!trail.clear[step]) continue;
-                double alpha = life * weight * visibility * .62;
+                double alpha = life * weight * visibility * activation * .62;
                 out.add(new Segment(trail.identity, ax, ay, az, bx, by, bz, .11 * size,
                     (float)(alpha * trailFade(begin, head, trail.tail)),
                     (float)(alpha * trailFade(end, head, trail.tail)), trail.palette,trail.normalAxis,

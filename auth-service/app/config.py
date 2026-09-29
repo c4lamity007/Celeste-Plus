@@ -3,7 +3,9 @@ from __future__ import annotations
 import base64
 import os
 from pathlib import Path
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+from .secret_files import read_secret
 
 
 def _required(name: str) -> str:
@@ -15,7 +17,9 @@ def _required(name: str) -> str:
 
 def _decode_32(name: str) -> bytes:
     try:
-        value = base64.urlsafe_b64decode(_required(name) + "===")
+        value = base64.urlsafe_b64decode((read_secret(name) if name in {
+            "CELESTE_SIGNING_PRIVATE_KEY", "CELESTE_KEY_PEPPER", "CELESTE_SESSION_SECRET"
+        } else _required(name)) + "===")
     except ValueError as exc:
         raise RuntimeError(f"Invalid base64 setting: {name}") from exc
     if len(value) != 32:
@@ -26,10 +30,10 @@ def _decode_32(name: str) -> bytes:
 @dataclass(frozen=True)
 class Settings:
     database_path: str
-    signing_private_key: bytes
-    key_pepper: bytes
-    session_secret: bytes
-    admin_password_hash: str
+    signing_private_key: bytes = field(repr=False)
+    key_pepper: bytes = field(repr=False)
+    session_secret: bytes = field(repr=False)
+    admin_password_hash: str = field(repr=False)
     allowed_hosts: tuple[str, ...]
     release_id: str
     release_sha256: str
@@ -154,7 +158,7 @@ class Settings:
             signing_private_key=_decode_32("CELESTE_SIGNING_PRIVATE_KEY"),
             key_pepper=_decode_32("CELESTE_KEY_PEPPER"),
             session_secret=_decode_32("CELESTE_SESSION_SECRET"),
-            admin_password_hash=_required("CELESTE_ADMIN_PASSWORD_HASH"),
+            admin_password_hash=read_secret("CELESTE_ADMIN_PASSWORD_HASH"),
             allowed_hosts=hosts,
             release_id=release_id,
             release_sha256=release_sha256,

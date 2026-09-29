@@ -104,7 +104,7 @@ public final class HitEffectsCheck {
         check(compatible.color()==compatible.endColor(),"existing ground pulse constructor retained");
         HitEffectsState state=new HitEffectsState();
         for(int i=0;i<10;i++) state.ground(flat,0,1,0x2244AA,0x66EEFF);
-        check(state.groundCount()==4,"independent ground capacity");
+        check(state.groundCount()==10,"successive hits retain every live ground pulse");
         check(state.frame(0).ground().isEmpty(),"ground starts empty");
         var early=state.frame(.07).ground();var grown=state.frame(.28).ground();
         check(!early.isEmpty() && grown.size()>early.size(),"progressive head movement");
@@ -228,6 +228,30 @@ public final class HitEffectsCheck {
         check(vertices.stream().filter(v->v[5]==1&&Math.abs(v[0]-.95)<1e-8&&Math.abs(v[2]-.05)<1e-8).count()==2,"inside right-angle miter joins exactly");
         check(vertices.stream().filter(v->v[5]==1&&Math.abs(v[0]-1.05)<1e-8&&Math.abs(v[2]+.05)<1e-8).count()==2,"outside right-angle miter joins exactly");
         repeated.clearGround();check(repeated.frame(.9).isEmpty(),"toggle clears repeat-wave state too");
+        rapidHits();
+    }
+    private static void rapidHits() {
+        var origin=new HitEffectsState.Point(0,0,0);
+        var edge=List.of(new HitGroundPath.Branch(List.of(new HitGroundPath.Segment(origin,origin.add(1,0,0),0,1))));
+        var control=new HitEffectsState();var rapid=new HitEffectsState();
+        control.ground(edge,0,1,0x2244AA);rapid.ground(edge,0,1,0x2244AA);
+        for(int i=1;i<=20;i++) {
+            var at=origin.add(i*2,0,0);
+            rapid.ground(List.of(new HitGroundPath.Branch(List.of(new HitGroundPath.Segment(at,at.add(1,0,0),0,1)))),i*.02,1,0x2244AA);
+        }
+        check(rapid.groundCount()==21,"twenty successive hits do not evict an unfinished original");
+        var original=rapid.frame(.5).ground().stream().filter(b->b.from().equals(origin)).findFirst().orElseThrow();
+        check(original.equals(control.frame(.5).ground().getFirst()),"old wave keeps exact timing, shape and color after rapid hits");
+        check(rapid.frame(1.1).ground().stream().noneMatch(b->b.from().equals(origin)),"old wave expires on its own timeline");
+        var overlapping=new HitEffectsState();overlapping.ground(edge,0,1,0x2244AA);overlapping.ground(edge,.45,1,0x2244AA);
+        double highlighted=overlapping.frame(.515).ground().getFirst().highlight();
+        overlapping.ground(edge,.510,1,0x2244AA);
+        check(overlapping.frame(.515).ground().getFirst().highlight()>=highlighted,"new overlapping hit cannot restart or erase earlier traveling highlight");
+        var bounded=new HitEffectsState();bounded.ground(edge,0,1,0x112233);
+        for(int i=0;i<HitEffectsState.MAX_GROUND_PULSES+10;i++)bounded.ground(edge,.01,1,0x112233);
+        check(bounded.groundCount()==HitEffectsState.MAX_GROUND_PULSES,"abnormal injection remains bounded");
+        check(bounded.frame(.07).ground().getFirst().opacity()==control.frame(.07).ground().getFirst().opacity(),"capacity exhaustion preserves earliest active pulse");
+        bounded.ground(edge,3,1,0x112233);check(bounded.groundCount()==1,"expiry frees pulse capacity before accepting new hit");
     }
     private static int compass(double x,double z) {return Math.floorMod((int)Math.round(Math.atan2(z,x)/(Math.PI/4)),8);}
     private static void irregular(HitGroundPath.Branch route,int heading) {

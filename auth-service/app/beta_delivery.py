@@ -2,7 +2,8 @@
 
 The release directory is operator-staged, separate from production, and contains
 beta-release.json plus precisely named catalog entries. The on-disk catalog is
-never served directly. Each request validates all four artifacts; downloads
+never served directly. Runtime metadata reuses verified file snapshots; downloads
+validate all four artifacts and
 return the same bytes whose digest was checked (not a later FileResponse read).
 
 Catalog v2 exact top-level keys: schema="celeste-beta-release-2", release_id,
@@ -39,6 +40,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from .config import Settings
+from .release_cache import verified_catalog, require_current
 from .database import Database
 from .products import PLUS, require_entitlement, require_claim_product
 from .security import GrantSigner, canonical_json
@@ -197,8 +199,13 @@ def beta_runtime_catalog(settings: Settings, license_uid: int) -> dict:
         raise HTTPException(409, "unsupported release")
     with Database(settings.database_path).connect() as connection:
         require_entitlement(connection, license_uid, PLUS)
-    catalog, _ = _read_release(settings)
+    catalog = verified_catalog(settings, ARTIFACT_FILENAMES.values(), _safe_file, _read_release)
     return {**catalog, "catalog_sha256": hashlib.sha256(canonical_json(catalog)).hexdigest()}
+
+
+def require_current_runtime_catalog(settings: Settings, catalog: dict) -> None:
+    snapshot = {key: value for key, value in catalog.items() if key != "catalog_sha256"}
+    require_current(settings, ARTIFACT_FILENAMES.values(), _safe_file, snapshot)
 
 
 def create_beta_router(
