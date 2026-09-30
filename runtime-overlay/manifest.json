@@ -148,6 +148,11 @@
       "baseSha256": null
     },
     {
+      "path": "src/main/java/dev/c4lam/celeste/config/ConfigLibrary.java",
+      "sha256": "587610227685ff93058180c54fb541103fb08df10ee99d1bbcf76b8493305c06",
+      "baseSha256": "f752b4b0aabe707c2a28e2b2d708f257b9a90c882e27ff810daf0c3938d80170"
+    },
+    {
       "path": "src/main/java/dev/c4lam/celeste/config/InterfaceConfig.java",
       "sha256": "1a94418280408e387a96be879a58bcb7173e2f7b0919b72110a2dc7bf3886fbc",
       "baseSha256": "2cdbb73d577b57ec501b98e22aa7e14a4c3d0bca77cecd847803994baecd2428"
@@ -159,7 +164,7 @@
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/gui/AmbientEffectsEditorScreen.java",
-      "sha256": "c4714721b9f8fc4498229d1c5d334c13a7cf3c6b5cae3c93a415bef3dc83d254",
+      "sha256": "479ec05964f5e92fb5da4c5697d719ec7b96f1c518835ca36d9a7a51fa4310af",
       "baseSha256": null
     },
     {
@@ -184,7 +189,7 @@
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/gui/CelesteScreen.java",
-      "sha256": "355bff6fbcb4c5a04fa5e6c4c214b5d344345847e81c37c1dfab5882eddfbf00",
+      "sha256": "04a0ccab3fa6caef79d80e178606f2d4c67a5331d6077f7dc0e51e721e43481a",
       "baseSha256": "06e3bacf9549322d612ea9851fb6ab89405d44e61de24625920557406dcae248"
     },
     {
@@ -244,7 +249,7 @@
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/gui/model/AmbientEffectsSettings.java",
-      "sha256": "9e710271a1510e7289df8b38b30964d7bc7681744f23e502318a9a2bcf604ab2",
+      "sha256": "706c615901b1a6994a1cb0a46ca444492114538838afdc5fb89ca747b8225d0f",
       "baseSha256": null
     },
     {
@@ -339,7 +344,7 @@
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/hud/HudManager.java",
-      "sha256": "2ca792aefcdfbca60c9d560e063eacd9434bf2ac3755a13df5a9ea6babe892a3",
+      "sha256": "56cdd7c7063cc19291e204bc086973b46c62cfb0ccaae3ebb6026746d5db35bb",
       "baseSha256": "22ec3ef541ab19e75e67de111ba536372fdee5618deb314f17024c62ee2c0de6"
     },
     {
@@ -684,28 +689,33 @@
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/AmbientEffectsFeature.java",
-      "sha256": "e0daef05bd17caaef75cf70a3aadc892013a49b4176284b7f381016786e2ffa5",
+      "sha256": "c2e812c2845b6fc2c98dcfd2495acff1a60f405ec4bc83340eac0cb7707ce294",
       "baseSha256": "a9d5098c0e9b8fb711cef546d0ef4d4e285b026148da82a06519270c6dbe7bb6"
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/AmbientEffectsGeometry.java",
-      "sha256": "2dc53796db7b39c2417363a3c5a98dc87448efad9a29b1295ea042bcbe7859e6",
+      "sha256": "6a1035cb8c600feab32ae3c448a953715868b2718680e2e5a2f18d6fcb0eae12",
       "baseSha256": null
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/AmbientEffectsLayers.java",
-      "sha256": "4fe09137c2031572a642573dd7c668995a5c0205af6e5c26977c8154cb0153c7",
+      "sha256": "9386f07c36ce48a42798d27b71c0e3ef0cd99a72a674f05ea7edc2056f837e88",
       "baseSha256": null
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/AmbientEffectsRenderer.java",
-      "sha256": "4afc991a2df20e0d4f2df8ba5d45dfdc68a7bb10adc023c0045a7ed600861ba9",
+      "sha256": "eb62262f6616fadfcf6378bdcf950a8f17b9bb71ba8490bfa425b532a65f92c9",
       "baseSha256": "2799aef931aa3ec20044a948c4c3dfaca4a90747ffdef3890715c6498942be54"
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/AmbientField.java",
-      "sha256": "036f3bd9a60dafb24635300c8216f2ec7a697577fdae014fade02be483755739",
+      "sha256": "f7401d1ee07fe2aade672e8d3e8c32c20e52ad665852e79b42dc7e4ab436b99c",
       "baseSha256": "19fa6827fcc57d8f763b15bf838c90e598ea1479a052f409caca1fe3b58c1e17"
+    },
+    {
+      "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/AmbientLightStrands.java",
+      "sha256": "473c857ac552c50afe27be651542af63311e56cc8a663b784eda468bb246ec13",
+      "baseSha256": null
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/AmbientTesseractField.java",
@@ -844,7 +854,7 @@
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/expansion/HitDisplacementWorld.java",
-      "sha256": "3d7e4b34e1885691f1e0f1dfcc4f431794fadd4d9df96fbff50d72705f4bcaa6",
+      "sha256": "6293a76a3ed86b12bdc163a070b841d702b806f5a8fd4da09f77e1400f70e5c2",
       "baseSha256": null
     },
     {
@@ -1199,12 +1209,12 @@
     },
     {
       "path": "src/main/resources/assets/celeste/shaders/core/hit_displacement.fsh",
-      "sha256": "d29151381b09d05b4a594b7338edeaba53d862b443ccb826ba3f1a61ee8153bb",
+      "sha256": "700b2f66f48c684ae746495aa3eae24feb769e07d95bddff505f46c4d531f7da",
       "baseSha256": null
     },
     {
       "path": "src/main/resources/assets/celeste/shaders/core/hit_displacement.vsh",
-      "sha256": "d6597cbd168b520af7298caee53f40772fb042b557157ad4414ee2f524c0afcf",
+      "sha256": "4f3936656d646580d862dbaca74a164d6d51e231d68b6f96535be82f007c262f",
       "baseSha256": null
     },
     {

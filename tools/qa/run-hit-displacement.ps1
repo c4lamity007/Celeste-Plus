@@ -3,6 +3,7 @@ param(
     [Parameter(Mandatory=$true)][string]$MinecraftJar,
     [Parameter(Mandatory=$true)][string]$OutputRoot,
     [string]$StagedRoot='',
+    [string]$ReferenceShaders='',
     [string]$JdkHome='C:/Program Files/Eclipse Adoptium/jdk-21.0.11.10-hotspot'
 )
 $ErrorActionPreference='Stop'
@@ -25,5 +26,7 @@ if(-not(Test-Path -LiteralPath $animation)){$animation=Join-Path $ProjectRoot 's
 if($LASTEXITCODE -ne 0){throw 'Hit displacement fixture compilation failed'}
 $shaders=Join-Path $sourcePath 'src/main/resources/assets/celeste/shaders/core'
 if(-not(Test-Path -LiteralPath "$shaders/hit_displacement.fsh")){$shaders=Join-Path $ProjectRoot 'src/main/resources/assets/celeste/shaders/core'}
-& "$JdkHome/bin/java.exe" -cp "$outputPath/classes;$classpath" HitDisplacementCheck $shaders $gamePath $outputPath
+$referenceArguments=@()
+if($ReferenceShaders){$referenceArguments=@((Resolve-Path -LiteralPath $ReferenceShaders).Path)}
+& "$JdkHome/bin/java.exe" -cp "$outputPath/classes;$classpath" HitDisplacementCheck $shaders $gamePath $outputPath @referenceArguments
 if($LASTEXITCODE -ne 0){throw 'Hit displacement GPU check failed'}

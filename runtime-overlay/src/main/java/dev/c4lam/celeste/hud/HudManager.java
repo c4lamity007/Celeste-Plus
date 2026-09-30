@@ -1095,8 +1095,7 @@ public final class HudManager {
             int remaining = Math.max(0, stack.getMaxDamage() - stack.getDamage());
             float ratio = stack.getMaxDamage() <= 0 ? 1.0f
                 : Math.max(0.0f, Math.min(1.0f, remaining / (float) stack.getMaxDamage()));
-            Color value = ratio > 0.45f ? color(217, 230, 153, 255)
-                : ratio > 0.2f ? color(244, 194, 103, 255) : color(239, 109, 109, 255);
+            Color value = new Color(stack.getItemBarColor());
             float barX = itemX + (itemSize - barWidth) * 0.5f;
             float barY = itemY + itemSize + barGap;
             RenderUtil.RECT.draw(matrices, barX, barY, barWidth, barHeight, barHeight * 0.5f,

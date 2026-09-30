@@ -7,8 +7,8 @@ import java.util.Properties;
 
 /** Ordinary module settings keep layers in local, PNG and cloud configurations. */
 public final class AmbientEffectsSettings {
-    public static final List<String> STYLES = List.of("Fireflies", "Crystal Motes", "Snowfall",
-        "Falling Leaves", "Tesseracts", "Tron Trails");
+    public static final List<String> STYLES = List.of("Fireflies", "Light Strands", "Tesseracts", "Tron Trails");
+    private static final List<String> RETIRED = List.of("Crystal Motes", "Snowfall", "Falling Leaves");
     public static final String PREFIX = "module.ambient_effects.setting.";
     public record Layer(String style, double density, double size, int color) {
         public Layer(String style, double density, double size) { this(style, density, size, defaultColor(style)); }
@@ -22,7 +22,7 @@ public final class AmbientEffectsSettings {
         result.add(new GuiSetting.Mode("Style", "Ambient geometry", STYLES, "Fireflies").visibleWhen(() -> false));
         result.add(new GuiSetting.Slider("Density", "Amount", .6, 0, 1, .05).hidden());
         result.add(new GuiSetting.Slider("Size", "Size", 1, .5, 2, .1).hidden());
-        result.add(new GuiSetting.Slider("Layers Version", "Configuration version", 1, 1, 1, 1).hidden());
+        result.add(new GuiSetting.Slider("Layers Version", "Configuration version", 2, 2, 2, 1).hidden());
         for (String style : STYLES) {
             result.add(new GuiSetting.Toggle(style + " Enabled", "Active effect", style.equals("Fireflies")).hidden());
             result.add(new GuiSetting.Slider(style + " Density", "Amount", .6, 0, 1, .05).hidden());
@@ -73,6 +73,7 @@ public final class AmbientEffectsSettings {
     public static int defaultColor(String style) {
         if (style == null) return 0xA6FFE1;
         return switch (style) {
+            case "Light Strands" -> 0xBFA6FF;
             case "Crystal Motes" -> 0x6BDEFF;
             case "Snowfall" -> 0xE3F5FF;
             case "Falling Leaves" -> 0xD98739;
@@ -101,22 +102,37 @@ public final class AmbientEffectsSettings {
         values.putAll(original);
         boolean modern = finite(values.getProperty(PREFIX + "layers_version"), 0) >= 1;
         String legacy = values.getProperty(PREFIX + "style", "Fireflies");
+        String retired = RETIRED.contains(legacy) && !modern ? legacy : null;
+        // One replacement layer: preserve the first active retired effect's controls.
+        // An explicit new Light Strands choice, including off, always wins.
+        if (modern && !values.containsKey(PREFIX + "light_strands_enabled")
+            && finite(values.getProperty(PREFIX + "layers_version"), 0) < 2) {
+            for (String old : RETIRED) if (Boolean.parseBoolean(values.getProperty(PREFIX + key(old) + "_enabled"))) {
+                retired = old; break;
+            }
+        }
+        if (RETIRED.contains(legacy)) legacy = "Light Strands";
         if (!STYLES.contains(legacy)) legacy = "Fireflies";
+        values.setProperty(PREFIX + "style", legacy);
         for (String style : STYLES) {
             String name = key(style);
+            boolean replacement = style.equals("Light Strands") && retired != null;
+            String source = replacement ? key(retired) : name;
             boolean selected = modern
-                ? Boolean.parseBoolean(values.getProperty(PREFIX + name + "_enabled", "false"))
+                ? replacement || Boolean.parseBoolean(values.getProperty(PREFIX + name + "_enabled", "false"))
                 : style.equals(legacy);
             values.setProperty(PREFIX + name + "_enabled", Boolean.toString(selected));
-            double density = finite(values.getProperty(PREFIX + (modern ? name + "_density" : "density")), .6);
-            double size = finite(values.getProperty(PREFIX + (modern ? name + "_size" : "size")), 1);
+            double density = finite(values.getProperty(PREFIX + (modern ? source + "_density" : "density")), .6);
+            double size = finite(values.getProperty(PREFIX + (modern ? source + "_size" : "size")), 1);
             if (!modern && !selected) { density = .6; size = 1; }
             values.setProperty(PREFIX + name + "_density", Double.toString(Math.clamp(density, 0, 1)));
             values.setProperty(PREFIX + name + "_size", Double.toString(Math.clamp(size, .5, 2)));
-            Integer rgb = GuiSetting.ColorPick.parse(values.getProperty(PREFIX + name + "_color"));
-            values.setProperty(PREFIX + name + "_color", String.format(Locale.ROOT, "#%06X", rgb == null ? defaultColor(style) : rgb));
+            Integer rgb = GuiSetting.ColorPick.parse(values.getProperty(PREFIX + source + "_color"));
+            values.setProperty(PREFIX + name + "_color", String.format(Locale.ROOT, "#%06X", rgb == null ? defaultColor(replacement ? retired : style) : rgb));
         }
-        values.setProperty(PREFIX + "layers_version", "1");
+        for (String old : RETIRED) for (String suffix : List.of("_enabled", "_density", "_size", "_color"))
+            values.remove(PREFIX + key(old) + suffix);
+        values.setProperty(PREFIX + "layers_version", "2");
         return values;
     }
 

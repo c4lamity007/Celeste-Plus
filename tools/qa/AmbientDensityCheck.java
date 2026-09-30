@@ -32,7 +32,7 @@ public final class AmbientDensityCheck {
         check(AmbientTronField.trailCount(0)==0,"Zero density must remain empty");
         for(var style:AmbientField.Style.values()) {
             var one=List.of(new AmbientEffectsLayers.Layer(style,1,1));
-            int expected=style==AmbientField.Style.TRON_TRAILS?0:style==AmbientField.Style.TESSERACTS?576:384;
+            int expected=(style==AmbientField.Style.TRON_TRAILS||style==AmbientField.Style.LIGHT_STRANDS)?0:style==AmbientField.Style.TESSERACTS?576:384;
             check(AmbientEffectsLayers.particleCap(one,style)==expected,"Single-style draw cap did not expand");
         }
     }

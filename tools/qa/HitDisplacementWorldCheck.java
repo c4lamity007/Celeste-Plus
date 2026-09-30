@@ -50,6 +50,10 @@ public final class HitDisplacementWorldCheck {
         close(worldFrames.getFirst().position().z(),-5,"view depth reaches projection shader");
         close(worldFrames.getFirst().radius(),follow.getFirst().radius(),"world animation matches tested lens lifecycle");
         check(animation.sampleWorld(start+200_000_000L,a->new Point(Double.NaN,0,0)).isEmpty(),"invalid view anchor rejected");
+        check(animation.sampleWorld(start+201_000_000L,a->new Point(0,0,2)).isEmpty(),"behind-camera hits do not request scene copy");
+        check(animation.sampleWorld(start+201_000_000L,a->new Point(0,0,0)).isEmpty(),"eye-plane hit does not request scene copy");
+        check(animation.size()==1,"hidden hit retains original lifetime");
+        check(animation.sampleWorld(start+202_000_000L,a->new Point(0,0,-2)).size()==1,"turning back reveals existing hit without a new pulse");
         for(int i=0;i<20;i++) animation.pulse(start+210_000_000L+i,new Anchor(i,impact,impact),0xFF000000+i,1);
         check(animation.size()==4,"bounded recent hits");
         check(animation.sample(start+900_000_000L,a->new Screen(.2f,.3f)).isEmpty(),"expired effects gone");

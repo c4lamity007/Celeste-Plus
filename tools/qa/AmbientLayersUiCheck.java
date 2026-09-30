@@ -19,7 +19,7 @@ public final class AmbientLayersUiCheck {
     }
     public static void main(String[] args) throws Exception {
         System.setProperty("celeste.qa.config", Path.of(args[0]).toAbsolutePath().toString());
-        defaultsAndInputs(); migrationAndActualPersistence(); colorsAndPicker(); geometry();
+        defaultsAndInputs(); retiredMigration(); migrationAndActualPersistence(); colorsAndPicker(); geometry();
         System.out.println("Ambient layers UI: " + checks + " checks passed (actual settings, input state, ModuleManager load/import/export/save)");
     }
     private static void defaultsAndInputs() {
@@ -32,7 +32,7 @@ public final class AmbientLayersUiCheck {
         state.click(160, 60);
         check(state.adding(), "add button opens picker");
         check(!state.rows().contains("Fireflies"), "picker excludes active styles");
-        state.click(35, AmbientEffectsEditorLayout.row(4).y() + 9);
+        state.click(35, AmbientEffectsEditorLayout.row(2).y() + 9);
         check(!state.adding() && "Tron Trails".equals(state.selected()), "picker adds and selects Tron");
         check(state.active().size() == 2, "both effects enabled");
         check(!state.add("Tron Trails"), "duplicates cannot be added");
@@ -52,11 +52,11 @@ public final class AmbientLayersUiCheck {
         near(1.9, AmbientEffectsSettings.slider(module, "Tron Trails", "Size").value(), "readding remembers size");
         near(1, AmbientEffectsSettings.slider(module, "Tron Trails", "Density").value(), "readding remembers density");
         for (String style : AmbientEffectsSettings.STYLES) state.add(style);
-        check(state.active().size() == 6, "six unique effects");
+        check(state.active().size() == 4, "four unique effects");
         state.openPicker(); check(!state.adding(), "full list cannot open empty picker");
         for (String style : List.copyOf(state.active())) state.remove(style);
         check(state.active().isEmpty() && state.selected() == null, "remove final effect leaves intentional empty list");
-        state.openPicker(); state.move(5);
+        state.openPicker(); state.move(3);
         check(state.enter() && "Tron Trails".equals(state.selected()), "keyboard picker selection");
         state.openPicker();
         check(state.escape() == AmbientEffectsEditorState.Result.NONE && !state.adding(), "escape closes picker first");
@@ -71,6 +71,29 @@ public final class AmbientLayersUiCheck {
         check(state.click(35, 90, 0) == AmbientEffectsEditorState.Result.CHANGED, "left click picker adds");
         check(state.click(35, 90, 2) == AmbientEffectsEditorState.Result.NONE && state.active().size() == 1, "middle click ignored");
     }
+    private static void retiredMigration() {
+        String prefix=AmbientEffectsSettings.PREFIX;
+        check(AmbientEffectsSettings.STYLES.equals(List.of("Fireflies","Light Strands","Tesseracts","Tron Trails")), "removed effects absent from editor");
+        for(String old:List.of("Crystal Motes","Snowfall","Falling Leaves")) {
+            String key=AmbientEffectsSettings.key(old);
+            Properties before=new Properties();before.setProperty(prefix+"layers_version","1");
+            before.setProperty(prefix+key+"_enabled","true");before.setProperty(prefix+key+"_density",".85");
+            before.setProperty(prefix+key+"_size","1.7");before.setProperty(prefix+key+"_color","#123ABC");
+            before.setProperty(prefix+"tesseracts_enabled","true");
+            Properties after=AmbientEffectsSettings.prepare(before);
+            check(after.getProperty(prefix+"light_strands_enabled").equals("true"),"retired active layer replaced");
+            check(after.getProperty(prefix+"light_strands_color").equals("#123ABC"),"retired color preserved");
+            check(after.getProperty(prefix+"light_strands_density").equals("0.85"),"retired density preserved");
+            check(after.getProperty(prefix+"light_strands_size").equals("1.7"),"retired size preserved");
+            check(after.getProperty(prefix+"tesseracts_enabled").equals("true"),"other active layer preserved");
+            check(!after.containsKey(prefix+key+"_enabled"),"retired keys removed after migration");
+            check(after.equals(AmbientEffectsSettings.prepare(after)),"migration is not idempotent");
+            check(before.containsKey(prefix+key+"_enabled"),"input snapshot mutated");
+            before.setProperty(prefix+"light_strands_enabled","false");
+            check(AmbientEffectsSettings.prepare(before).getProperty(prefix+"light_strands_enabled").equals("false"),"explicit replacement off overridden");
+        }
+    }
+
     private static void migrationAndActualPersistence() throws Exception {
         ModuleManager manager = ModuleManager.getInstance();
         GuiModule module = GuiCatalog.AMBIENT;
@@ -94,10 +117,10 @@ public final class AmbientLayersUiCheck {
             check(manager.exportState().getProperty("module.other.setting.amount").startsWith("0.7"), "other modules unchanged");
         }
         var state = new AmbientEffectsEditorState(module);
-        state.add("Snowfall"); state.add("Tesseracts");
-        AmbientEffectsSettings.color(module, "Snowfall").setRgb(0x1122CC);
+        state.add("Light Strands"); state.add("Tesseracts");
+        AmbientEffectsSettings.color(module, "Light Strands").setRgb(0x1122CC);
         AmbientEffectsSettings.color(module, "Tesseracts").setRgb(0xCCEE22);
-        AmbientEffectsSettings.slider(module, "Snowfall", "Density").setValue(.25);
+        AmbientEffectsSettings.slider(module, "Light Strands", "Density").setValue(.25);
         AmbientEffectsSettings.slider(module, "Tesseracts", "Size").setValue(.8);
         Properties exported = manager.exportState();
         ByteArrayOutputStream bytes = new ByteArrayOutputStream(); exported.store(bytes, "roundtrip");
@@ -113,16 +136,16 @@ public final class AmbientLayersUiCheck {
         for (String style : AmbientEffectsSettings.STYLES) state.remove(style);
         load.invoke(manager);
         check(manager.exportState().equals(exported), "actual startup load restores multilayer config");
-        check(AmbientEffectsSettings.color(module, "Snowfall").rgb() == 0x1122CC, "independent color survives load");
+        check(AmbientEffectsSettings.color(module, "Light Strands").rgb() == 0x1122CC, "independent color survives load");
         check(AmbientEffectsSettings.color(module, "Tesseracts").rgb() == 0xCCEE22, "second color survives load");
         Properties oldDisk = new Properties(); oldDisk.setProperty(prefix + "style", "Falling Leaves");
         oldDisk.setProperty(prefix + "density", ".35"); oldDisk.setProperty(prefix + "size", "1.4");
         try (OutputStream stream = Files.newOutputStream(file)) { oldDisk.store(stream, "legacy"); }
         load.invoke(manager);
         var oldLayer = AmbientEffectsSettings.layers(module).getFirst();
-        check(AmbientEffectsSettings.layers(module).size() == 1 && oldLayer.style().equals("Falling Leaves"), "actual startup load migrates legacy");
+        check(AmbientEffectsSettings.layers(module).size() == 1 && oldLayer.style().equals("Light Strands"), "actual startup load migrates legacy");
         near(.35, oldLayer.density(), "startup density"); near(1.4, oldLayer.size(), "startup size");
-        check(AmbientEffectsSettings.color(module, "Snowfall").rgb() == AmbientEffectsSettings.defaultColor("Snowfall"), "legacy snapshot resets missing colors instead of inheriting previous config");
+        check(AmbientEffectsSettings.color(module, "Light Strands").rgb() == AmbientEffectsSettings.defaultColor("Falling Leaves"), "retired legacy color migrates instead of inheriting live state");
         for (String style : AmbientEffectsSettings.STYLES) state.remove(style);
         Properties empty = manager.exportState();
         state.add("Fireflies"); manager.importState(empty);
@@ -151,8 +174,8 @@ public final class AmbientLayersUiCheck {
         advanced.setValue(true);
         check(AmbientEffectsSettings.individualColors(atmosphere), "Advanced shows individual colors");
         check(AmbientEffectsSettings.individualColors(null), "missing Atmosphere allows individual colors");
-        var oldConstructor = new AmbientEffectsSettings.Layer("Snowfall", .5, 1);
-        check(oldConstructor.color() == AmbientEffectsSettings.defaultColor("Snowfall"), "legacy Layer constructor retained");
+        var oldConstructor = new AmbientEffectsSettings.Layer("Light Strands", .5, 1);
+        check(oldConstructor.color() == AmbientEffectsSettings.defaultColor("Light Strands"), "legacy Layer constructor retained");
         GuiSetting.ColorPick pick = AmbientEffectsSettings.color(module, "Fireflies");
         GuiSetting.ColorPick other = AmbientEffectsSettings.color(module, "Tron Trails");
         int originalOther = other.rgb();
@@ -177,10 +200,10 @@ public final class AmbientLayersUiCheck {
         picker.close();
         check(!picker.isOpen(), "picker closes cleanly");
         Properties bad = new Properties(); bad.setProperty(AmbientEffectsSettings.PREFIX + "layers_version", "1");
-        bad.setProperty(AmbientEffectsSettings.PREFIX + "snowfall_color", "not-a-color");
+        bad.setProperty(AmbientEffectsSettings.PREFIX + "light_strands_color", "not-a-color");
         Properties normalized = AmbientEffectsSettings.prepare(bad);
-        check(GuiSetting.ColorPick.parse(normalized.getProperty(AmbientEffectsSettings.PREFIX + "snowfall_color"))
-            == AmbientEffectsSettings.defaultColor("Snowfall"), "invalid stored color falls back deterministically");
+        check(GuiSetting.ColorPick.parse(normalized.getProperty(AmbientEffectsSettings.PREFIX + "light_strands_color"))
+            == AmbientEffectsSettings.defaultColor("Light Strands"), "invalid stored color falls back deterministically");
     }
     private static void geometry() {
         for (int width : new int[]{160, 320, 640, 854, 1280, 1920, 3840})

@@ -1141,7 +1141,8 @@ public final class CelesteScreen extends Screen {
                 drawStarIcon(matrices, entry.id(), favourite, starHovered, iconX, iconY, icon, opacity);
                 configIconHits.add(new IconHit("star", entry.id(), iconX, iconY, icon, icon));
                 if (starHovered) {
-                    setPendingTooltip(mouseX, mouseY, favourite ? "Remove favourite" : "Favourite");
+                    setPendingTooltip(mouseX, mouseY, favourite ? "Remove favourite"
+                        : entry.origin() == ConfigLibrary.Tab.MY ? "Favourite" : "Save and favourite");
                 }
                 iconX += 24;
                 boolean gearHovered = hovered(mouseX, mouseY, iconX, iconY, icon, icon);
@@ -2654,8 +2655,7 @@ public final class CelesteScreen extends Screen {
         try {
             switch (action) {
                 case "star" -> {
-                    library.toggleFavourite(id);
-                    setConfigStatus(library.isFavourite(id) ? "Favourited" : "Unfavourited");
+                    runCloudConfigAction(library.toggleFavouriteAsync(id), "Saving favourite...");
                 }
                 case "gear" -> {
                     inspectConfigId = id.equals(inspectConfigId) ? "" : id;
@@ -2737,6 +2737,7 @@ public final class CelesteScreen extends Screen {
     private void runConfigDelete(String name) {
         try {
             ConfigProfileManager.getInstance().delete(name);
+            ConfigLibrary.getInstance().forgetLocalCopy(name);
             setConfigStatus("Deleted " + name);
         } catch (RuntimeException exception) {
             setConfigStatus(exception.getMessage());

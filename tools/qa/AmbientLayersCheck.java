@@ -16,16 +16,16 @@ public final class AmbientLayersCheck {
             for(int i=0;i<styles.length;i++)if((mask&(1<<i))!=0)requested.add(layer(styles[i]));
             List<AmbientEffectsLayers.Layer> layers=AmbientEffectsLayers.normalize(requested);
             int total=0,minimum=Integer.MAX_VALUE,maximum=0;
-            for(var selected:layers)if(selected.style()!=AmbientField.Style.TRON_TRAILS) {
+            for(var selected:layers)if(selected.style()!=AmbientField.Style.TRON_TRAILS&&selected.style()!=AmbientField.Style.LIGHT_STRANDS) {
                 int cap=AmbientEffectsLayers.particleCap(layers,selected.style());
                 check(cap>=153,"A selected style is starved");total+=cap;minimum=Math.min(minimum,cap);maximum=Math.max(maximum,cap);
             }
             check(total<=AmbientEffectsLayers.MAX_PARTICLES,"Combined particle budget exceeded");
-            if(layers.stream().filter(l->l.style()!=AmbientField.Style.TRON_TRAILS).count()>1)check(maximum-minimum<=1,"Unfair layer reservation");
+            if(layers.stream().filter(l->l.style()!=AmbientField.Style.TRON_TRAILS&&l.style()!=AmbientField.Style.LIGHT_STRANDS).count()>1)check(maximum-minimum<=1,"Unfair layer reservation");
         }
         for(var style:styles) {
             var one=List.of(layer(style));
-            int expected=style==AmbientField.Style.TRON_TRAILS?0:style==AmbientField.Style.TESSERACTS?576:384;
+            int expected=(style==AmbientField.Style.TRON_TRAILS||style==AmbientField.Style.LIGHT_STRANDS)?0:style==AmbientField.Style.TESSERACTS?576:384;
             check(AmbientEffectsLayers.particleCap(one,style)==expected,"Single-style cap changed");
         }
         var normalized=AmbientEffectsLayers.normalize(Arrays.asList(null,layer(styles[0]),layer(styles[0]),new AmbientEffectsLayers.Layer(null,.6,1)));

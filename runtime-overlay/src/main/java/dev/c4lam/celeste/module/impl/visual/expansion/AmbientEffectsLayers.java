@@ -19,6 +19,7 @@ public final class AmbientEffectsLayers {
     public static int defaultColor(AmbientField.Style style) {
         if(style==null)return 0xA6FFE1;
         return switch(style) {
+            case LIGHT_STRANDS -> 0xBFA6FF;
             case CRYSTALS -> 0x6BDEFF;
             case SNOW -> 0xE3F5FF;
             case LEAVES -> 0xD98739;
@@ -43,10 +44,10 @@ public final class AmbientEffectsLayers {
 
     /** Every enabled particle style reserves a share; trails have their own fixed geometry bound. */
     public static int particleCap(List<Layer> layers, AmbientField.Style style) {
-        if (style == null || style == AmbientField.Style.TRON_TRAILS) return 0;
+        if (style == null || style == AmbientField.Style.TRON_TRAILS || style == AmbientField.Style.LIGHT_STRANDS) return 0;
         int count = 0;
         boolean present = false;
-        for (Layer layer : layers) if (layer.density() > 0 && layer.style() != AmbientField.Style.TRON_TRAILS) {
+        for (Layer layer : layers) if (layer.density() > 0 && layer.style() != AmbientField.Style.TRON_TRAILS && layer.style() != AmbientField.Style.LIGHT_STRANDS) {
             count++;
             present |= layer.style() == style;
         }

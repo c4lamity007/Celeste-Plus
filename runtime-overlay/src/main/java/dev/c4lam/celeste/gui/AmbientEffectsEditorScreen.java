@@ -20,7 +20,7 @@ import net.minecraft.text.Text;
 import org.joml.Vector4f;
 import org.lwjgl.glfw.GLFW;
 
-/** Compact mixer: all six effects fit without a nested scroll area. */
+/** Compact mixer: all effects fit without a nested scroll area. */
 public final class AmbientEffectsEditorScreen extends Screen {
     private static final Color TEXT = new Color(247, 243, 249), MUTED = new Color(169, 162, 180);
     private static final Color ACCENT = new Color(255, 61, 150), PANEL = new Color(24, 19, 29, 240);

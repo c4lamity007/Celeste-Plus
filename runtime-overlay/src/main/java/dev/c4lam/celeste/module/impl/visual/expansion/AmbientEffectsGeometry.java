@@ -14,7 +14,7 @@ public final class AmbientEffectsGeometry {
     private AmbientEffectsGeometry() { }
 
     public static void mesh(ParticleView p, AmbientField.Style style, double[] scratch, Sink out) {
-        if (style == AmbientField.Style.TRON_TRAILS) return;
+        if (style == AmbientField.Style.TRON_TRAILS || style == AmbientField.Style.LIGHT_STRANDS) return;
         if (style == AmbientField.Style.TESSERACTS) {
             AmbientTesseractGeometry.corners(scratch,p.x(),p.y(),p.z(),p.radius(),p.yaw(),p.pitch());
             AmbientTesseractGeometry.fill(scratch,(x,y,z,u,v,nx,ny,nz,a) -> out.vertex(x,y,z,u,v,nx,ny,nz,p.opacity()*a,p.color()));
@@ -42,7 +42,7 @@ public final class AmbientEffectsGeometry {
     public static void glow(ParticleView p, AmbientField.Style style, double[] scratch,
                             double cameraX,double cameraY,double cameraZ,
                             double rightX,double rightY,double rightZ,double upX,double upY,double upZ,Sink out) {
-        if(style==AmbientField.Style.SNOW||style==AmbientField.Style.LEAVES||style==AmbientField.Style.TRON_TRAILS)return;
+        if(style==AmbientField.Style.SNOW||style==AmbientField.Style.LEAVES||style==AmbientField.Style.TRON_TRAILS||style==AmbientField.Style.LIGHT_STRANDS)return;
         if(style==AmbientField.Style.TESSERACTS) {
             AmbientTesseractGeometry.corners(scratch,p.x(),p.y(),p.z(),p.radius(),p.yaw(),p.pitch());
             AmbientTesseractGeometry.beams(scratch,cameraX,cameraY,cameraZ,p.radius(),(x,y,z,u,v,nx,ny,nz,a)->

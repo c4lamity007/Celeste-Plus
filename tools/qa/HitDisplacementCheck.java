@@ -19,6 +19,7 @@ import static org.lwjgl.opengl.GL33C.*;
 /** Production GLSL against a patterned scene/target; this is GPU evidence, not Minecraft. */
 public final class HitDisplacementCheck {
     static int checks, w=480,h=320,program,ubo,projectionUbo,fbo,color,source,depth;
+    static int referenceProgram;
     static final float[] IDENTITY={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
     static float[] scene,depths;
     static void check(boolean ok,String why){checks++;if(!ok)throw new AssertionError(why);}
@@ -54,6 +55,16 @@ public final class HitDisplacementCheck {
         float[] afterDepth=new float[w*h];glReadPixels(0,0,w,h,GL_DEPTH_COMPONENT,GL_FLOAT,afterDepth);check(Arrays.equals(depths,afterDepth),"displacement modified depth");
         float[] afterSource=new float[scene.length];glBindTexture(GL_TEXTURE_2D,source);glGetTexImage(GL_TEXTURE_2D,0,GL_RGBA,GL_FLOAT,afterSource);check(Arrays.equals(scene,afterSource),"private sample changed while composing");
         for(int i=0;i<w*h;i++){check(result[i*4+3]==scene[i*4+3],"displacement changed destination alpha");for(int k=0;k<3;k++)check(Float.isFinite(result[i*4+k])&&result[i*4+k]>=0&&result[i*4+k]<=1,"unbounded/nonfinite displacement color");}
+        if(referenceProgram!=0) {
+            int current=program, reference=referenceProgram;
+            program=reference;referenceProgram=0;
+            float[] expected;
+            try { expected=render(frames,projection,viewZ); }
+            finally { program=current;referenceProgram=reference; }
+            float maximum=0;
+            for(int i=0;i<result.length;i++)maximum=Math.max(maximum,Math.abs(result[i]-expected[i]));
+            check(maximum<=.000002f,"projection optimization changed image: "+maximum);
+        }
         return result;
     }
     static void validateLocalized(List<Frame> frames,float[] result){int changed=0,inside=0;for(int y=0;y<h;y++)for(int x=0;x<w;x++){int i=(x+y*w)*4;boolean affected=false;
@@ -106,6 +117,17 @@ public final class HitDisplacementCheck {
         try(ZipFile game=new ZipFile(args[1])){int v=compile(GL_VERTEX_SHADER,imports(Files.readString(shaders.resolve("hit_displacement.vsh")),game)),f=compile(GL_FRAGMENT_SHADER,imports(Files.readString(shaders.resolve("hit_displacement.fsh")),game));program=glCreateProgram();glAttachShader(program,v);glAttachShader(program,f);glLinkProgram(program);check(glGetProgrami(program,GL_LINK_STATUS)!=0,glGetProgramInfoLog(program));glDeleteShader(v);glDeleteShader(f);}
         glUseProgram(program);glUniform1i(glGetUniformLocation(program,"SceneColor"),0);int block=glGetUniformBlockIndex(program,"DynamicTransforms");check(block>=0,"DynamicTransforms missing");glUniformBlockBinding(program,block,0);ubo=glGenBuffers();glBindBuffer(GL_UNIFORM_BUFFER,ubo);glBufferData(GL_UNIFORM_BUFFER,160,GL_DYNAMIC_DRAW);glBindBufferBase(GL_UNIFORM_BUFFER,0,ubo);
         int projectionBlock=glGetUniformBlockIndex(program,"Projection");check(projectionBlock>=0,"Projection block missing");glUniformBlockBinding(program,projectionBlock,1);projectionUbo=glGenBuffers();glBindBuffer(GL_UNIFORM_BUFFER,projectionUbo);glBufferData(GL_UNIFORM_BUFFER,64,GL_DYNAMIC_DRAW);glBindBufferBase(GL_UNIFORM_BUFFER,1,projectionUbo);
+        if(args.length>3)try(ZipFile game=new ZipFile(args[1])) {
+            Path reference=Path.of(args[3]);
+            int v=compile(GL_VERTEX_SHADER,imports(Files.readString(reference.resolve("hit_displacement.vsh")),game));
+            int f=compile(GL_FRAGMENT_SHADER,imports(Files.readString(reference.resolve("hit_displacement.fsh")),game));
+            referenceProgram=glCreateProgram();glAttachShader(referenceProgram,v);glAttachShader(referenceProgram,f);glLinkProgram(referenceProgram);
+            check(glGetProgrami(referenceProgram,GL_LINK_STATUS)!=0,glGetProgramInfoLog(referenceProgram));glDeleteShader(v);glDeleteShader(f);
+            glUseProgram(referenceProgram);glUniform1i(glGetUniformLocation(referenceProgram,"SceneColor"),0);
+            glUniformBlockBinding(referenceProgram,glGetUniformBlockIndex(referenceProgram,"DynamicTransforms"),0);
+            glUniformBlockBinding(referenceProgram,glGetUniformBlockIndex(referenceProgram,"Projection"),1);
+            System.out.println("Comparing every GPU case against previous production projection shader");
+        }
         allocate(480,320);check(Arrays.equals(scene,render(List.of())),"empty frame not identity");check(Arrays.equals(scene,render(List.of(HitDisplacementAnimation.at(0,.5f,.5f,1,0x33BBFF)))),"zero-age pulse not identity");check(Arrays.equals(scene,render(List.of(HitDisplacementAnimation.at(.68,.5f,.5f,1,0x33BBFF)))),"expired pulse not identity");
         var peak=List.of(HitDisplacementAnimation.at(.24,.5f,.5f,1.4f,0x33BBFF));float[] shown=render(peak);validateLocalized(peak,shown);save(shown,out.resolve("hit-displacement.png"));
         projection();

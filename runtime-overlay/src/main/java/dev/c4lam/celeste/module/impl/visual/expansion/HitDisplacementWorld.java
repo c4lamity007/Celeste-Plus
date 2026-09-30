@@ -47,7 +47,9 @@ public final class HitDisplacementWorld {
         List<WorldFrame> result = new ArrayList<>(pulses.size());
         for (Pulse pulse : pulses) {
             Point point = resolve.apply(pulse.anchor);
-            if (point == null || !point.finite()) continue;
+            // World view space looks along -Z. Keep hidden pulses alive, but avoid
+            // allocating/copying the full scene when every hit is behind the camera.
+            if (point == null || !point.finite() || point.z >= 0) continue;
             var frame = HitDisplacementAnimation.at((now - pulse.started) * 1.0e-9, 0, 0, pulse.size, pulse.color);
             if (frame.strength() > 0 && frame.radius() > 0)
                 result.add(new WorldFrame(point, frame.radius(), frame.strength(), frame.color(), frame.release()));

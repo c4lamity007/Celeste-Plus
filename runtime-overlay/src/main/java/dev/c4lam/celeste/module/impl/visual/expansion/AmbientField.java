@@ -6,7 +6,7 @@ public final class AmbientField {
     public static final double CELL = 5.0;
     public static final double RANGE = 22.0;
     public static final double HEIGHT = 11.0;
-    public enum Style { FIREFLIES, CRYSTALS, SNOW, LEAVES, TESSERACTS, TRON_TRAILS }
+    public enum Style { FIREFLIES, CRYSTALS, SNOW, LEAVES, TESSERACTS, TRON_TRAILS, LIGHT_STRANDS }
     public record Mote(double x, double y, double z, double size, double yaw, double pitch,
                        double opacity, int color) { }
 

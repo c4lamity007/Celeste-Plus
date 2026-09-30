@@ -16,8 +16,8 @@ function Get-LayerSource([string]$Name) {
     if(Test-Path -LiteralPath $candidate){return $candidate}
     return Join-Path $ProjectRoot "$layersPackage/$Name.java"
 }
-$layersSources=@('AmbientField','AmbientTesseractField','AmbientTesseractGeometry','AmbientTronField','AmbientTronGeometry','AmbientGeometry','JumpCircleAnimation','AmbientEffectsLayers','AmbientEffectsAirCache','AmbientEffectsGeometry','VisualAtmosphere') | ForEach-Object {Get-LayerSource $_}
-$layersCompile=@(& (Join-Path $JdkHome 'bin/javac.exe') --release 21 -d $layersClasses $layersSources (Join-Path $PSScriptRoot 'AmbientLayersCheck.java') (Join-Path $PSScriptRoot 'AmbientDensityCheck.java') 2>&1)
+$layersSources=@('AmbientField','AmbientLightStrands','AmbientTesseractField','AmbientTesseractGeometry','AmbientTronField','AmbientTronGeometry','AmbientGeometry','JumpCircleAnimation','AmbientEffectsLayers','AmbientEffectsAirCache','AmbientEffectsGeometry','VisualAtmosphere') | ForEach-Object {Get-LayerSource $_}
+$layersCompile=@(& (Join-Path $JdkHome 'bin/javac.exe') --release 21 -d $layersClasses $layersSources (Join-Path $PSScriptRoot 'AmbientLayersCheck.java') (Join-Path $PSScriptRoot 'AmbientDensityCheck.java') (Join-Path $PSScriptRoot 'LightStrandsCheck.java') 2>&1)
 $layersExit=$LASTEXITCODE
 $layersCompile | Set-Content -LiteralPath (Join-Path $OutputRoot 'compile.log') -Encoding utf8
 if($layersExit -ne 0){throw "Layers compile failed: $($layersCompile | Select-Object -Last 12 | Out-String)"}
@@ -31,6 +31,11 @@ $layersExit=$LASTEXITCODE
 $layersDensity | Set-Content -LiteralPath (Join-Path $OutputRoot 'density-color.log') -Encoding utf8
 if($layersExit -ne 0){throw "Density/color failed: $($layersDensity | Select-Object -Last 12 | Out-String)"}
 $layersDensity
+$strandsRun=@(& (Join-Path $JdkHome 'bin/java.exe') -cp $layersClasses dev.c4lam.celeste.module.impl.visual.expansion.LightStrandsCheck 2>&1)
+$strandsExit=$LASTEXITCODE
+$strandsRun | Set-Content -LiteralPath (Join-Path $OutputRoot 'light-strands.log') -Encoding utf8
+if($strandsExit -ne 0){throw "Light Strands failed: $($strandsRun | Select-Object -Last 12 | Out-String)"}
+$strandsRun
 $layersCache=Join-Path $env:USERPROFILE '.gradle/caches/modules-2/files-2.1'
 $layersLibraries=@(rg --files (Join-Path $layersCache 'org.lwjgl') -g '*.jar' | Where-Object {
     $_ -match '[\\/](lwjgl|lwjgl-glfw|lwjgl-opengl|lwjgl-stb)[\\/]3\.3\.3[\\/]' -and

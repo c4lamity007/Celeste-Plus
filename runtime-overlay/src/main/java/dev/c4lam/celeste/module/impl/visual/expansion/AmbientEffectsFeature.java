@@ -59,6 +59,7 @@ public final class AmbientEffectsFeature implements ModuleFeature {
             : SkyLinesRenderer.Frame.EMPTY;
         List<AmbientEffectsRenderer.Particle> allParticles = new ArrayList<>(AmbientEffectsLayers.MAX_PARTICLES);
         List<AmbientEffectsRenderer.TronSegment> trails = new ArrayList<>();
+        List<AmbientEffectsRenderer.LightStrand> strands = new ArrayList<>();
         BlockPos.Mutable block = new BlockPos.Mutable();
         AmbientEffectsAirCache airCache = new AmbientEffectsAirCache(new AmbientEffectsAirCache.Cells() {
             @Override public boolean clear(int x,int y,int z) {
@@ -80,7 +81,16 @@ public final class AmbientEffectsFeature implements ModuleFeature {
             boolean cubes = frameStyle == AmbientField.Style.TESSERACTS;
             int cap = AmbientEffectsLayers.particleCap(frameLayers,frameStyle);
             List<AmbientEffectsRenderer.Particle> particles = new ArrayList<>(cap);
-            if (frameStyle == AmbientField.Style.TRON_TRAILS) {
+            if (frameStyle == AmbientField.Style.LIGHT_STRANDS) {
+                for (AmbientLightStrands.Strand strand : AmbientLightStrands.sample(eye.x, eye.y, eye.z,
+                    seconds, frameDensity, airCache::clear, (x,y,z,bound) -> context.frustum() == null
+                        || context.frustum().isVisible(new Box(x-bound,y-bound,z-bound,x+bound,y+bound,z+bound)))) {
+                    List<Vec3d> points = new ArrayList<>(strand.points().size());
+                    for (AmbientLightStrands.Point p : strand.points()) points.add(new Vec3d(p.x(),p.y(),p.z()));
+                    strands.add(new AmbientEffectsRenderer.LightStrand(List.copyOf(points), frameSize,
+                        (float)strand.opacity(), AmbientEffectsLayers.color(layer,seconds,strand.palette())));
+                }
+            } else if (frameStyle == AmbientField.Style.TRON_TRAILS) {
                 AmbientTronField.AirCell air = airCache::clear;
                 for (AmbientTronField.Segment segment : state.trails().sample(eye.x, eye.y, eye.z, seconds, frameDensity, frameSize, air)) {
                     double bound = segment.width() * 1.5;
@@ -134,17 +144,19 @@ public final class AmbientEffectsFeature implements ModuleFeature {
                     }
                 }
             }
-            particles.sort(Comparator.comparingDouble(p -> p.position().squaredDistanceTo(eye)));
-            if (particles.size() > cap) particles.subList(cap, particles.size()).clear();
+            if (particles.size() > cap) {
+                particles.sort(Comparator.comparingDouble(p -> p.position().squaredDistanceTo(eye)));
+                particles.subList(cap, particles.size()).clear();
+            }
             allParticles.addAll(particles);
         }
         // Interleaved styles share one back-to-front translucent batch.
         allParticles.sort(Comparator.comparingDouble((AmbientEffectsRenderer.Particle p) -> p.position().squaredDistanceTo(eye)).reversed());
         Vector3f right = context.camera().getRotation().transform(new Vector3f(1, 0, 0));
         Vector3f up = context.camera().getRotation().transform(new Vector3f(0, 1, 0));
-        return allParticles.isEmpty() && sky.isEmpty() && trails.isEmpty() ? AmbientEffectsRenderer.Frame.EMPTY : new AmbientEffectsRenderer.Frame(
+        return allParticles.isEmpty() && sky.isEmpty() && trails.isEmpty() && strands.isEmpty() ? AmbientEffectsRenderer.Frame.EMPTY : new AmbientEffectsRenderer.Frame(
             List.copyOf(allParticles), AmbientField.Style.FIREFLIES, new Vec3d(right.x, right.y, right.z), new Vec3d(up.x, up.y, up.z), sky,
-            List.copyOf(trails));
+            List.copyOf(trails), List.copyOf(strands));
     }
 
     private static SkyLinesMath.Geometry atmosphere(SkyLinesMath.Geometry geometry, double seconds) {
@@ -173,12 +185,10 @@ public final class AmbientEffectsFeature implements ModuleFeature {
         };
         skyIntensity = finiteRange(context.slider("Sky Intensity", .65), 0, 1, .65);
         skySpeed = finiteRange(context.slider("Sky Speed", .6), 0, 2, .6);
-        List<AmbientEffectsLayers.Layer> snapshot = new ArrayList<>(6);
+        List<AmbientEffectsLayers.Layer> snapshot = new ArrayList<>(4);
         for (AmbientEffectsSettings.Layer layer : AmbientEffectsSettings.layers(context.module())) {
             AmbientField.Style style = switch (layer.style()) {
-                case "Crystal Motes" -> AmbientField.Style.CRYSTALS;
-                case "Snowfall" -> AmbientField.Style.SNOW;
-                case "Falling Leaves" -> AmbientField.Style.LEAVES;
+                case "Light Strands" -> AmbientField.Style.LIGHT_STRANDS;
                 case "Tesseracts" -> AmbientField.Style.TESSERACTS;
                 case "Tron Trails" -> AmbientField.Style.TRON_TRAILS;
                 default -> AmbientField.Style.FIREFLIES;

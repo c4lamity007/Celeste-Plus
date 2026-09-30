@@ -1,9 +1,9 @@
 #version 330
 #moj_import <minecraft:dynamictransforms.glsl>
-#moj_import <minecraft:projection.glsl>
 
 uniform sampler2D SceneColor;
 in vec2 texCoord;
+flat in vec4 projectedLenses[4];
 out vec4 fragColor;
 
 void main() {
@@ -13,19 +13,14 @@ void main() {
     vec3 rimColor = vec3(0.0);
     float rimWeight = 0.0;
     float coverage = 0.0;
-    // DynamicTransforms contains up to four lenses, column per pulse:
-    // ModelViewMat = view-space XYZ / radius; ColorModulator = strengths;
-    // TextureMat = RGB / release. Use the actual scene projection, including
-    // hurt tilt, walking bob and the current frame's FOV, not a recreated FOV.
+    // Centers use the exact scene projection calculated in the vertex stage.
+    // TextureMat remains RGB / release for each of the four pulses.
     for (int i = 0; i < 4; ++i) {
-        vec4 lens = ModelViewMat[i];
-        float strength = ColorModulator[i];
-        if (lens.w <= 0.00001 || strength <= 0.0) continue;
-        vec4 clip = ProjMat * vec4(lens.xyz, 1.0);
-        if (clip.w <= 0.00001 || abs(clip.z) > clip.w * 1.01) continue;
-        vec2 center = clip.xy / clip.w * 0.5 + 0.5;
-        vec2 p = (texCoord - center) * aspect;
-        float r = length(p) / lens.w;
+        vec4 lens = projectedLenses[i];
+        float strength = lens.w;
+        if (lens.z <= 0.00001 || strength <= 0.0) continue;
+        vec2 p = (texCoord - lens.xy) * aspect;
+        float r = length(p) / lens.z;
         if (r >= 1.0) continue;
         float softEdge = 1.0 - smoothstep(0.72, 1.0, r);
         float bowl = (1.0 - r * r) * softEdge;
