@@ -32,11 +32,19 @@ public final class SuspiciousActivity {
     // caller's local +/-2R evidence window expands to at most this grid size.
     public static final int MAX_GRID_CHUNKS = (6 * MAX_RADIUS + 3) * (6 * MAX_RADIUS + 3);
     public static final int MAX_POINT_TESTS = 2_000_000, MAX_WITNESS_PAIRS = 8192;
+    public static final int MAX_SCORING_FINDINGS = 65_536;
+    // The caller retains a two-chunk margin outside the fitter's +/-2R window.
+    public static final int MAX_SCORING_CHUNKS = (4 * MAX_RADIUS + 5) * (4 * MAX_RADIUS + 5);
     private static final double EPSILON = 1.0e-7;
 
     public enum Status { ESTIMATED, INSUFFICIENT, BROAD, INCONSISTENT, BUDGET_LIMIT }
+    public enum Origin { GROWTH_ESTIMATE, LOCAL_EVIDENCE }
     public record Candidate(int chunkX, int chunkZ) { }
-    public record ScoredCandidate(Candidate candidate, Evaluation evaluation) { }
+    public record ScoredCandidate(Candidate candidate, Evaluation evaluation, Origin origin) {
+        public ScoredCandidate(Candidate candidate, Evaluation evaluation) {
+            this(candidate, evaluation, Origin.GROWTH_ESTIMATE);
+        }
+    }
     public record Result(Status status, List<Candidate> candidates, int radiusChunks,
                          int evidenceChunks, int compatibleChunks) {
         public Result { candidates = List.copyOf(candidates); }
@@ -56,6 +64,16 @@ public final class SuspiciousActivity {
         if (estimate.status() != Status.ESTIMATED || estimate.candidates().isEmpty()) return List.of();
         if (estimate.radiusChunks() < MIN_RADIUS || estimate.radiusChunks() > MAX_RADIUS)
             throw new IllegalArgumentException("Activity radius must be 2 through 12 chunks");
+        return scoreGrowth(estimate, indexFindings(actualFindings, enabled), enabled);
+    }
+
+    private static LinkedHashMap<Long, FindingChunk> indexFindings(Collection<Finding> actualFindings,
+                                                                  Set<Check> enabled) {
+        return indexFindings(actualFindings, enabled, null);
+    }
+
+    private static LinkedHashMap<Long, FindingChunk> indexFindings(Collection<Finding> actualFindings,
+                                                                  Set<Check> enabled, Budget budget) {
         // Several checks and overlapping windows can describe the same chunk.
         // Filter/deduplicate once, then do one distance test per occupied chunk
         // per candidate instead of repeating it for every individual finding.
@@ -63,31 +81,119 @@ public final class SuspiciousActivity {
         LinkedHashSet<Finding> unique = new LinkedHashSet<>();
         for (Finding finding : actualFindings) {
             interrupted();
+            if (budget != null && !budget.take()) return null;
             if (!enabled.contains(finding.check()) || !unique.add(finding)) continue;
             long key = (long) finding.chunkX() << 32 | finding.chunkZ() & 0xffffffffL;
             FindingChunk chunk = chunks.computeIfAbsent(key,
                 unused -> new FindingChunk(finding.chunkX(), finding.chunkZ()));
             (finding.check() == Check.OPEN_SHAFTS ? chunk.shafts : chunk.positive).add(finding);
         }
+        return chunks;
+    }
+
+    private static List<ScoredCandidate> scoreGrowth(Result estimate, LinkedHashMap<Long, FindingChunk> chunks,
+                                                     Set<Check> enabled) {
+        return scoreGrowth(estimate, chunks, enabled, null);
+    }
+
+    private static List<ScoredCandidate> scoreGrowth(Result estimate, LinkedHashMap<Long, FindingChunk> chunks,
+                                                     Set<Check> enabled, Budget budget) {
+        if (estimate.status() != Status.ESTIMATED || estimate.candidates().isEmpty()) return List.of();
         int radius = estimate.radiusChunks(), maximumRadius = Math.max(3, radius);
         int positiveDistance = radius * radius;
         ArrayList<ScoredCandidate> scored = new ArrayList<>();
         for (Candidate candidate : estimate.candidates()) {
             interrupted();
+            if (budget != null && !budget.take()) return List.of();
             ArrayList<Finding> local = new ArrayList<>();
             for (FindingChunk chunk : chunks.values()) {
                 interrupted();
+                if (budget != null && !budget.take()) return List.of();
                 long dx = (long) chunk.x - candidate.chunkX();
                 long dz = (long) chunk.z - candidate.chunkZ();
                 // Axis checks also prevent overflow for arbitrary fixture coordinates.
                 if (Math.abs(dx) > maximumRadius || Math.abs(dz) > maximumRadius) continue;
                 long distance = dx * dx + dz * dz;
-                if (distance <= positiveDistance) local.addAll(chunk.positive);
-                if (distance <= 9) local.addAll(chunk.shafts);
+                if (distance <= positiveDistance && !append(local, chunk.positive, budget)) return List.of();
+                if (distance <= 9 && !append(local, chunk.shafts, budget)) return List.of();
             }
             scored.add(new ScoredCandidate(candidate, SuspiciousAnalysis.score(local, enabled)));
         }
         return List.copyOf(scored);
+    }
+
+    private static boolean append(List<Finding> target, List<Finding> findings, Budget budget) {
+        // Charge both collecting each finding and its later fixed-weight score traversal.
+        if (budget != null && !budget.reserve(findings.size() * 2)) return false;
+        target.addAll(findings);
+        return true;
+    }
+
+    /**
+     * Adds candidates at actual observed land disturbances, even without plant growth.
+     * These candidates gather positives only from their immediate 3x3 neighborhood;
+     * they never create a ticking disk or mark unrelated scoring-window centers.
+     * A shared coordinate keeps its higher whole evaluation, with growth winning ties.
+     * Work-limit exhaustion returns no partial ranking. All inputs are immutable worker data.
+     */
+    public static List<ScoredCandidate> scoreWithLand(Result growthEstimate, Collection<Finding> actualFindings,
+                                                      Set<Check> enabled) {
+        Objects.requireNonNull(growthEstimate, "growth estimate");
+        Objects.requireNonNull(actualFindings, "actual findings");
+        Objects.requireNonNull(enabled, "enabled checks");
+        interrupted();
+        if (growthEstimate.radiusChunks() < MIN_RADIUS || growthEstimate.radiusChunks() > MAX_RADIUS)
+            throw new IllegalArgumentException("Activity radius must be 2 through 12 chunks");
+        if (actualFindings.size() > MAX_SCORING_FINDINGS || growthEstimate.candidates().size() > MAX_GRID_CHUNKS)
+            return List.of();
+        Budget budget = new Budget();
+        ArrayList<Finding> ordered = new ArrayList<>();
+        int visited = 0;
+        for (Finding finding : actualFindings) {
+            interrupted();
+            if (!budget.take()) return List.of();
+            if (++visited > MAX_SCORING_FINDINGS) return List.of();
+            if (enabled.contains(finding.check())) ordered.add(finding);
+        }
+        ordered.sort(Comparator.comparingInt(Finding::chunkX).thenComparingInt(Finding::chunkZ)
+            .thenComparingInt(f -> f.check().ordinal()).thenComparingLong(Finding::featureId));
+        LinkedHashMap<Long, FindingChunk> chunks = indexFindings(ordered, enabled, budget);
+        if (chunks == null || chunks.size() > MAX_SCORING_CHUNKS) return List.of();
+        LinkedHashMap<Candidate, ScoredCandidate> combined = new LinkedHashMap<>();
+        List<ScoredCandidate> growth = scoreGrowth(growthEstimate, chunks, enabled, budget);
+        if (budget.exhausted) return List.of();
+        for (ScoredCandidate candidate : growth)
+            combined.put(candidate.candidate(), candidate);
+        for (FindingChunk chunk : chunks.values()) {
+            interrupted();
+            if (!budget.reserve(chunk.positive.size() + 1)) return List.of();
+            if (chunk.positive.stream().noneMatch(f -> landCheck(f.check()))) continue;
+            Candidate candidate = new Candidate(chunk.x, chunk.z);
+            ArrayList<Finding> local = new ArrayList<>();
+            // Nine positive lookups plus the 29 cells in a radius-three shaft disk.
+            // No scan across the whole evidence map for every land candidate.
+            for (int z = -3; z <= 3; z++) for (int x = -3; x <= 3; x++) {
+                if (!budget.take()) return List.of();
+                long cx = (long) chunk.x + x, cz = (long) chunk.z + z;
+                if (cx < Integer.MIN_VALUE || cx > Integer.MAX_VALUE || cz < Integer.MIN_VALUE || cz > Integer.MAX_VALUE) continue;
+                FindingChunk near = chunks.get(cx << 32 | cz & 0xffffffffL);
+                if (near == null) continue;
+                if (Math.abs(x) <= 1 && Math.abs(z) <= 1 && !append(local, near.positive, budget)) return List.of();
+                if (x * x + z * z <= 9 && !append(local, near.shafts, budget)) return List.of();
+            }
+            ScoredCandidate land = new ScoredCandidate(candidate, SuspiciousAnalysis.score(local, enabled), Origin.LOCAL_EVIDENCE);
+            ScoredCandidate previous = combined.get(candidate);
+            if (previous == null || land.evaluation().score() > previous.evaluation().score()) combined.put(candidate, land);
+        }
+        ArrayList<ScoredCandidate> result = new ArrayList<>(combined.values());
+        result.sort(Comparator.comparingInt((ScoredCandidate c) -> c.candidate().chunkX())
+            .thenComparingInt(c -> c.candidate().chunkZ()));
+        return List.copyOf(result);
+    }
+
+    private static boolean landCheck(Check check) {
+        return check == Check.ROTATED_DEEPSLATE || check == Check.MISMATCHED_SOIL
+            || check == Check.MISSING_BUDDING_AMETHYST || check == Check.BURIED_ACCESS_PATH;
     }
 
     private static final class FindingChunk {
@@ -289,6 +395,11 @@ public final class SuspiciousActivity {
             if ((tests & 63) == 0) interrupted();
             if (exhausted || tests >= MAX_POINT_TESTS) { exhausted = true; return false; }
             tests++; return true;
+        }
+        boolean reserve(int visits) {
+            interrupted();
+            if (exhausted || visits < 0 || visits > MAX_POINT_TESTS - tests) { exhausted = true; return false; }
+            tests += visits; return true;
         }
     }
     private static Result result(Status status, int radius, int evidence, int compatible) {

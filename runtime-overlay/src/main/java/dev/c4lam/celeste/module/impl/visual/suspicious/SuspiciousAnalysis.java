@@ -50,8 +50,8 @@ public final class SuspiciousAnalysis {
     }
 
     public enum Check {
-        ROTATED_DEEPSLATE(30), MISMATCHED_SOIL(10), GROUNDED_VINES(10),
-        MATURE_GEODE(15), MISSING_BUDDING_AMETHYST(65),
+        ROTATED_DEEPSLATE(35), MISMATCHED_SOIL(10), GROUNDED_VINES(10),
+        MATURE_GEODE(35), MISSING_BUDDING_AMETHYST(65),
         SURFACE_KELP(15), MATURE_KELP_AGE(15), BURIED_ACCESS_PATH(35), OPEN_SHAFTS(-20);
         public final int weight;
         Check(int weight) { this.weight = weight; }
@@ -291,7 +291,7 @@ public final class SuspiciousAnalysis {
 
     private static void rotated(Window t, List<Pos> seeds, List<Finding> out) {
         for (Pos p : seeds) if (t.kind(p) == HORIZONTAL_DEEPSLATE) {
-            int rock = 0, deep = 0;
+            int rock = 0;
             boolean known = true, structure = false;
             for (int y = -2; y <= 2; y++) for (int z = -2; z <= 2; z++) for (int x = -2; x <= 2; x++) {
                 if (x == 0 && y == 0 && z == 0) continue;
@@ -300,10 +300,9 @@ public final class SuspiciousAnalysis {
                 if (Math.abs(x) <= 1 && Math.abs(y) <= 1 && Math.abs(z) <= 1) {
                     if (k == UNKNOWN) known = false;
                     if (naturalRock(k)) rock++;
-                    if (k == DEEPSLATE) deep++;
                 }
             }
-            if (known && !structure && rock >= 20 && deep >= 12) {
+            if (known && !structure && rock >= 20) {
                 out.add(finding(Check.ROTATED_DEEPSLATE, p));
                 return;
             }

@@ -175,7 +175,7 @@ public final class SuspiciousActivityCheck {
         run("positive footprint evidence can qualify an empty center outside the old nine chunks", () -> {
             Evaluation evaluation = scored(fitted(0, 0, 7), List.of(finding(Check.ROTATED_DEEPSLATE, 7, 0),
                 finding(Check.MISMATCHED_SOIL, 0, -7)), allChecks());
-            check(evaluation.score() == 40 && evaluation.qualifies(35));
+            check(evaluation.score() == 45 && evaluation.qualifies(35));
             check(evaluation.findings().stream().noneMatch(f -> f.chunkX() == 0 && f.chunkZ() == 0));
             check(scored(fitted(0, 0, 6), evaluation.findings(), allChecks()).score() == 0);
             check(scored(fitted(0, 0, 7), List.of(finding(Check.BURIED_ACCESS_PATH, 7, 1)), allChecks()).score() == 0);
@@ -190,13 +190,13 @@ public final class SuspiciousActivityCheck {
             List<Finding> evidence = new ArrayList<>();
             for (Check check : Check.values()) for (int i = 0; i < 4; i++) evidence.add(new Finding(check, i, i % 2, 0));
             Evaluation evaluation = scored(fitted(0, 0, 7), evidence, allChecks());
-            check(evaluation.score() == 150 && evaluation.contributions().get(Check.OPEN_SHAFTS) == -20);
+            check(evaluation.score() == 155 && evaluation.contributions().get(Check.OPEN_SHAFTS) == -20);
             check(evaluation.contributions().getOrDefault(Check.MISSING_BUDDING_AMETHYST, 0)
                 + evaluation.contributions().getOrDefault(Check.MATURE_GEODE, 0) == 65);
             check(evaluation.contributions().getOrDefault(Check.SURFACE_KELP, 0)
                 + evaluation.contributions().getOrDefault(Check.MATURE_KELP_AGE, 0) == 20);
             EnumSet<Check> enabled = allChecks(); enabled.remove(Check.OPEN_SHAFTS);
-            check(scored(fitted(0, 0, 7), evidence, enabled).score() == 170);
+            check(scored(fitted(0, 0, 7), evidence, enabled).score() == 175);
             check(scored(fitted(0, 0, 7), evidence, Set.of(Check.OPEN_SHAFTS)).score() == 0);
             Evaluation boundary = scored(fitted(0, 0, 7), List.of(finding(Check.BURIED_ACCESS_PATH, 0, 0)), allChecks());
             check(boundary.qualifies(35) && !boundary.qualifies(40));
@@ -238,7 +238,163 @@ public final class SuspiciousActivityCheck {
                 }
             }
         });
+        landScoring();
         System.out.println("RESULT " + cases + " passed; " + assertions + " assertions; production activity estimator, no in-game proof");
+    }
+
+    private static void landScoring() {
+        run("direct land evidence can qualify without any plant or geode growth", () -> {
+            for(Check check:List.of(Check.MISSING_BUDDING_AMETHYST,Check.BURIED_ACCESS_PATH,Check.ROTATED_DEEPSLATE)) {
+                var scores=scoreWithLand(estimate(List.of(),7),List.of(finding(check,4,-3)),allChecks());
+                check(scores.size()==1);
+                check(scores.getFirst().candidate().equals(new Candidate(4,-3)));
+                check(scores.getFirst().origin()==Origin.LOCAL_EVIDENCE);
+                check(scores.getFirst().evaluation().score()==check.weight() && scores.getFirst().evaluation().qualifies(35));
+            }
+        });
+        run("qualified mature geode growth alone now meets the default score", () -> {
+            GrowthObservation mature=new GrowthObservation(Check.MATURE_GEODE,1,8,32,8);
+            Result fit=estimate(List.of(mature),7);
+            var scores=scoreWithLand(fit,List.of(finding(Check.MATURE_GEODE,0,0)),allChecks());
+            check(scores.size()==fit.candidates().size());
+            var center=find(scores,0,0);
+            check(center.origin()==Origin.GROWTH_ESTIMATE && center.evaluation().score()==35);
+            check(center.evaluation().qualifies(35));
+        });
+        run("local land scores use nearby corroboration and ignore distant kelp", () -> {
+            List<Finding> findings=List.of(finding(Check.MISMATCHED_SOIL,0,0),finding(Check.SURFACE_KELP,7,0),
+                finding(Check.MATURE_KELP_AGE,7,0),finding(Check.GROUNDED_VINES,6,0));
+            var distant=scoreWithLand(estimate(List.of(),7),findings,allChecks());
+            check(distant.size()==1 && distant.getFirst().evaluation().score()==10);
+            findings=List.of(finding(Check.MISMATCHED_SOIL,0,0),finding(Check.SURFACE_KELP,1,1),
+                finding(Check.MATURE_KELP_AGE,1,1),finding(Check.GROUNDED_VINES,-1,-1));
+            var local=scoreWithLand(estimate(List.of(),7),findings,allChecks());
+            check(local.size()==1 && local.getFirst().evaluation().score()==40);
+            check(local.getFirst().evaluation().qualifies(35));
+            check(scoreWithLand(estimate(List.of(),7),List.of(finding(Check.MISMATCHED_SOIL,0,0),
+                finding(Check.SURFACE_KELP,1,0),finding(Check.MATURE_KELP_AGE,1,0)),allChecks()).getFirst().evaluation().score()==30);
+        });
+        run("local positive range includes immediate diagonal and excludes distance two", () -> {
+            for(int[] nearby:new int[][]{{1,1},{-1,-1},{1,-1},{0,1}}) {
+                var scores=scoreWithLand(estimate(List.of(),7),List.of(finding(Check.MISMATCHED_SOIL,0,0),
+                    finding(Check.MATURE_GEODE,nearby[0],nearby[1])),allChecks());
+                check(find(scores,0,0).evaluation().score()==45);
+            }
+            check(find(scoreWithLand(estimate(List.of(),7),List.of(finding(Check.MISMATCHED_SOIL,0,0),
+                finding(Check.MATURE_GEODE,2,0)),allChecks()),0,0).evaluation().score()==10);
+        });
+        run("local anchors do not recreate red candidates in empty scoring-window centers", () -> {
+            var scores=scoreWithLand(estimate(List.of(),7),List.of(finding(Check.BURIED_ACCESS_PATH,-1,-1),
+                finding(Check.MISSING_BUDDING_AMETHYST,1,1)),allChecks());
+            check(scores.size()==2);
+            check(scores.stream().map(ScoredCandidate::candidate).toList().equals(List.of(new Candidate(-1,-1),new Candidate(1,1))));
+            check(scores.stream().noneMatch(s->s.candidate().equals(new Candidate(0,0))));
+        });
+        run("nearby land anchors remain distinct and share fixed check caps", () -> {
+            List<Finding> findings=List.of(finding(Check.BURIED_ACCESS_PATH,0,0),finding(Check.MISSING_BUDDING_AMETHYST,1,1),
+                finding(Check.MATURE_GEODE,0,1),finding(Check.SURFACE_KELP,1,0),finding(Check.MATURE_KELP_AGE,1,0));
+            var scores=scoreWithLand(estimate(List.of(),7),findings,allChecks());
+            check(scores.size()==2);
+            check(scores.stream().allMatch(s->s.evaluation().score()==120));
+            check(scores.stream().allMatch(s->s.evaluation().contributions().get(Check.MISSING_BUDDING_AMETHYST)==65));
+        });
+        run("local shaft deduction is one within Euclidean three chunks only", () -> {
+            for(int[] shaft:new int[][]{{3,0},{-3,0},{2,2}}) {
+                var score=find(scoreWithLand(estimate(List.of(),7),List.of(finding(Check.BURIED_ACCESS_PATH,0,0),
+                    finding(Check.OPEN_SHAFTS,shaft[0],shaft[1]),new Finding(Check.OPEN_SHAFTS,99,0,1)),allChecks()),0,0);
+                check(score.evaluation().score()==15 && score.evaluation().contributions().get(Check.OPEN_SHAFTS)==-20);
+            }
+            for(int[] shaft:new int[][]{{3,1},{3,3},{4,0}})
+                check(find(scoreWithLand(estimate(List.of(),7),List.of(finding(Check.BURIED_ACCESS_PATH,0,0),
+                    finding(Check.OPEN_SHAFTS,shaft[0],shaft[1])),allChecks()),0,0).evaluation().score()==35);
+        });
+        run("disabled land check cannot create a candidate and shaft-only evidence cannot seed", () -> {
+            List<Finding> findings=List.of(finding(Check.BURIED_ACCESS_PATH,0,0),finding(Check.OPEN_SHAFTS,0,0));
+            check(scoreWithLand(estimate(List.of(),7),findings,Set.of(Check.OPEN_SHAFTS)).isEmpty());
+            check(scoreWithLand(estimate(List.of(),7),findings,Set.of(Check.BURIED_ACCESS_PATH)).getFirst().evaluation().score()==35);
+            check(scoreWithLand(estimate(List.of(),7),findings,Set.of()).isEmpty());
+        });
+        run("growth fitting remains independent from land locations", () -> {
+            List<GrowthObservation> actual=compass(8,8,7);Result fit=estimate(actual,7);
+            var scores=scoreWithLand(fit,List.of(finding(Check.BURIED_ACCESS_PATH,20,20)),allChecks());
+            check(fit.equals(estimate(actual,7)) && fit.evidenceChunks()==4);
+            check(find(scores,20,20).origin()==Origin.LOCAL_EVIDENCE);
+            check(find(scores,0,0).origin()==Origin.GROWTH_ESTIMATE);
+        });
+        run("overlapping growth and land coordinates keep one whole evaluation with growth on tie", () -> {
+            Result fit=fitted(0,0,7);
+            var scores=scoreWithLand(fit,List.of(finding(Check.BURIED_ACCESS_PATH,0,0)),allChecks());
+            check(scores.size()==1 && scores.getFirst().evaluation().score()==35);
+            check(scores.getFirst().origin()==Origin.GROWTH_ESTIMATE);
+            scores=scoreWithLand(fit,List.of(finding(Check.BURIED_ACCESS_PATH,0,0),finding(Check.MATURE_GEODE,7,0)),allChecks());
+            check(scores.size()==1 && scores.getFirst().evaluation().score()==70);
+            check(scores.getFirst().origin()==Origin.GROWTH_ESTIMATE);
+            check(scores.getFirst().evaluation().findings().size()==2);
+            check(new ScoredCandidate(new Candidate(0,0),score(List.of(),allChecks())).origin()==Origin.GROWTH_ESTIMATE);
+        });
+        run("land evidence still yields local answers when growth fitting cannot finish", () -> {
+            for(Status status:Status.values())if(status!=Status.ESTIMATED) {
+                var scores=scoreWithLand(new Result(status,List.of(),7,0,0),List.of(finding(Check.BURIED_ACCESS_PATH,2,3)),allChecks());
+                check(scores.size()==1 && scores.getFirst().origin()==Origin.LOCAL_EVIDENCE);
+            }
+        });
+        run("local and growth score results are deterministic immutable and deduplicated", () -> {
+            List<Finding> findings=new ArrayList<>(List.of(finding(Check.BURIED_ACCESS_PATH,-1,2),
+                finding(Check.MISSING_BUDDING_AMETHYST,1,-2),finding(Check.MATURE_GEODE,0,0),finding(Check.MISMATCHED_SOIL,1,1)));
+            var expected=scoreWithLand(fitted(0,0,7),findings,allChecks());
+            findings.addAll(List.copyOf(findings));Collections.reverse(findings);
+            check(scoreWithLand(fitted(0,0,7),findings,allChecks()).equals(expected));
+            check(expected.stream().map(ScoredCandidate::candidate).toList().equals(List.of(new Candidate(-1,2),
+                new Candidate(0,0),new Candidate(1,-2),new Candidate(1,1))));
+            throwsType(UnsupportedOperationException.class,()->expected.clear());
+        });
+        run("local scoring handles negative and extreme chunk coordinates without wraparound", () -> {
+            var scores=scoreWithLand(estimate(List.of(),7),List.of(finding(Check.BURIED_ACCESS_PATH,Integer.MIN_VALUE,Integer.MIN_VALUE),
+                finding(Check.OPEN_SHAFTS,Integer.MAX_VALUE,Integer.MAX_VALUE)),allChecks());
+            check(scores.size()==1 && scores.getFirst().evaluation().score()==35);
+            check(find(scoreWithLand(estimate(List.of(),7),List.of(finding(Check.BURIED_ACCESS_PATH,-8,-9),
+                finding(Check.OPEN_SHAFTS,-11,-9)),allChecks()),-8,-9).evaluation().score()==15);
+        });
+        run("local scoring bounds input and geographic work without a partial ranking", () -> {
+            check(scoreWithLand(estimate(List.of(),7),Collections.nCopies(MAX_SCORING_FINDINGS+1,
+                finding(Check.BURIED_ACCESS_PATH,0,0)),allChecks()).isEmpty());
+            List<Finding> broad=new ArrayList<>();for(int x=0;x<=MAX_SCORING_CHUNKS;x++)broad.add(finding(Check.BURIED_ACCESS_PATH,x,0));
+            check(scoreWithLand(estimate(List.of(),7),broad,allChecks()).isEmpty());
+            Result tooMany=new Result(Status.ESTIMATED,Collections.nCopies(MAX_GRID_CHUNKS+1,new Candidate(0,0)),7,1,1);
+            check(scoreWithLand(tooMany,List.of(finding(Check.BURIED_ACCESS_PATH,0,0)),allChecks()).isEmpty());
+            throwsType(IllegalArgumentException.class,()->scoreWithLand(new Result(Status.INSUFFICIENT,List.of(),1,0,0),List.of(),allChecks()));
+        });
+        run("local scoring traverses caller evidence once and honors worker cancellation", () -> {
+            CountingFindings findings=new CountingFindings(List.of(finding(Check.BURIED_ACCESS_PATH,0,0),finding(Check.MISSING_BUDDING_AMETHYST,1,1)));
+            check(scoreWithLand(fitted(0,0,7),findings,allChecks()).size()==2);check(findings.visited==2);
+            Thread.currentThread().interrupt();
+            try{throwsType(CancellationException.class,()->scoreWithLand(estimateEmpty(),findings,allChecks()));}
+            finally{Thread.interrupted();}
+        });
+        run("shared scoring budget rejects the whole result rather than partial candidate winners", () -> {
+            List<Finding> findings=new ArrayList<>();
+            for(int x=-24;x<=24;x++)for(int z=-24;z<=24;z++)findings.add(finding(Check.MATURE_KELP_AGE,x,z));
+            findings.add(finding(Check.BURIED_ACCESS_PATH,0,0));
+            List<Candidate> candidates=new ArrayList<>();
+            for(int x=-30;x<=30;x++)for(int z=-30;z<=30;z++)candidates.add(new Candidate(x,z));
+            Result broad=new Result(Status.ESTIMATED,candidates,12,MAX_EVIDENCE_CHUNKS,candidates.size());
+            check(candidates.size()<MAX_GRID_CHUNKS && findings.size()<MAX_SCORING_FINDINGS);
+            check(scoreWithLand(broad,findings,allChecks()).isEmpty());
+            check(scoreWithLand(estimateEmpty(),List.of(finding(Check.BURIED_ACCESS_PATH,0,0)),allChecks()).size()==1);
+        });
+        run("scoring includes the complete retained history margin without applying the smaller fitter cap", () -> {
+            List<Finding> findings=new ArrayList<>();
+            for(int x=-26;x<=26;x++)for(int z=-26;z<=26;z++)findings.add(finding(Check.MATURE_KELP_AGE,x,z));
+            check(findings.size()==MAX_SCORING_CHUNKS && findings.size()>MAX_EVIDENCE_CHUNKS);
+            findings.add(finding(Check.BURIED_ACCESS_PATH,0,0));
+            var scores=scoreWithLand(fitted(0,0,12),findings,allChecks());
+            check(scores.size()==1 && scores.getFirst().evaluation().score()==50);
+            check(scores.getFirst().origin()==Origin.GROWTH_ESTIMATE);
+        });
+    }
+    private static Result estimateEmpty(){return new Result(Status.INSUFFICIENT,List.of(),7,0,0);}
+    private static ScoredCandidate find(List<ScoredCandidate> scores,int x,int z){
+        return scores.stream().filter(s->s.candidate().equals(new Candidate(x,z))).findFirst().orElseThrow();
     }
     private static List<GrowthObservation> compass(int centerX, int centerZ, int radius) {
         int distance = radius * 16;

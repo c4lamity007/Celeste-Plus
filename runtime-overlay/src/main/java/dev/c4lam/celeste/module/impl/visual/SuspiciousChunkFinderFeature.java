@@ -78,23 +78,23 @@ public final class SuspiciousChunkFinderFeature implements ModuleFeature {
 
     public static GuiModule settings() {
         List<GuiSetting> settings = new ArrayList<>();
-        settings.add(new GuiSetting.Slider("Flag score", "Higher scores need more evidence", 35, 5, 170, 5));
+        settings.add(new GuiSetting.Slider("Flag score", "Higher scores need more evidence", 35, 5, 175, 5));
         for (String label : LABELS) settings.add(new GuiSetting.Toggle(label,
             label.equals("Open shafts") ? "Subtract 20 for a deep shaft within 3 chunks of an estimate"
                 : label.equals("Missing budding") ? "Add 65 for missing budding or stripped amethyst in a complete geode"
                 : "Include this evidence", true));
         settings.add(new GuiSetting.Toggle("Path blocks", "Outline the blocks in suspected buried paths", true));
-        var activity = new GuiSetting.Toggle("Activity estimate", "Show possible activity locations from growth patterns", true);
+        var activity = new GuiSetting.Toggle("Activity estimate", "Show growth estimates and nearby land disturbances", true);
         settings.add(activity);
         settings.add(new GuiSetting.Slider("Tick radius", "Estimated activity radius in chunks", 7, 2, 12, 1)
             .visibleWhen(activity::value));
-        settings.add(new GuiSetting.Toggle("Show reasons", "Show the nearest estimate's score and evidence", false));
+        settings.add(new GuiSetting.Toggle("Show reasons", "Show the nearest candidate's score and evidence", false));
         var advanced = new GuiSetting.Toggle("Advanced", "Server scan boundary", false);
         settings.add(advanced);
         settings.add(new GuiSetting.Slider("Scan floor Y", "Lowest real block data sent by this server", 0, -64, 320, 1)
             .visibleWhen(advanced::value));
         settings.add(new GuiSetting.Keybind("Keybind", "Toggle module", -1));
-        return new GuiModule(NAME, "Find signs of underground activity", CelestePage.VISUALS, false,
+        return new GuiModule(NAME, "Find signs of nearby activity", CelestePage.VISUALS, false,
             settings.toArray(GuiSetting[]::new));
     }
 
@@ -191,7 +191,7 @@ public final class SuspiciousChunkFinderFeature implements ModuleFeature {
             session = server + "/" + world.getRegistryKey().getValue();
         }
         enabled = true; active = this; tick++;
-        threshold = (int) finite(context.slider("Flag score", 35), 35, 5, 170);
+        threshold = (int) finite(context.slider("Flag score", 35), 35, 5, 175);
         showReasons = context.toggle("Show reasons", false);
         showPaths = context.toggle("Path blocks", true);
         boolean nextShowActivity = context.toggle("Activity estimate", true);
@@ -490,7 +490,7 @@ public final class SuspiciousChunkFinderFeature implements ModuleFeature {
         activityFuture = worker.submit(() -> {
             var estimate = SuspiciousActivity.estimate(local, radius);
             return new ActivityResult(sessionGeneration, version, estimate,
-                SuspiciousActivity.score(estimate, findings, jobChecks));
+                SuspiciousActivity.scoreWithLand(estimate, findings, jobChecks));
         });
     }
     private void collectActivity() {
@@ -533,7 +533,7 @@ public final class SuspiciousChunkFinderFeature implements ModuleFeature {
         activityMarkersDirty = true;
     }
     private void flushActivityMarkers() {
-        if (!showActivity || activityResult == null) { displayedActivity = List.of(); return; }
+        if (!showActivity || activityScores.isEmpty()) { displayedActivity = List.of(); return; }
         // Scoring runs on the immutable worker. The game thread only binds
         // completed candidate scores to currently known surface heights.
         ArrayList<ActivityMarker> markers = new ArrayList<>();
@@ -548,7 +548,7 @@ public final class SuspiciousChunkFinderFeature implements ModuleFeature {
                 if (saved != null) surface = saved.height;
             }
             markers.add(new ActivityMarker(candidate.chunkX(), candidate.chunkZ(),
-                surface >= floor ? surface + 1.025 : Double.NaN, scored.evaluation()));
+                surface >= floor ? surface + 1.025 : Double.NaN, scored.evaluation(), scored.origin()));
         }
         displayedActivity = List.copyOf(markers);
     }
@@ -644,7 +644,8 @@ public final class SuspiciousChunkFinderFeature implements ModuleFeature {
         if (!failure.isEmpty()) lines.add(failure);
         else if (floor >= top) lines.add("Scan floor is above this world's terrain");
         else if (nearest != null) {
-            lines.add("Possible activity: " + nearest.x + ", " + nearest.z
+            lines.add((nearest.origin == SuspiciousActivity.Origin.LOCAL_EVIDENCE
+                ? "Nearby disturbance: " : "Possible activity: ") + nearest.x + ", " + nearest.z
                 + "  |  " + nearest.evaluation.score());
             if (!nearest.evaluation.qualifies(threshold)) lines.add("Below flag score " + threshold);
             for (Check check : Check.values()) {
@@ -654,7 +655,7 @@ public final class SuspiciousChunkFinderFeature implements ModuleFeature {
                     + ": " + (amount > 0 ? "+" : "") + amount);
             }
         }
-        if (showActivity) {
+        if (showActivity && (nearest == null || nearest.origin == SuspiciousActivity.Origin.GROWTH_ESTIMATE)) {
             if (activityResult == null) lines.add("Activity estimate: gathering growth evidence");
             else if (activityResult.candidates().isEmpty()) lines.add(switch (activityResult.status()) {
                 case INSUFFICIENT -> "Activity estimate: gathering growth evidence";
@@ -771,7 +772,7 @@ public final class SuspiciousChunkFinderFeature implements ModuleFeature {
     }
     private record PathBlock(Pos pos, int cell) { }
     private record SurfaceSample(WorldChunk chunk, int height) { }
-    private record ActivityMarker(int x, int z, double y, Evaluation evaluation) { }
+    private record ActivityMarker(int x, int z, double y, Evaluation evaluation, SuspiciousActivity.Origin origin) { }
     private record ActivityResult(long generation, long version, SuspiciousActivity.Result estimate,
                                   List<SuspiciousActivity.ScoredCandidate> scores) { }
     private record Classified(short code, boolean surface) { }

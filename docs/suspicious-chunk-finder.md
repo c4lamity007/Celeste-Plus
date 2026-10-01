@@ -1,6 +1,6 @@
 # Suspicious Chunk Finder
 
-This Celeste+ visual module analyzes local 3×3 windows for evidence, then estimates a possible activity location from actual growth positions. Only estimated chunks meeting `Flag score` receive flat, translucent red 16×16 surface markers. The old red evidence-window markers are removed. Suspected buried-path blocks retain amber Block ESP outlines. `Show reasons` displays the nearest estimate's score, contributing evidence and estimation status.
+This Celeste+ visual module analyzes local 3×3 windows for evidence. It fits possible activity locations from actual growth positions and also evaluates actual land-disturbance chunks directly. Candidate chunks meeting `Flag score` receive flat, translucent red 16×16 surface markers. The old red evidence-window markers are removed. Suspected buried-path blocks retain amber Block ESP outlines. `Show reasons` displays the nearest estimate's score, contributing evidence and estimation status.
 
 ## Server setup
 
@@ -12,21 +12,33 @@ The active capture area is the nearest **11×11 loaded chunks** at most, limited
 
 ## Settings and scores
 
-The module starts disabled. `Flag score` defaults to **35**, ranges from **5 to 170**, and changes in steps of five. All nine check toggles start enabled. `Path blocks` and `Activity estimate` start enabled. `Evidence chunks` is removed; its old saved value has no effect. `Tick radius` defaults to **7 chunks**, ranges from 2–12, and is shown with activity estimation enabled. `Show reasons` and `Advanced` start off. Weights and sampling rules are internal. The saved `Missing budding` toggle also controls fully stripped amethyst; its existing key is preserved so saved exclusions remain effective. `Show reasons` labels this contribution `Missing amethyst/budding`.
+The module starts disabled. `Flag score` defaults to **35**, ranges from **5 to 175**, and changes in steps of five. All nine check toggles start enabled. `Path blocks` and `Activity estimate` start enabled. `Evidence chunks` is removed; its old saved value has no effect. `Tick radius` defaults to **7 chunks**, ranges from 2–12, and is shown with activity estimation enabled. `Show reasons` and `Advanced` start off. Weights and sampling rules are internal. The saved `Missing budding` toggle also controls fully stripped amethyst; its existing key is preserved so saved exclusions remain effective. `Show reasons` labels this contribution `Missing amethyst/budding`.
 
 | Check | Weight | Initial qualifying criteria |
 | --- | ---: | --- |
-| Rotated deepslate | +30 | Horizontal actual axis; 26 known immediate neighbors, at least 20 natural-rock neighbors including 12 vertical deepslate; no structural marker within two blocks. |
+| Rotated deepslate | +35 | Horizontal actual axis; 26 known immediate neighbors, at least 20 natural-rock neighbors; no structural marker within two blocks. Ordinary stone surrounding a buried horizontal deepslate block qualifies; a saved vertical axis does not. |
 | Mismatched soil | +10 | Connected 2–12 dirt blocks, at most 4×3×4, compact fill of at least 75%; near surface; at least eight surrounding soil samples with 80% suitable and 80% consistent soil. |
 | Grounded vines | +10 | At least eight independent bottommost endings; at least 75% finish immediately above accepted natural stone. |
-| Mature geode | +15 | Recognized, fully observed geode and at least 12 correctly attached crystals; at least 80% mature clusters. |
+| Mature geode | +35 | Recognized, fully observed geode and at least 12 correctly attached crystals; at least 80% mature clusters. |
 | Missing budding / amethyst | +65 | Recognized geode with at least 64 inner amethyst/budding blocks and budding fraction at most 2%, or a sufficiently complete hollow calcite/smooth-basalt shell with all amethyst and budding blocks removed. Both conditions are one check and contribute once. |
 | Surface kelp | +15 | At least 12 independent tips in a local bed, at least 80% with air above; sufficient submerged stalk and wet surroundings. |
 | Mature kelp | +15 | Same population requirements; at least 75% tips age 24–25. |
 | Buried paths | +35 | At least six connected anomalous filler blocks spanning five blocks, narrow shaft/tunnel/stair geometry and natural-rock context; fluid/structure exclusions. |
 | Open shafts | −20 | Qualifying deep, open route within **three chunks of the estimated location**. Surface-open narrow, face-connected route; at least 24 blocks deep, within eight blocks of the floor, at least 80% of surface-to-floor depth and 80% narrow levels. Sideways bends and short landings allowed. |
 
-For each estimated candidate, positive checks use their actual feature chunks within the configured `Tick radius`. Each check contributes once. The two geode checks share a **65-point cap**; the two kelp checks share a **20-point cap**. Positive maximum is **170**. Open shafts use a fixed, inclusive three-chunk Euclidean distance from that candidate: `dx² + dz² <= 9`. For example, offsets (3,0) and (2,2) qualify, while (3,1) does not. This distance never references the old evidence-window center. Apply at most one 20-point deduction, then clamp the result to zero. A score **equal to the threshold qualifies** for a red estimate marker. Without an established estimate, no shaft is flagged or deducted in the displayed score. These are uncalibrated suspicion scores, not percentage probabilities. Sparse crystals is removed from both detection and settings; old saved values have no effect.
+For each growth-derived candidate, positive checks use their actual feature chunks within the configured `Tick radius`. Each check contributes once. The two geode checks share a **65-point cap**; the two kelp checks share a **20-point cap**. Positive maximum is **175**. Open shafts use a fixed, inclusive three-chunk Euclidean distance from that candidate: `dx² + dz² <= 9`. For example, offsets (3,0) and (2,2) qualify, while (3,1) does not. This distance never references the old evidence-window center. Apply at most one 20-point deduction, then clamp the result to zero. A score **equal to the threshold qualifies** for a red estimate marker. Without an established growth or land candidate, no shaft is flagged or deducted in the displayed score. These are uncalibrated suspicion scores, not percentage probabilities. Sparse crystals is removed from both detection and settings; old saved values have no effect.
+
+## Land candidates without a growth prerequisite
+
+The previous estimator required a qualifying vine, kelp or mature-geode sample before any red candidate could exist. A stripped geode worth 65 or a buried route worth 35 therefore could not display by itself. Land candidates now use the actual feature chunks of enabled rotated-deepslate, mismatched-soil, missing-amethyst and buried-path findings. They never use arbitrary scoring-window centers and never masquerade as growth observations.
+
+Each land candidate uses positive evidence only in its own chunk and its eight immediate neighbors. An open shaft can deduct 20 only within the same fixed three-chunk Euclidean radius used by growth estimates. Distant kelp inside the larger Tick radius cannot inflate a land candidate. Repeated findings still contribute once, with the same geode and kelp caps. Only actual land-finding chunks become candidates, so corroboration cannot create red squares in otherwise empty neighboring chunks.
+
+Growth-derived estimates retain their configured Tick radius and the existing geometric fitting. If a land candidate and growth estimate share a chunk, keep the larger complete scoped evaluation; never add their scores together. Growth wins ties. `Show reasons` identifies a local winner as `Nearby disturbance`, and a growth winner as `Possible activity`. Normal rendering uses the same uncluttered red marker for both. Neither is proof of a hidden base.
+
+At the default threshold of 35, a qualifying rotated-deepslate finding, well-sampled mature geode or buried route can now qualify independently. A stripped geode contributes 65. Weak soil and vine observations remain supporting evidence. Kelp remains capped at 20. All original population minimums, unknown-terrain handling, first-observation growth baselines, cache invalidation and lifecycle cleanup remain in place.
+
+Local candidate scoring uses a chunk index, fixed neighborhood probes, a 65,536-finding input limit, the 53x53 maximum retained-history area, and a shared two-million-operation scoring budget with cancellation. Exhausting a bound returns no partial ranking. It runs on the immutable worker. No Minecraft world reads are moved to that worker and no extra chunks are requested.
 
 ## Buried-path outlines
 

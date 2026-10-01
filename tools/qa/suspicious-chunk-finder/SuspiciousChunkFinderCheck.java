@@ -34,7 +34,7 @@ public final class SuspiciousChunkFinderCheck {
 
     private static void scoring() {
         run("weights apply once per window", () -> {
-            int[] expected = {30,10,10,15,65,15,15,35,0};
+            int[] expected = {35,10,10,35,65,15,15,35,0};
             Check[] kinds = Check.values();
             eq(expected.length, kinds.length, "intentional nine-check contract");
             for (int i=0; i<kinds.length; i++) {
@@ -45,18 +45,18 @@ public final class SuspiciousChunkFinderCheck {
         });
         run("geode cap 65 and kelp cap 20", () -> {
             eq(65, scored(Check.MATURE_GEODE,Check.MISSING_BUDDING_AMETHYST), "geode cap");
-            eq(15, scored(Check.MATURE_GEODE), "mature geode remains independent");
+            eq(35, scored(Check.MATURE_GEODE), "mature geode remains independent");
             eq(20, scored(Check.SURFACE_KELP,Check.MATURE_KELP_AGE), "kelp cap");
             Evaluation e=score(List.of(finding(Check.SURFACE_KELP,1,0,0),finding(Check.MATURE_KELP_AGE,1,0,0)),ALL);
             eq(15,e.contributions().get(Check.SURFACE_KELP),"surface contribution");
             eq(5,e.contributions().get(Check.MATURE_KELP_AGE),"age residual contribution");
         });
-        run("maximum score 170 and one shaft deduction 20", () -> {
+        run("maximum score 175 and one shaft deduction 20", () -> {
             List<Finding> evidence = new ArrayList<>();
             for (Check check:Check.values()) if (check!=Check.OPEN_SHAFTS) evidence.add(finding(check,1,0,0));
-            eq(170,score(evidence,ALL).score(),"maximum");
+            eq(175,score(evidence,ALL).score(),"maximum");
             for(int n=0;n<20;n++) evidence.add(finding(Check.OPEN_SHAFTS,n,0,0));
-            eq(150,score(evidence,ALL).score(),"one deduction");
+            eq(155,score(evidence,ALL).score(),"one deduction");
         });
         run("deduction floors at zero and toggles exclude evidence", () -> {
             List<Finding> evidence=List.of(finding(Check.GROUNDED_VINES,1,0,0),finding(Check.OPEN_SHAFTS,2,0,0));
@@ -72,7 +72,19 @@ public final class SuspiciousChunkFinderCheck {
     }
 
     private static void rockAndSoil() {
-        run("rotated deepslate in natural rock scores 30", () -> eq(30,evaluate(rotated(8,30,8)).score(),"horizontal axis"));
+        run("rotated deepslate in natural rock scores 35", () -> eq(35,evaluate(rotated(8,30,8)).score(),"horizontal axis"));
+        run("horizontal deepslate buried in ordinary stone qualifies", () -> {
+            Scene s=new Scene();s.fill(6,28,6,10,32,10,STONE);s.set(8,30,8,HORIZONTAL_DEEPSLATE);
+            eq(35,evaluate(s).score(),"natural stone context above the transition");
+        });
+        run("ordinary vertical deepslate in stone is not replacement evidence", () -> {
+            Scene s=new Scene();s.fill(6,28,6,10,32,10,STONE);s.set(8,30,8,DEEPSLATE);
+            eq(0,evaluate(s).score(),"no horizontal saved axis");
+        });
+        run("exposed decorative horizontal deepslate is not buried evidence", () -> {
+            Scene s=new Scene();s.fill(6,28,6,10,32,10,AIR);s.set(8,30,8,HORIZONTAL_DEEPSLATE);
+            eq(0,evaluate(s).score(),"insufficient surrounding natural rock");
+        });
         run("ordinary vertical deepslate does not score", () -> {
             Scene s=rotated(8,30,8);s.set(8,30,8,DEEPSLATE);eq(0,evaluate(s).score(),"natural axis");
         });
@@ -141,7 +153,7 @@ public final class SuspiciousChunkFinderCheck {
             Scene first=kelp(12,0,0,22),current=kelp(12,12,12,25);
             current.fill(6,28,6,10,32,10,DEEPSLATE);current.set(8,30,8,HORIZONTAL_DEEPSLATE);
             Evaluation e=SuspiciousAnalysis.evaluate(current,first,0,0,summaries(current),summaries(first),ALL,List.of());
-            eq(30,e.score(),"waiting should not grow kelp score");
+            eq(35,e.score(),"waiting should not grow kelp score");
         });
         run("first observed mature kelp evidence remains stable after current growth changes", () -> {
             Scene first=kelp(12,0,12,25),current=kelp(12,0,0,22);
@@ -156,7 +168,7 @@ public final class SuspiciousChunkFinderCheck {
 
     private static void geodes() {
         run("large complete geode missing budding amethyst scores 65", () -> eq(65,evaluate(geode(0,0,CLUSTER)).score(),"missing budding"));
-        run("mature crystal population scores 15", () -> eq(15,evaluate(geode(15,15,CLUSTER)).score(),"mature geode"));
+        run("mature crystal population scores 35", () -> eq(35,evaluate(geode(15,15,CLUSTER)).score(),"mature geode"));
         run("young crystal population does not score maturity", () -> eq(0,evaluate(geode(15,15,SMALL_BUD)).score(),"young geode"));
         run("sparse crystals no longer contribute any suspicion", () -> eq(0,evaluate(geode(25,0,CLUSTER)).score(),"sparse check removed"));
         run("sparse crystals stay unscored regardless of exposed growth medium", () -> {
@@ -218,7 +230,7 @@ public final class SuspiciousChunkFinderCheck {
         });
         run("intact geode with no crystals is not a stripped shell", () -> {
             eq(0,evaluate(geode(25,0,CLUSTER)).score(),"healthy budding remains");
-            eq(15,evaluate(geode(15,15,CLUSTER)).score(),"mature path preserved");
+            eq(35,evaluate(geode(15,15,CLUSTER)).score(),"mature path preserved");
         });
         run("shell fallback requires all inner material to be gone", () -> {
             for(int inner:new int[]{AMETHYST,BUDDING}) {
@@ -596,9 +608,9 @@ public final class SuspiciousChunkFinderCheck {
     private static void windows() {
         run("eight-neighbor-only evidence can qualify empty center", () -> {
             Scene s=rotated(20,30,20);Evaluation e=evaluate(s);
-            eq(30,e.score(),"diagonal neighbor");check(e.qualifies(30),"neighbor qualifies");
+            eq(35,e.score(),"diagonal neighbor");check(e.qualifies(35),"neighbor qualifies");
         });
-        run("negative chunk coordinates participate correctly", () -> eq(30,evaluate(rotated(-8,30,-8)).score(),"negative diagonal"));
+        run("negative chunk coordinates participate correctly", () -> eq(35,evaluate(rotated(-8,30,-8)).score(),"negative diagonal"));
         run("evidence outside the nine-chunk window is ignored", () -> {
             Scene s=new Scene(-32,63);s.fill(38,28,6,42,32,10,DEEPSLATE);s.set(40,30,8,HORIZONTAL_DEEPSLATE);
             List<ChunkSummary> all=summaries(s);all.add(summarize(s,2,0));

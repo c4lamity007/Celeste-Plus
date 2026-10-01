@@ -115,11 +115,91 @@ public final class SuspiciousFeatureCheck {
             check(evidence(feature).isEmpty() && kinds(feature).isEmpty());
             check(cache.first(key(0, 0)) == null);
         });
+        run("actual worker publishes local land evidence without a growth estimate or old scoring center", () -> {
+            var feature = new SuspiciousChunkFinderFeature();
+            try {
+                publishEvidence(feature, List.of(new Finding(Check.MISSING_BUDDING_AMETHYST, 77, 2, -1)));
+                check(evidence(feature).isEmpty());
+                completeActivity(feature);
+                var estimate = (SuspiciousActivity.Result) field(feature, "activityResult");
+                check(estimate.status() == SuspiciousActivity.Status.INSUFFICIENT && estimate.candidates().isEmpty());
+                var scores = scores(feature);
+                check(scores.size() == 1);
+                check(scores.getFirst().candidate().equals(new SuspiciousActivity.Candidate(2, -1)));
+                check(scores.getFirst().origin() == SuspiciousActivity.Origin.LOCAL_EVIDENCE);
+                check(scores.getFirst().evaluation().score() == 65);
+                SuspiciousSnapshots.Cache cache = (SuspiciousSnapshots.Cache) field(feature, "cache");
+                cache.put(chunk(2, -1, STONE, 1));
+                invoke(feature, "flushActivityMarkers");
+                var markers = (List<?>) field(feature, "displayedActivity");
+                check(markers.size() == 1);
+                Object marker = markers.getFirst();
+                check(recordValue(marker, "x").equals(2) && recordValue(marker, "z").equals(-1));
+                check(recordValue(marker, "origin") == SuspiciousActivity.Origin.LOCAL_EVIDENCE);
+                check(Math.abs((double) recordValue(marker, "y") - 16.025) < 0.00001);
+                @SuppressWarnings("unchecked") Set<Long> dirty = (Set<Long>) field(feature, "dirty");
+                dirty.add(key(2, -1));
+                invoke(feature, "flushActivityMarkers");
+                check(Double.isNaN((double) recordValue(((List<?>) field(feature, "displayedActivity")).getFirst(), "y")));
+                field(feature, "showActivity", false);
+                invoke(feature, "flushActivityMarkers");
+                check(((List<?>) field(feature, "displayedActivity")).isEmpty());
+            } finally { invoke(feature, "reset"); }
+        });
+        run("disabled land checks do not publish candidates through the actual worker", () -> {
+            var feature = new SuspiciousChunkFinderFeature();
+            try {
+                publishEvidence(feature, List.of(new Finding(Check.MISSING_BUDDING_AMETHYST, 88, 0, 0)));
+                field(feature, "checks", EnumSet.of(Check.SURFACE_KELP));
+                completeActivity(feature);
+                check(scores(feature).isEmpty());
+                invoke(feature, "flushActivityMarkers");
+                check(((List<?>) field(feature, "displayedActivity")).isEmpty());
+            } finally { invoke(feature, "reset"); }
+        });
+        run("stale local evidence results are rejected after version or session changes", () -> {
+            for (String invalidated : List.of("activityVersion", "generation")) {
+                var feature = new SuspiciousChunkFinderFeature();
+                try {
+                    publishEvidence(feature, List.of(new Finding(Check.ROTATED_DEEPSLATE, 99, 0, 0)));
+                    invoke(feature, "launchActivity");
+                    ((java.util.concurrent.Future<?>) field(feature, "activityFuture")).get(5, java.util.concurrent.TimeUnit.SECONDS);
+                    field(feature, invalidated, (long) field(feature, invalidated) + 1L);
+                    invoke(feature, "collectActivity");
+                    check(scores(feature).isEmpty());
+                    check(field(feature, "activityResult") == null && field(feature, "activityFuture") == null);
+                } finally { invoke(feature, "reset"); }
+            }
+        });
         System.out.println("RESULT " + cases + " passed; " + assertions + " assertions; actual Feature reflection, no game/auth initialized");
     }
+    private static void publishEvidence(Object feature, List<Finding> findings) throws Exception {
+        Evaluation evaluation = SuspiciousAnalysis.score(findings, EnumSet.allOf(Check.class));
+        Class<?> result = Class.forName(SuspiciousChunkFinderFeature.class.getName() + "$Result");
+        var constructor = result.getDeclaredConstructor(long.class, long.class, Map.class, Evaluation.class, List.class);
+        constructor.setAccessible(true);
+        @SuppressWarnings("unchecked") Map<Long, Object> results = (Map<Long, Object>) field(feature, "results");
+        // Deliberately distant scoring-window ID: only the actual finding location may become a marker.
+        results.put(key(31, 31), constructor.newInstance(key(31, 31), 0L, Map.of(), evaluation, List.of()));
+        invoke(feature, "publishNow");
+    }
+    private static void completeActivity(Object feature) throws Exception {
+        invoke(feature, "launchActivity");
+        ((java.util.concurrent.Future<?>) field(feature, "activityFuture")).get(5, java.util.concurrent.TimeUnit.SECONDS);
+        invoke(feature, "collectActivity");
+    }
+    @SuppressWarnings("unchecked") private static List<SuspiciousActivity.ScoredCandidate> scores(Object feature) throws Exception {
+        return (List<SuspiciousActivity.ScoredCandidate>) field(feature, "activityScores");
+    }
+    private static Object recordValue(Object value, String name) throws Exception {
+        var accessor = value.getClass().getDeclaredMethod(name); accessor.setAccessible(true); return accessor.invoke(value);
+    }
     private static SuspiciousSnapshots.Chunk chunk(int cell, long revision) {
+        return chunk(0, 0, cell, revision);
+    }
+    private static SuspiciousSnapshots.Chunk chunk(int x, int z, int cell, long revision) {
         int[] surfaces = new int[256]; Arrays.fill(surfaces, 15);
-        return new SuspiciousSnapshots.Chunk(0, 0, 0, 16, new short[][]{{(short) cell}}, surfaces, revision, revision);
+        return new SuspiciousSnapshots.Chunk(x, z, 0, 16, new short[][]{{(short) cell}}, surfaces, revision, revision);
     }
     private static Evaluation population(int cx, int cz, int radius) {
         List<GrowthObservation> samples = new ArrayList<>(); Map<Long, Set<Check>> kinds = new HashMap<>();
