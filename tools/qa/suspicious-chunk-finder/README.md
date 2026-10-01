@@ -1,5 +1,16 @@
 # Suspicious Chunk Finder fixtures
 
+For the complete current suite, including buried-block outlines and the activity estimator:
+
+```powershell
+python tools/qa/suspicious-chunk-finder/run_refinement.py `
+  --project . `
+  --java-home 'C:/Program Files/Eclipse Adoptium/jdk-21.0.11.10-hotspot' `
+  --out build/suspicious-refinement-check-01
+```
+
+This runs all three fixture classes against the production sources. It adds actual qualifying block publication, cancellation/exhaustion, growth sample attribution, cross-window deduplication, and conservative candidate-region tests. Sparse crystals is removed; mature and missing-budding geode checks remain. Radius defaults to seven chunks.
+
 Compile and exercise the **actual** `SuspiciousAnalysis.java`, `SuspiciousGeometry.java`, and `SuspiciousSnapshots.java` against deterministic, fully specified terrain. Java 21 and Python 3 are required. The output directory must be new; the runner snapshots all inputs, records their SHA-256 hashes, and keeps compile/run logs plus `result.json`.
 
 ```powershell

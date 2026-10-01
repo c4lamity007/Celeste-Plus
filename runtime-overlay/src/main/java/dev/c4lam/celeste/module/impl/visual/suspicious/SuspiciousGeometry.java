@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -38,6 +39,7 @@ public final class SuspiciousGeometry {
         private final int minX, maxX, minZ, maxZ;
         private final List<Pos> filledCandidates = new ArrayList<>();
         private final List<Finding> findings = new ArrayList<>();
+        private List<Pos> buriedBlocks = List.of();
         private final Set<Pos> filledVisited = new HashSet<>();
         private final Set<Pos> shaftMouths = new HashSet<>();
         private final Map<Pos, Boolean> anomalies = new HashMap<>();
@@ -73,44 +75,63 @@ public final class SuspiciousGeometry {
 
         public int advance(int maxWorkSteps, long deadlineNanos) {
             int used = 0;
-            while (!done && used < Math.max(0, maxWorkSteps) && System.nanoTime() < deadlineNanos) {
-                interrupted();
-                if (!openFound && shaft != null) {
-                    shaft.step();
-                    if (shaft.finished) {
-                        if (shaft.qualified) {
-                            add(Check.OPEN_SHAFTS, shaft.mouth);
-                            openFound = true;
+            try {
+                while (!done && used < Math.max(0, maxWorkSteps) && System.nanoTime() < deadlineNanos) {
+                    interrupted();
+                    if (!openFound && shaft != null) {
+                        shaft.step();
+                        if (shaft.finished) {
+                            if (shaft.qualified) {
+                                add(Check.OPEN_SHAFTS, shaft.mouth);
+                                openFound = true;
+                            }
+                            shaft = null;
                         }
-                        shaft = null;
-                    }
-                } else if (!openFound && surfaceCursor < 48 * 48) {
-                    int x = minX + surfaceCursor % 48;
-                    int z = minZ + surfaceCursor / 48;
-                    surfaceCursor++;
-                    Pos mouth = findMouth(x, z);
-                    if (mouth != null && shaftMouths.add(mouth)) shaft = new Shaft(mouth);
-                } else if (!buriedFound && filled != null) {
-                    filled.step();
-                    if (filled.finished) {
-                        if (filled.qualified()) {
-                            add(Check.BURIED_ACCESS_PATH, filled.origin);
-                            buriedFound = true;
+                    } else if (!openFound && surfaceCursor < 48 * 48) {
+                        int x = minX + surfaceCursor % 48;
+                        int z = minZ + surfaceCursor / 48;
+                        surfaceCursor++;
+                        Pos mouth = findMouth(x, z);
+                        if (mouth != null && shaftMouths.add(mouth)) shaft = new Shaft(mouth);
+                    } else if (!buriedFound && filled != null) {
+                        filled.step();
+                        if (filled.finished) {
+                            if (filled.exhausted) {
+                                // Remaining seeds may be the unvisited tail of this component.
+                                // Treat the window as inconclusive rather than qualify a fragment.
+                                filledCursor = filledCandidates.size();
+                            } else if (filled.qualified()) {
+                                add(Check.BURIED_ACCESS_PATH, filled.origin);
+                                // Only the completed, qualifying connected route is publishable.
+                                buriedBlocks = List.copyOf(new LinkedHashSet<>(filled.cells));
+                                buriedFound = true;
+                            }
+                            filled = null;
                         }
-                        filled = null;
-                    }
-                } else if (!buriedFound && filledCursor < filledCandidates.size()) {
-                    Pos candidate = filledCandidates.get(filledCursor++);
-                    if (!filledVisited.contains(candidate) && anomalous(candidate)) filled = new FilledRoute(candidate);
-                } else done = true;
-                used++;
-                workSteps++;
+                    } else if (!buriedFound && filledCursor < filledCandidates.size()) {
+                        Pos candidate = filledCandidates.get(filledCursor++);
+                        if (!filledVisited.contains(candidate) && anomalous(candidate)) filled = new FilledRoute(candidate);
+                    } else done = true;
+                    used++;
+                    workSteps++;
+                }
+            } catch (CancellationException cancelled) {
+                buriedBlocks = List.of();
+                findings.clear();
+                done = true;
+                throw cancelled;
             }
             return used;
         }
 
         public boolean isDone() { return done; }
         public List<Finding> findings() { return List.copyOf(findings); }
+        /**
+         * Actual filler cells of the first qualifying route in this captured terrain, at
+         * most FILLED_VISIT_LIMIT. Empty until completion or after cancellation. Consumers
+         * must invalidate changed input chunks and revalidate live states before rendering.
+         */
+        public List<Pos> buriedBlocks() { return done ? buriedBlocks : List.of(); }
         public long workSteps() { return workSteps; }
 
         private void add(Check check, Pos p) {

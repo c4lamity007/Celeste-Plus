@@ -87,6 +87,8 @@ public final class BuiltInFeatures {
         var blockEsp = new dev.c4lam.celeste.module.impl.visual.BlockEspFeature();
         modules.register(storageEsp);
         modules.register(blockEsp);
+        storageEsp.initialize();
+        blockEsp.initialize();
         var suspicious = new dev.c4lam.celeste.module.impl.visual.SuspiciousChunkFinderFeature();
         modules.register(suspicious);
         suspicious.initialize();

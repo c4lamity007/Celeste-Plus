@@ -16,6 +16,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.RandomAccess;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.concurrent.CancellationException;
 
 /** Immutable-snapshot analysis. No Minecraft objects or world access belong in this class. */
@@ -48,7 +49,7 @@ public final class SuspiciousAnalysis {
 
     public enum Check {
         ROTATED_DEEPSLATE(30), MISMATCHED_SOIL(10), GROUNDED_VINES(10),
-        MATURE_GEODE(15), SPARSE_GEODE_CRYSTALS(15), MISSING_BUDDING_AMETHYST(25),
+        MATURE_GEODE(15), MISSING_BUDDING_AMETHYST(25),
         SURFACE_KELP(15), MATURE_KELP_AGE(15), BURIED_ACCESS_PATH(35), OPEN_SHAFTS(-20);
         public final int weight;
         Check(int weight) { this.weight = weight; }
@@ -83,10 +84,24 @@ public final class SuspiciousAnalysis {
         }
     }
     public record Finding(Check check, long featureId, int chunkX, int chunkZ) { }
-    public record Evaluation(int score, Map<Check, Integer> contributions, List<Finding> findings) {
+    /** A qualifying growth result at its actual first-observed block, never a scoring-window center. */
+    public record GrowthObservation(Check check, long sampleId, int blockX, int blockY, int blockZ) { }
+    public record Evaluation(int score, Map<Check, Integer> contributions, List<Finding> findings,
+                             List<GrowthObservation> growthObservations, Map<Long, Set<Check>> growthChecks) {
+        public Evaluation(int score, Map<Check, Integer> contributions, List<Finding> findings) {
+            this(score, contributions, findings, List.of(), Map.of());
+        }
+        public Evaluation(int score, Map<Check, Integer> contributions, List<Finding> findings,
+                          List<GrowthObservation> growthObservations) {
+            this(score, contributions, findings, growthObservations, Map.of());
+        }
         public Evaluation {
             contributions = Map.copyOf(contributions);
             findings = List.copyOf(findings);
+            growthObservations = List.copyOf(growthObservations);
+            Map<Long, Set<Check>> copiedChecks = new HashMap<>();
+            for (var entry : growthChecks.entrySet()) copiedChecks.put(entry.getKey(), Set.copyOf(entry.getValue()));
+            growthChecks = Map.copyOf(copiedChecks);
         }
         public boolean qualifies(int threshold) { return score >= threshold; }
     }
@@ -104,8 +119,7 @@ public final class SuspiciousAnalysis {
     public static final int MIN_GEODE_BASALT = 8;
     public static final int MIN_GEODE_CRYSTALS = 12;
     public static final double MATURE_GEODE_RATIO = 0.80;
-    public static final int MIN_GROWTH_FACES = 20;
-    public static final double SPARSE_CRYSTAL_RATIO = 0.15;
+    public static final int MAX_GROWTH_OBSERVATIONS_PER_WINDOW = 512;
     public static final int MIN_STRIPPED_GEODE_INNER = 64;
     public static final double MISSING_BUDDING_RATIO = 0.02;
     private static final int[][] DIRECTIONS = {{0,-1,0},{0,1,0},{0,0,-1},{0,0,1},{-1,0,0},{1,0,0}};
@@ -171,19 +185,21 @@ public final class SuspiciousAnalysis {
         List<Pos> liveSeeds = seeds(currentSummaries, centerX, centerZ);
         List<Pos> firstSeeds = seeds(firstSummaries, centerX, centerZ);
         List<Finding> found = new ArrayList<>();
+        GrowthCollector growth = new GrowthCollector(enabled);
         if (enabled.contains(Check.ROTATED_DEEPSLATE)) rotated(live, liveSeeds, found);
         if (enabled.contains(Check.MISMATCHED_SOIL)) soil(live, liveSeeds, found);
-        if (enabled.contains(Check.GROUNDED_VINES)) vines(first, firstSeeds, found);
+        if (enabled.contains(Check.GROUNDED_VINES)) vines(first, firstSeeds, found, growth);
         if (enabled.contains(Check.SURFACE_KELP) || enabled.contains(Check.MATURE_KELP_AGE)) {
-            kelp(first, firstSeeds, found);
+            kelp(first, firstSeeds, found, growth);
         }
-        if (enabled.contains(Check.MATURE_GEODE) || enabled.contains(Check.SPARSE_GEODE_CRYSTALS)
-                || enabled.contains(Check.MISSING_BUDDING_AMETHYST)) geodes(first, firstSeeds, found);
+        if (enabled.contains(Check.MATURE_GEODE)
+                || enabled.contains(Check.MISSING_BUDDING_AMETHYST)) geodes(first, firstSeeds, found, growth);
         for (Finding f : geometry) {
             if (Math.abs((long) f.chunkX() - centerX) <= 1 && Math.abs((long) f.chunkZ() - centerZ) <= 1
                     && (f.check() == Check.BURIED_ACCESS_PATH || f.check() == Check.OPEN_SHAFTS)) found.add(f);
         }
-        return score(found, enabled);
+        Evaluation result = score(found, enabled);
+        return new Evaluation(result.score(), result.contributions(), result.findings(), growth.observations(), growth.checks());
     }
 
     /** Fixed per-check contributions, correlated-family caps, then one optional deduction. */
@@ -200,8 +216,7 @@ public final class SuspiciousAnalysis {
                 contributions.put(check, check.weight);
             }
         }
-        capped(contributions, present, 25, Check.MISSING_BUDDING_AMETHYST,
-            Check.MATURE_GEODE, Check.SPARSE_GEODE_CRYSTALS);
+        capped(contributions, present, 25, Check.MISSING_BUDDING_AMETHYST, Check.MATURE_GEODE);
         capped(contributions, present, 20, Check.SURFACE_KELP, Check.MATURE_KELP_AGE);
         if (present.contains(Check.OPEN_SHAFTS)) contributions.put(Check.OPEN_SHAFTS, -20);
         int score = Math.max(0, contributions.values().stream().mapToInt(Integer::intValue).sum());
@@ -216,7 +231,7 @@ public final class SuspiciousAnalysis {
         }
     }
     private static boolean geodeCheck(Check c) {
-        return c == Check.MATURE_GEODE || c == Check.SPARSE_GEODE_CRYSTALS || c == Check.MISSING_BUDDING_AMETHYST;
+        return c == Check.MATURE_GEODE || c == Check.MISSING_BUDDING_AMETHYST;
     }
     private static boolean kelpCheck(Check c) { return c == Check.SURFACE_KELP || c == Check.MATURE_KELP_AGE; }
 
@@ -307,7 +322,7 @@ public final class SuspiciousAnalysis {
 
     private record Sample(Pos pos, boolean first, boolean second) { }
 
-    private static void vines(Window t, List<Pos> seeds, List<Finding> out) {
+    private static void vines(Window t, List<Pos> seeds, List<Finding> out, GrowthCollector growth) {
         List<Sample> samples = new ArrayList<>();
         for (Pos p : seeds) if (t.kind(p) == VINE) {
             int below = t.kind(p.offset(0, -1, 0));
@@ -316,16 +331,18 @@ public final class SuspiciousAnalysis {
             samples.add(new Sample(p, below == STONE || below == DEEPSLATE || below == HORIZONTAL_DEEPSLATE
                 || below == BASALT || below == SMOOTH_BASALT, false));
         }
+        boolean found = false;
         for (List<Sample> group : populations(samples)) if (group.size() >= MIN_VINE_ENDINGS) {
             long grounded = group.stream().filter(Sample::first).count();
             if (grounded >= group.size() * GROUNDED_VINE_RATIO) {
-                out.add(finding(Check.GROUNDED_VINES, group.getFirst().pos()));
-                return;
+                if (!found) out.add(finding(Check.GROUNDED_VINES, group.getFirst().pos()));
+                found = true;
+                for (Sample sample : group) if (sample.first()) growth.add(Check.GROUNDED_VINES, sample.pos());
             }
         }
     }
 
-    private static void kelp(Window t, List<Pos> seeds, List<Finding> out) {
+    private static void kelp(Window t, List<Pos> seeds, List<Finding> out, GrowthCollector growth) {
         List<Sample> samples = new ArrayList<>();
         for (Pos p : seeds) if (t.kind(p) == KELP) {
             int above = t.kind(p.offset(0, 1, 0));
@@ -342,13 +359,14 @@ public final class SuspiciousAnalysis {
         }
         boolean surface = false, age = false;
         for (List<Sample> group : populations(samples)) if (group.size() >= MIN_KELP_TIPS) {
-            if (!surface && group.stream().filter(Sample::first).count() >= group.size() * SURFACE_KELP_RATIO) {
-                out.add(finding(Check.SURFACE_KELP, group.getFirst().pos())); surface = true;
+            if (group.stream().filter(Sample::first).count() >= group.size() * SURFACE_KELP_RATIO) {
+                if (!surface) out.add(finding(Check.SURFACE_KELP, group.getFirst().pos())); surface = true;
+                for (Sample sample : group) if (sample.first()) growth.add(Check.SURFACE_KELP, sample.pos());
             }
-            if (!age && group.stream().filter(Sample::second).count() >= group.size() * MATURE_KELP_RATIO) {
-                out.add(finding(Check.MATURE_KELP_AGE, group.getFirst().pos())); age = true;
+            if (group.stream().filter(Sample::second).count() >= group.size() * MATURE_KELP_RATIO) {
+                if (!age) out.add(finding(Check.MATURE_KELP_AGE, group.getFirst().pos())); age = true;
+                for (Sample sample : group) if (sample.second()) growth.add(Check.MATURE_KELP_AGE, sample.pos());
             }
-            if (surface && age) return;
         }
     }
 
@@ -372,7 +390,7 @@ public final class SuspiciousAnalysis {
         return groups;
     }
 
-    private static void geodes(Window t, List<Pos> seeds, List<Finding> out) {
+    private static void geodes(Window t, List<Pos> seeds, List<Finding> out, GrowthCollector growth) {
         Set<Pos> visited = new HashSet<>();
         int features = 0;
         for (Pos seed : seeds) {
@@ -404,7 +422,7 @@ public final class SuspiciousAnalysis {
             if (minX - 2 < t.minX || maxX + 2 >= t.maxX || minZ - 2 < t.minZ || maxZ + 2 >= t.maxZ
                     || minY - 2 < t.floorY() || maxY + 2 >= t.topY()) known = false;
             Set<Pos> calcite = new HashSet<>(), basalt = new HashSet<>(), crystals = new HashSet<>();
-            int budding = 0, growthFaces = 0, attached = 0, mature = 0, cavity = 0;
+            int budding = 0, attached = 0, mature = 0, cavity = 0;
             for (Pos p : cells) {
                 boolean bud = t.kind(p) == BUDDING;
                 if (bud) budding++;
@@ -419,7 +437,6 @@ public final class SuspiciousAnalysis {
                     }
                     boolean correctCrystal = crystal(k) && facing(encoded) == direction;
                     if (correctCrystal && crystals.add(q)) { attached++; if (k == CLUSTER) mature++; }
-                    if (bud && (k == AIR || k == WATER || correctCrystal)) growthFaces++;
                 }
             }
             // This volume is bounded by 28^3, and evaluated only for promising connected geode material.
@@ -435,19 +452,59 @@ public final class SuspiciousAnalysis {
             if (!known) continue;
             if (attached >= MIN_GEODE_CRYSTALS && mature >= attached * MATURE_GEODE_RATIO) {
                 out.add(finding(Check.MATURE_GEODE, seed));
-            }
-            int attachedToBudding = 0;
-            for (Pos p : cells) if (t.kind(p) == BUDDING) for (int direction = 0; direction < DIRECTIONS.length; direction++) {
-                int c = t.cell(offset(p, DIRECTIONS[direction]));
-                if (crystal(kind(c)) && facing(c) == direction) attachedToBudding++;
-            }
-            if (growthFaces >= MIN_GROWTH_FACES && attachedToBudding <= growthFaces * SPARSE_CRYSTAL_RATIO) {
-                out.add(finding(Check.SPARSE_GEODE_CRYSTALS, seed));
+                for (Pos crystal : crystals) if (t.kind(crystal) == CLUSTER) growth.add(Check.MATURE_GEODE, crystal);
             }
             if (cells.size() >= MIN_STRIPPED_GEODE_INNER && budding <= cells.size() * MISSING_BUDDING_RATIO) {
                 out.add(finding(Check.MISSING_BUDDING_AMETHYST, seed));
             }
         }
+    }
+
+    /**
+     * One observation per actual block even when overlapping population buckets,
+     * scoring windows, or both kelp checks recognize it. Keep the lowest stable
+     * coordinate-hash ranks so a large forest has no traversal-order/center bias.
+     */
+    private static final class GrowthCollector {
+        private final Set<Check> enabled;
+        private final TreeMap<SampleOrder, GrowthObservation> selected = new TreeMap<>();
+        private final Map<Long, Set<Check>> byChunk = new HashMap<>();
+        private GrowthCollector(Set<Check> enabled) { this.enabled = enabled; }
+        void add(Check check, Pos pos) {
+            if (!enabled.contains(check)) return;
+            // Score history keeps every qualifying reason at its actual positive
+            // sample chunk. Position sampling/kelp dedup must not erase a reason
+            // from a later bed or relocate it to the first population's seed.
+            long chunk = chunkId(Math.floorDiv(pos.x(), 16), Math.floorDiv(pos.z(), 16));
+            byChunk.computeIfAbsent(chunk, unused -> EnumSet.noneOf(Check.class)).add(check);
+            long id = featureId(pos), rank = growthSampleRank(id);
+            if (selected.size() == MAX_GROWTH_OBSERVATIONS_PER_WINDOW
+                    && Long.compareUnsigned(rank, selected.lastKey().rank()) > 0) return;
+            SampleOrder order = new SampleOrder(rank, id);
+            GrowthObservation previous = selected.get(order);
+            // Surface and age can describe the same tip. Preserve one sample
+            // and choose the same representative reason independent of order.
+            if (previous != null && previous.check().ordinal() <= check.ordinal()) return;
+            selected.put(order, new GrowthObservation(check, id, pos.x(), pos.y(), pos.z()));
+            if (selected.size() > MAX_GROWTH_OBSERVATIONS_PER_WINDOW) selected.pollLastEntry();
+        }
+        List<GrowthObservation> observations() { return List.copyOf(selected.values()); }
+        Map<Long, Set<Check>> checks() { return byChunk; }
+    }
+
+    private record SampleOrder(long rank, long id) implements Comparable<SampleOrder> {
+        @Override public int compareTo(SampleOrder other) {
+            int order = Long.compareUnsigned(rank, other.rank);
+            return order == 0 ? Long.compareUnsigned(id, other.id) : order;
+        }
+    }
+
+    /** Shared deterministic rank for bounded global deduplication; compare as unsigned. */
+    public static long growthSampleRank(long sampleId) {
+        long value = sampleId ^ 0x6a09e667f3bcc909L;
+        value = (value ^ (value >>> 30)) * 0xbf58476d1ce4e5b9L;
+        value = (value ^ (value >>> 27)) * 0x94d049bb133111ebL;
+        return value ^ (value >>> 31);
     }
 
     private static boolean soilType(int k) { return k == COARSE_DIRT || k == ROOTED_DIRT || k == PODZOL || k == MYCELIUM; }

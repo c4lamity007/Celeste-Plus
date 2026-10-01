@@ -5,6 +5,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.EnumSet;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -21,6 +22,7 @@ public final class SuspiciousChunkFinderCheck {
         rockAndSoil();
         plants();
         geodes();
+        growthObservations();
         windows();
         geometry();
         snapshots();
@@ -31,9 +33,9 @@ public final class SuspiciousChunkFinderCheck {
 
     private static void scoring() {
         run("weights apply once per window", () -> {
-            int[] expected = {30,10,10,15,15,25,15,15,35,0};
+            int[] expected = {30,10,10,15,25,15,15,35,0};
             Check[] kinds = Check.values();
-            eq(expected.length, kinds.length, "intentional ten-check contract");
+            eq(expected.length, kinds.length, "intentional nine-check contract");
             for (int i=0; i<kinds.length; i++) {
                 List<Finding> repeated = new ArrayList<>();
                 for (int n=0;n<100;n++) repeated.add(finding(kinds[i],n,n%3-1,n/3%3-1));
@@ -41,7 +43,8 @@ public final class SuspiciousChunkFinderCheck {
             }
         });
         run("geode cap 25 and kelp cap 20", () -> {
-            eq(25, scored(Check.MATURE_GEODE,Check.SPARSE_GEODE_CRYSTALS,Check.MISSING_BUDDING_AMETHYST), "geode cap");
+            eq(25, scored(Check.MATURE_GEODE,Check.MISSING_BUDDING_AMETHYST), "geode cap");
+            eq(15, scored(Check.MATURE_GEODE), "mature geode remains independent");
             eq(20, scored(Check.SURFACE_KELP,Check.MATURE_KELP_AGE), "kelp cap");
             Evaluation e=score(List.of(finding(Check.SURFACE_KELP,1,0,0),finding(Check.MATURE_KELP_AGE,1,0,0)),ALL);
             eq(15,e.contributions().get(Check.SURFACE_KELP),"surface contribution");
@@ -143,12 +146,11 @@ public final class SuspiciousChunkFinderCheck {
         run("large complete geode missing budding amethyst scores 25", () -> eq(25,evaluate(geode(0,0,CLUSTER)).score(),"missing budding"));
         run("mature crystal population scores 15", () -> eq(15,evaluate(geode(15,15,CLUSTER)).score(),"mature geode"));
         run("young crystal population does not score maturity", () -> eq(0,evaluate(geode(15,15,SMALL_BUD)).score(),"young geode"));
-        run("sparse crystals relative to exposed budding faces scores 15", () -> eq(15,evaluate(geode(25,0,CLUSTER)).score(),"sparse geode"));
-        run("only air or source water counts as an exposed growth face", () -> {
-            for(int medium:new int[]{WATER,FLOWING_WATER,WATERLOGGED_OTHER}) {
+        run("sparse crystals no longer contribute any suspicion", () -> eq(0,evaluate(geode(25,0,CLUSTER)).score(),"sparse check removed"));
+        run("sparse crystals stay unscored regardless of exposed growth medium", () -> {
+            for(int medium:new int[]{AIR,WATER,FLOWING_WATER,WATERLOGGED_OTHER}) {
                 Scene s=geode(25,0,CLUSTER);s.fill(6,30,6,10,30,10,medium);
-                boolean sparse=evaluate(s).contributions().containsKey(Check.SPARSE_GEODE_CRYSTALS);
-                check(sparse==(medium==WATER),"eligible growth medium"+medium);
+                eq(0,evaluate(s).score(),"no sparse score in medium"+medium);
             }
         });
         run("isolated amethyst without calcite and smooth basalt is ignored", () -> {
@@ -265,6 +267,119 @@ public final class SuspiciousChunkFinderCheck {
             check(!cache.first().containsKey(SuspiciousSnapshots.key(next,0)),"no new growth history after cap");
             cache.clear();eq(0,cache.size(),"live cleared");check(cache.first().isEmpty()&&!cache.historyFull()&&cache.bytes()==0,"all session state cleared");
             cache.put(chunk(0,0,cell(KELP,25,0),next+1));check(cache.first().containsKey(0L),"new session can observe again");
+        });
+    }
+
+    private static void growthObservations() {
+        run("qualified kelp observations use actual tips and deduplicate age plus surface", () -> {
+            Scene s=kelp(12,12,12,25);
+            List<GrowthObservation> observations=evaluate(s).growthObservations();
+            eq(12,observations.size(),"one sample per stalk");
+            Set<Long> unique=new HashSet<>();
+            for(GrowthObservation observation:observations) {
+                eq(KELP,kind(s.cell(observation.blockX(),observation.blockY(),observation.blockZ())),"actual tip");
+                check(observation.sampleId()==featureId(new Pos(observation.blockX(),observation.blockY(),observation.blockZ())),"stable block identity");
+                check(unique.add(observation.sampleId()),"unique physical sample");
+            }
+        });
+        run("neighbor-only growth is attributed to its actual neighbor chunk", () -> {
+            Scene s=kelp(12,12,12,25,16,16);
+            List<GrowthObservation> observations=evaluate(s).growthObservations();
+            eq(12,observations.size(),"neighbor tips retained");
+            for(GrowthObservation observation:observations) {
+                eq(1,Math.floorDiv(observation.blockX(),16),"actual chunk x");
+                eq(1,Math.floorDiv(observation.blockZ(),16),"actual chunk z");
+            }
+            Evaluation adjacent=SuspiciousAnalysis.evaluate(s,1,1,summaries(s),ALL,List.of());
+            check(observations.equals(adjacent.growthObservations()),"overlapping scoring windows preserve physical sample identities");
+        });
+        run("all qualifying separated populations emit observations", () -> {
+            Scene s=kelp(12,12,12,25,-16,-16);
+            s.cells.putAll(kelp(12,12,12,25,16,16).cells);
+            eq(24,evaluate(s).growthObservations().size(),"second local population is not lost to an early return");
+        });
+        run("each separated kelp bed retains both score kinds after positional dedup", () -> {
+            Scene s=kelp(12,12,12,25,-16,-16);
+            s.cells.putAll(kelp(12,12,12,25,16,16).cells);
+            Evaluation evaluation=evaluate(s);
+            eq(1,count(evaluation.findings(),Check.MATURE_KELP_AGE),"findings retain their original first-population score contract");
+            eq(2,evaluation.growthChecks().size(),"both actual sample chunks retained");
+            for(long chunk:new long[]{chunkId(-1,-1),chunkId(1,1)}) {
+                check(evaluation.growthChecks().get(chunk).equals(EnumSet.of(Check.SURFACE_KELP,Check.MATURE_KELP_AGE)),"both growth kinds in actual bed");
+            }
+            check(!evaluation.growthChecks().containsKey(chunkId(0,0)),"no kind assigned to evaluation center");
+            List<Finding> laterBed=new ArrayList<>();
+            for(Check kind:evaluation.growthChecks().get(chunkId(1,1))) laterBed.add(finding(kind,7,1,1));
+            eq(20,score(laterBed,ALL).score(),"second bed keeps the full kelp-family score independently");
+        });
+        run("growth kinds follow positive tips rather than an immature population seed", () -> {
+            Scene s=new Scene();s.fill(12,60,1,25,65,12,WATER);
+            for(int i=0;i<12;i++) {
+                int x=14+i%4*3,z=3+i/4*3;
+                s.set(x,62,z,KELP_PLANT);s.set(x,63,z,KELP_PLANT);
+                s.set(x,64,z,cell(KELP,i%4==0?22:25,0));
+            }
+            Evaluation evaluation=evaluate(s);
+            eq(15,evaluation.score(),"nine aged tips qualify");
+            eq(1,evaluation.growthChecks().size(),"only actual positive chunk");
+            check(evaluation.growthChecks().get(chunkId(1,0)).equals(Set.of(Check.MATURE_KELP_AGE)),"aged tips belong to neighbor chunk");
+            check(!evaluation.growthChecks().containsKey(chunkId(0,0)),"immature seed chunk is not positive evidence");
+        });
+        run("only qualified positive growth samples enter activity evidence", () -> {
+            eq(6,evaluate(vines(8,6)).growthObservations().size(),"six grounded ends only");
+            eq(0,evaluate(vines(7,7)).growthObservations().size(),"small vine sample rejected");
+            eq(0,evaluate(kelp(11,11,11,25)).growthObservations().size(),"small kelp sample rejected");
+            eq(0,evaluate(kelp(12,0,8,24)).growthObservations().size(),"low mature ratio rejected");
+            eq(15,evaluate(geode(15,15,CLUSTER)).growthObservations().size(),"actual mature crystals");
+            eq(0,evaluate(geode(0,0,CLUSTER)).growthObservations().size(),"absence is not positive growth evidence");
+            eq(0,evaluate(rotated(8,30,8)).growthObservations().size(),"replacement is not growth evidence");
+        });
+        run("activity observations respect frozen first snapshots and check toggles", () -> {
+            Scene first=kelp(12,0,0,22),current=kelp(12,12,12,25);
+            eq(0,SuspiciousAnalysis.evaluate(current,first,0,0,summaries(current),summaries(first),ALL,List.of()).growthObservations().size(),"waiting cannot add activity samples");
+            check(SuspiciousAnalysis.evaluate(current,first,0,0,summaries(current),summaries(first),ALL,List.of()).growthChecks().isEmpty(),"waiting cannot add growth kinds");
+            first=current;current=kelp(12,0,0,22);
+            eq(12,SuspiciousAnalysis.evaluate(current,first,0,0,summaries(current),summaries(first),ALL,List.of()).growthObservations().size(),"original mature observations stay frozen");
+            check(SuspiciousAnalysis.evaluate(current,first,0,0,summaries(current),summaries(first),ALL,List.of()).growthChecks()
+                .get(chunkId(0,0)).equals(EnumSet.of(Check.SURFACE_KELP,Check.MATURE_KELP_AGE)),"both original growth kinds stay frozen");
+            eq(0,SuspiciousAnalysis.evaluate(first,0,0,summaries(first),EnumSet.of(Check.MATURE_GEODE),List.of()).growthObservations().size(),"disabled kelp checks cannot seed estimator");
+            List<GrowthObservation> observations=evaluate(first).growthObservations();
+            boolean refused=false;try{observations.clear();}catch(UnsupportedOperationException expected){refused=true;}
+            check(refused,"growth evidence is immutable");
+        });
+        run("growth-kind publication deeply copies immutable bounded chunk sets", () -> {
+            EnumSet<Check> sourceSet=EnumSet.of(Check.SURFACE_KELP);
+            Map<Long,Set<Check>> sourceMap=new HashMap<>();sourceMap.put(chunkId(0,0),sourceSet);
+            Evaluation result=new Evaluation(0,Map.of(),List.of(),List.of(),sourceMap);
+            sourceSet.add(Check.MATURE_KELP_AGE);sourceMap.clear();
+            check(result.growthChecks().get(chunkId(0,0)).equals(Set.of(Check.SURFACE_KELP)),"deep copy protects source changes");
+            boolean refused=false;try{result.growthChecks().clear();}catch(UnsupportedOperationException expected){refused=true;}
+            check(refused,"chunk map immutable");
+            refused=false;try{result.growthChecks().get(chunkId(0,0)).clear();}catch(UnsupportedOperationException expected){refused=true;}
+            check(refused,"chunk check set immutable");
+            check(new Evaluation(0,Map.of(),List.of()).growthChecks().isEmpty(),"three-argument compatibility");
+            check(new Evaluation(0,Map.of(),List.of(),List.of()).growthChecks().isEmpty(),"four-argument compatibility");
+        });
+        run("large growth populations have a deterministic bounded sample", () -> {
+            Scene s=new Scene();s.fill(-15,30,-15,30,33,30,WATER);
+            for(int x=-14;x<=29;x++)for(int z=-14;z<=29;z++) {
+                s.set(x,30,z,KELP_PLANT);s.set(x,31,z,KELP_PLANT);
+                s.set(x,32,z,cell(KELP,25,0));s.set(x,33,z,AIR);
+            }
+            Evaluation first=evaluate(s),second=evaluate(s);
+            eq(MAX_GROWTH_OBSERVATIONS_PER_WINDOW,first.growthObservations().size(),"sample cap");
+            eq(9,first.growthChecks().size(),"every actual chunk survives the positional sample cap");
+            for(Set<Check> kinds:first.growthChecks().values()) {
+                check(kinds.equals(EnumSet.of(Check.SURFACE_KELP,Check.MATURE_KELP_AGE)),"capped sample preserves both kinds");
+                check(kinds.size()<=4,"growth-kind bound");
+            }
+            check(first.growthObservations().equals(second.growthObservations()),"repeat sample stability");
+            long previous=0;boolean started=false;
+            for(GrowthObservation observation:first.growthObservations()) {
+                long rank=growthSampleRank(observation.sampleId());
+                check(!started||Long.compareUnsigned(previous,rank)<=0,"coordinate-hash ordering");
+                previous=rank;started=true;
+            }
         });
     }
 
@@ -445,8 +560,11 @@ public final class SuspiciousChunkFinderCheck {
         return s;
     }
     private static Scene kelp(int count,int exposed,int mature,int matureAge) {
-        Scene s=new Scene();s.fill(1,60,1,15,65,15,WATER);
-        for(int i=0;i<count;i++) {int x=3+(i%4)*3,z=3+(i/4)*3;
+        return kelp(count,exposed,mature,matureAge,0,0);
+    }
+    private static Scene kelp(int count,int exposed,int mature,int matureAge,int offsetX,int offsetZ) {
+        Scene s=new Scene();s.fill(offsetX+1,60,offsetZ+1,offsetX+15,65,offsetZ+15,WATER);
+        for(int i=0;i<count;i++) {int x=offsetX+3+(i%4)*3,z=offsetZ+3+(i/4)*3;
             s.set(x,62,z,KELP_PLANT);s.set(x,63,z,KELP_PLANT);s.set(x,64,z,cell(KELP,i<mature?matureAge:22,0));
             s.set(x,65,z,i<exposed?AIR:WATER);
         }

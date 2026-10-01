@@ -1,16 +1,18 @@
 # Suspicious Chunk Finder
 
-This Celeste+ visual module scores the center chunk and its eight neighbors. Neighbor-only evidence can flag the center. Each qualifying center gets one flat, translucent red 16×16 surface marker. `Show reasons` displays the nearest flagged chunk and its actual capped contributions.
+This Celeste+ visual module analyzes local 3×3 windows for evidence, then estimates a possible activity location from actual growth positions. Only estimated chunks meeting `Flag score` receive flat, translucent red 16×16 surface markers. The old red evidence-window markers are removed. Suspected buried-path blocks retain amber Block ESP outlines. `Show reasons` displays the nearest estimate's score, contributing evidence and estimation status.
 
 ## Server setup
 
-The target server reportedly ticks a 3×3 column neighborhood above underground players. This is a server-specific assumption, not a vanilla rule. The user selected **Y=0 provisionally**; `Advanced → Scan floor Y` can change it. The scanner reads every available block height from that floor through the dimension's top. Below-floor and unloaded cells are unknown. If the server substitutes believable blocks above the chosen floor, a client cannot reliably distinguish those substitutions from real terrain; the cutoff must match that server.
+The user clarified that there is no plugin changing the ticking footprint. The **3×3 analysis window finds local features**, not an assertion that vanilla ticks exactly nine chunks. Its center is never used as an estimated activity position. The user selected **Y=0 provisionally**; `Advanced → Scan floor Y` can change it. The scanner reads every available block height from that floor through the dimension's top. Below-floor and unloaded cells are unknown. If the server substitutes believable blocks above the chosen floor, a client cannot reliably distinguish those substitutions from real terrain; the cutoff must match that server.
 
-The active capture area is the nearest **11×11 loaded chunks** at most, limited by view distance and memory. Every candidate still uses exactly its own 3×3 window; at the active boundary, missing neighbors stay unknown. The area follows the player. No chunks are requested or force-loaded.
+Vanilla random ticking is not a guaranteed circle around a player. Mojang changed it to operate inside simulation distance or in chunks loaded by other chunk-loading sources, such as ender pearls, in [25w06a](https://www.minecraft.net/en-us/article/minecraft-snapshot-25w06a). The configurable radius below is therefore an approximate activity model, not an inferred server setting or proof of a base.
+
+The active capture area is the nearest **11×11 loaded chunks** at most, limited by view distance and memory. Local feature analysis uses 3×3 windows; at the active boundary, missing neighbors stay unknown. Compact first-observation growth evidence can remain across flyovers. No chunks are requested or force-loaded.
 
 ## Settings and scores
 
-The module starts disabled. `Flag score` defaults to **35**, ranges from **5 to 130**, and changes in steps of five. All ten check toggles start enabled. `Show reasons` and `Advanced` start off. Weights and sampling rules are internal.
+The module starts disabled. `Flag score` defaults to **35**, ranges from **5 to 130**, and changes in steps of five. All nine check toggles start enabled. `Path blocks` and `Activity estimate` start enabled. `Evidence chunks` is removed; its old saved value has no effect. `Tick radius` defaults to **7 chunks**, ranges from 2–12, and is shown with activity estimation enabled. `Show reasons` and `Advanced` start off. Weights and sampling rules are internal.
 
 | Check | Weight | Initial qualifying criteria |
 | --- | ---: | --- |
@@ -18,14 +20,31 @@ The module starts disabled. `Flag score` defaults to **35**, ranges from **5 to 
 | Mismatched soil | +10 | Connected 2–12 dirt blocks, at most 4×3×4, compact fill of at least 75%; near surface; at least eight surrounding soil samples with 80% suitable and 80% consistent soil. |
 | Grounded vines | +10 | At least eight independent bottommost endings; at least 75% finish immediately above accepted natural stone. |
 | Mature geode | +15 | Recognized, fully observed geode and at least 12 correctly attached crystals; at least 80% mature clusters. |
-| Sparse crystals | +15 | Recognized geode, at least 20 eligible budding faces, at most 15% occupied by correctly attached crystals. Air and full source-water cells qualify; flowing water does not. |
 | Missing budding | +25 | Recognized geode with at least 64 inner amethyst/budding blocks; budding fraction at most 2%. |
 | Surface kelp | +15 | At least 12 independent tips in a local bed, at least 80% with air above; sufficient submerged stalk and wet surroundings. |
 | Mature kelp | +15 | Same population requirements; at least 75% tips age 24–25. |
 | Buried paths | +35 | At least six connected anomalous filler blocks spanning five blocks, narrow shaft/tunnel/stair geometry and natural-rock context; fluid/structure exclusions. |
-| Open shafts | −20 | Surface-open narrow, face-connected route; at least 24 blocks deep, within eight blocks of the floor, at least 80% of surface-to-floor depth and 80% narrow levels. Sideways bends and short landings allowed. |
+| Open shafts | −20 | Qualifying deep, open route within **three chunks of the estimated location**. Surface-open narrow, face-connected route; at least 24 blocks deep, within eight blocks of the floor, at least 80% of surface-to-floor depth and 80% narrow levels. Sideways bends and short landings allowed. |
 
-Each check contributes once per 3×3 evaluation. The three geode checks share a **25-point cap**; the two kelp checks share a **20-point cap**. Positive maximum is **130**. Apply at most one shaft deduction, then clamp the result to zero. A score **equal to the threshold qualifies**. These are uncalibrated suspicion scores, not percentage probabilities.
+For each estimated candidate, positive checks use their actual feature chunks within the configured `Tick radius`. Each check contributes once. The two geode checks share a **25-point cap**; the two kelp checks share a **20-point cap**. Positive maximum is **130**. Open shafts use a fixed, inclusive three-chunk Euclidean distance from that candidate: `dx² + dz² <= 9`. For example, offsets (3,0) and (2,2) qualify, while (3,1) does not. This distance never references the old evidence-window center. Apply at most one 20-point deduction, then clamp the result to zero. A score **equal to the threshold qualifies** for a red estimate marker. Without an established estimate, no shaft is flagged or deducted in the displayed score. These are uncalibrated suspicion scores, not percentage probabilities. Sparse crystals is removed from both detection and settings; old saved values have no effect.
+
+## Buried-path outlines
+
+`Path blocks` highlights only actual anomalous filler cells belonging to a completed, qualifying buried route. Seeds, failed routes and exhausted traversals do not receive boxes. The same route found by overlapping windows is deduplicated. Outlines use the shared Block ESP `WorldBox` pipeline and current block outline shapes, and do not require Block ESP itself to be enabled. They remain available even when the overall chunk score is below the flag threshold.
+
+Results retain all nine source revisions. Updates discard affected geometry, and rendering checks the current block classification so removed/replaced filler does not leave stale boxes. Publication retains at most 2,048 unique blocks, inspects at most 8,192 source entries, and rendering examines at most 1,024 candidates and emits 512 boxes per frame. The detector retains its first qualifying route per analysis window.
+
+## Possible activity area
+
+The estimator uses actual positive growth sample positions from qualified first-observation populations: grounded vine endings, surface/aged kelp tips and fully mature attached geode crystals. It never treats the center of a flagged 3×3 window as the evidence location. Population minimums and ratios still apply. Missing budding and repaired blocks are not growth-position constraints.
+
+Overlapping analyses deduplicate the same physical samples. A deterministic actual sample represents each evidence chunk, so a dense kelp forest does not receive a separate vote per plant. At most 512 compact evidence-chunk summaries are retained for the scan session, including across terrain unloads; hitting the bound makes estimation inconclusive instead of silently discarding contradictory evidence. Changing checks or beginning a new session clears this estimator history.
+
+For the local area within twice the configured radius of the player, the worker finds chunks that could contain an activity center within that radius of all retained positive samples. Whole candidate chunk footprints are considered, including edge/corner uncertainty. Unknown terrain and chunks without suitable plants are never negative evidence. Distant regions are not fitted together as one activity center.
+
+Only a sufficiently spread-out sample that constrains the result to at most four adjacent chunks can receive red estimate markers. Each candidate must also meet `Flag score`, have an available captured surface height and be currently loaded. A small sample, broad compatible area, contradictory footprint or exhausted work budget receives no precise marker. It does not choose the best-looking four out of a much larger uncertainty area. `Show reasons` explains inconclusive cases and below-threshold estimates, including any qualifying nearby shaft deduction.
+
+This is a possible earlier activity area, not triangulation from known distance measurements. Multiple players, chunk loaders, player movement, biome distribution, natural maturity and previous visits can all distort the footprint. The server simulation distance and random-tick settings are not discovered automatically.
 
 Plant population windows overlap to avoid arbitrary chunk-edge splits. Each covers up to 24×48×24 blocks within the evaluated neighborhood. Kelp tips need two plant segments below and at least two wet horizontal neighbors; short shallow stalks are excluded. Accepted natural-rock context includes stone, granite, andesite, diorite, tuff and deepslate, with basalt/smooth basalt distinguished for geodes.
 

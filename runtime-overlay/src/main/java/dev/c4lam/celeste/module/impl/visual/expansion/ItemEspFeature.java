@@ -6,6 +6,7 @@ import net.fabricmc.fabric.api.client.rendering.v1.world.WorldExtractionContext;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.client.render.entity.state.ItemEntityRenderState;
+import net.minecraft.client.world.ClientWorld;
 import net.minecraft.entity.ItemEntity;
 import net.minecraft.util.Util;
 import net.minecraft.util.math.Box;
@@ -16,11 +17,14 @@ import net.minecraft.util.math.Vec3d;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.PriorityQueue;
 
 /** Box ESP plus a vanilla model-silhouette highlight; never mutates entity/team state. */
 public final class ItemEspFeature implements ModuleFeature {
     private static final int MAX_ITEMS = 96;
-    private static final int MAX_ENTITY_VISITS = 1_024;
+    private static final Comparator<Target> NEAREST = Comparator.comparingDouble(Target::distanceSquared)
+        .thenComparingInt(Target::id);
+    private static final Selection EMPTY = new Selection(null, List.of());
     private static volatile ItemEspFeature active;
 
     private volatile boolean enabled;
@@ -29,12 +33,14 @@ public final class ItemEspFeature implements ModuleFeature {
     private volatile int customColor = 0xF09BD0;
     private volatile double range = 64.0D;
     private volatile double opacity = 0.76D;
+    private volatile Selection selection = EMPTY;
 
     @Override public String name() { return "Item ESP"; }
 
     @Override
     public void onEnable(ModuleContext context) {
         update(context);
+        selection = EMPTY;
         enabled = true;
         active = this;
     }
@@ -44,19 +50,66 @@ public final class ItemEspFeature implements ModuleFeature {
         update(context);
         enabled = true;
         active = this;
+        selectLoadedItems(context.client());
     }
 
     @Override
     public void onDisable(ModuleContext context) {
         enabled = false;
+        selection = EMPTY;
         if (active == this) active = null;
     }
 
     @Override
     public void onWorldChanged(ModuleContext context) {
         enabled = false;
+        selection = EMPTY;
         if (active == this) active = null;
     }
+
+    /** Query Minecraft's existing typed spatial index once per game tick, never per frame. */
+    private void selectLoadedItems(MinecraftClient client) {
+        ClientPlayerEntity self = client.player;
+        ClientWorld world = client.world;
+        if (!client.isOnThread() || !style.showsBox() || self == null || world == null
+            || self.getEntityWorld() != world) {
+            selection = EMPTY;
+            return;
+        }
+        double radius = range, radiusSquared = radius * radius;
+        Vec3d origin = self.getEntityPos();
+        Box search = new Box(origin.x - radius, origin.y - radius, origin.z - radius,
+            origin.x + radius, origin.y + radius, origin.z + radius);
+        List<ItemEntity> loaded = world.getEntitiesByClass(ItemEntity.class, search,
+            item -> eligible(item, world) && origin.squaredDistanceTo(item.getEntityPos()) <= radiusSquared);
+        // Keep the existing render cap while selecting the actual nearest items regardless
+        // of entity-index iteration order. No sorting of the entire loaded-item population.
+        PriorityQueue<Target> nearest = new PriorityQueue<>(MAX_ITEMS, NEAREST.reversed());
+        for (ItemEntity item : loaded) {
+            double distanceSquared = origin.squaredDistanceTo(item.getEntityPos());
+            int id = item.getId();
+            if (nearest.size() == MAX_ITEMS) {
+                Target furthest = nearest.peek();
+                int order = Double.compare(distanceSquared, furthest.distanceSquared);
+                if (order > 0 || order == 0 && id >= furthest.id) continue;
+                nearest.poll();
+            }
+            nearest.add(new Target(item, distanceSquared, id));
+        }
+        List<Target> ordered = new ArrayList<>(nearest);
+        ordered.sort(NEAREST);
+        List<ItemEntity> items = new ArrayList<>(ordered.size());
+        for (Target target : ordered) items.add(target.item);
+        selection = new Selection(world, List.copyOf(items));
+    }
+
+    private static boolean eligible(ItemEntity item, ClientWorld world) {
+        return item != null && item.getEntityWorld() == world && item.isAlive() && !item.isRemoved()
+            && !item.getStack().isEmpty();
+    }
+
+    private record Target(ItemEntity item, double distanceSquared, int id) { }
+    private record Selection(ClientWorld world, List<ItemEntity> items) { }
 
     void extract(WorldExtractionContext context, List<VisualExpansionRenderer.WorldBox> output,
                  List<VisualExpansionRenderer.WorldLineStrip> lines) {
@@ -72,27 +125,15 @@ public final class ItemEspFeature implements ModuleFeature {
                  List<VisualExpansionRenderer.WorldLineStrip> lines, List<WorldGlowRenderer.Quad> glows,
                  int quadLimit) {
         ClientPlayerEntity self = MinecraftClient.getInstance().player;
-        if (!enabled || !style.showsBox() || self == null || self.getEntityWorld() != context.world()) return;
+        Selection selected = selection;
+        if (!enabled || !style.showsBox() || self == null || self.getEntityWorld() != context.world()
+            || selected.world != context.world()) return;
 
-        double rangeSquared = range * range;
         float tickProgress = context.tickCounter().getTickProgress(false);
         Vec3d viewer = self.getLerpedPos(tickProgress);
         double time = Util.getMeasuringTimeMs() / 1000.0D;
-        int visits = 0;
-        List<ItemEntity> candidates = new ArrayList<>();
-        for (var entity : context.world().getEntities()) {
-            if (visits++ >= MAX_ENTITY_VISITS) break;
-            if (entity instanceof ItemEntity item && item.isAlive() && !item.isRemoved()
-                && !item.getStack().isEmpty() && self.squaredDistanceTo(item) <= rangeSquared) {
-                candidates.add(item);
-            }
-        }
-        candidates.sort(Comparator.comparingDouble((ItemEntity item) -> self.squaredDistanceTo(item))
-            .thenComparingInt(ItemEntity::getId));
-
-        int count = 0;
-        for (ItemEntity item : candidates) {
-            if (count++ >= MAX_ITEMS) break;
+        for (ItemEntity item : selected.items) {
+            if (!eligible(item, selected.world)) continue;
             Vec3d interpolated = item.getLerpedPos(tickProgress);
             double distance = Math.sqrt(viewer.squaredDistanceTo(interpolated));
             double fade = MathHelper.clamp((range - distance) / Math.max(3.0D, range * .15D), 0.0D, 1.0D);
@@ -100,6 +141,7 @@ public final class ItemEspFeature implements ModuleFeature {
             float alpha = (float) MathHelper.clamp(opacity * fade, 0.0D, 1.0D);
             if (alpha <= .003F) continue;
             Box bounds = item.getBoundingBox().offset(interpolated.subtract(item.getEntityPos())).expand(.045D);
+            if (context.frustum() != null && !context.frustum().isVisible(bounds)) continue;
             double seed = Math.floorMod(item.getId(), 61) / 61.0D;
             int color = VisualEffects.color(theme, customColor, time, seed * .2D);
             output.add(new VisualExpansionRenderer.WorldBox(bounds,

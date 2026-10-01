@@ -46,8 +46,11 @@ public final class BlockEspSettings {
         settings.add(selection);
         settings.add(new GuiSetting.Action("Choose blocks", "Search and choose more than one block",
             () -> BlockPickerScreen.open(name, selection, storage)));
-        settings.add(new GuiSetting.Slider("Range", "How far to search in loaded chunks",
-            BlockEspScan.DEFAULT_RADIUS, BlockEspScan.MIN_RADIUS, BlockEspScan.MAX_RADIUS, 4));
+        var loaded = new GuiSetting.Toggle("Loaded chunks", "Show matches throughout loaded terrain", true);
+        settings.add(loaded);
+        settings.add(new GuiSetting.Slider("Range", "Limit highlight distance",
+            BlockEspScan.DEFAULT_RADIUS, BlockEspScan.MIN_RADIUS, BlockEspScan.MAX_RADIUS, 4)
+            .visibleWhen(() -> !loaded.value()));
         settings.add(new GuiSetting.ColorPick("Color", "Highlight color", storage ? 0xFFBD68 : 0x74DFFF));
         settings.add(new GuiSetting.Slider("Opacity", "Outline opacity", 0.85, 0.1, 1, .05));
         settings.add(new GuiSetting.Slider("Fill opacity", "Block fill opacity", .08, 0, .3, .01));
