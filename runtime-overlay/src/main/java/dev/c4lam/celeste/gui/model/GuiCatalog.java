@@ -275,6 +275,7 @@ public final class GuiCatalog {
             slider("Opacity", "Text visibility", .9, .1, 1, .05)),
         dev.c4lam.celeste.module.impl.visual.BlockEspSettings.storage(),
         dev.c4lam.celeste.module.impl.visual.BlockEspSettings.blocks(),
+        dev.c4lam.celeste.module.impl.visual.SuspiciousChunkFinderFeature.settings(),
         new GuiModule("Block Highlight", "Highlight the block you're looking at", CelestePage.VISUALS, false,
             colorPick("Color", "Highlight color", 116, 223, 255),
             slider("Opacity", "Unified block fill visibility", .35, .05, 1, .05)),

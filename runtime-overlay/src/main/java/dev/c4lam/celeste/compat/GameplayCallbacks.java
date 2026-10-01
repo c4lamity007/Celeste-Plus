@@ -18,9 +18,15 @@ public final class GameplayCallbacks {
     }
     public static void block(BlockUpdateS2CPacket packet) {
         AuraServerState.observeBlock(MinecraftClient.getInstance().world, packet.getPos(), packet.getState());
+        dev.c4lam.celeste.module.impl.visual.SuspiciousChunkFinderFeature.blockChanged(
+            MinecraftClient.getInstance().world, packet.getPos());
     }
     public static void blocks(ChunkDeltaUpdateS2CPacket packet) {
-        packet.visitUpdates((pos, state) -> AuraServerState.observeBlock(MinecraftClient.getInstance().world, pos, state));
+        packet.visitUpdates((pos, state) -> {
+            AuraServerState.observeBlock(MinecraftClient.getInstance().world, pos, state);
+            dev.c4lam.celeste.module.impl.visual.SuspiciousChunkFinderFeature.blockChanged(
+                MinecraftClient.getInstance().world, pos);
+        });
     }
     public static void spawn(EntitySpawnS2CPacket packet) {
         AuraServerState.observeEntity(MinecraftClient.getInstance().world, packet.getEntityId(), true);

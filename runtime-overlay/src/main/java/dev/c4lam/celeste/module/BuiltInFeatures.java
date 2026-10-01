@@ -87,7 +87,10 @@ public final class BuiltInFeatures {
         var blockEsp = new dev.c4lam.celeste.module.impl.visual.BlockEspFeature();
         modules.register(storageEsp);
         modules.register(blockEsp);
-        VisualWorldRenderer.initialize(entityEsp, holeEsp, storageEsp, blockEsp);
+        var suspicious = new dev.c4lam.celeste.module.impl.visual.SuspiciousChunkFinderFeature();
+        modules.register(suspicious);
+        suspicious.initialize();
+        VisualWorldRenderer.initialize(entityEsp, holeEsp, storageEsp, blockEsp, suspicious);
 
         ExpansionFeatures.register(modules);
         VisualExpansion.register(modules);

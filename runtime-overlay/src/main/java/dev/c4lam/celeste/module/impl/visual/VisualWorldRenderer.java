@@ -61,7 +61,8 @@ public final class VisualWorldRenderer {
     }
 
     public static synchronized void initialize(EntityEspFeature entities, HoleEspFeature holes,
-                                               StorageEspFeature storageEsp, BlockEspFeature blockEsp) {
+                                               StorageEspFeature storageEsp, BlockEspFeature blockEsp,
+                                               SuspiciousChunkFinderFeature suspicious) {
         if (initialized) {
             return;
         }
@@ -85,6 +86,7 @@ public final class VisualWorldRenderer {
             holes.extract(context, boxes, glows);
             storageEsp.extract(context, boxes);
             blockEsp.extract(context, boxes);
+            suspicious.extract(context, boxes);
             worldState.setData(FRAME_KEY, boxes.isEmpty() && glows.isEmpty() && chams.isEmpty() ? Frame.EMPTY
                 : new Frame(List.copyOf(boxes), List.copyOf(glows), new PlayerEchoRenderer.Frame(chams)));
         }, WorldRenderEvents.END_EXTRACTION::register);
