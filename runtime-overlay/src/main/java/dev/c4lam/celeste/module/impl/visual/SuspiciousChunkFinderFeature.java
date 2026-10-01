@@ -78,9 +78,11 @@ public final class SuspiciousChunkFinderFeature implements ModuleFeature {
 
     public static GuiModule settings() {
         List<GuiSetting> settings = new ArrayList<>();
-        settings.add(new GuiSetting.Slider("Flag score", "Higher scores need more evidence", 35, 5, 130, 5));
+        settings.add(new GuiSetting.Slider("Flag score", "Higher scores need more evidence", 35, 5, 170, 5));
         for (String label : LABELS) settings.add(new GuiSetting.Toggle(label,
-            label.equals("Open shafts") ? "Subtract 20 for a deep shaft within 3 chunks of an estimate" : "Include this evidence", true));
+            label.equals("Open shafts") ? "Subtract 20 for a deep shaft within 3 chunks of an estimate"
+                : label.equals("Missing budding") ? "Add 65 for missing budding or stripped amethyst in a complete geode"
+                : "Include this evidence", true));
         settings.add(new GuiSetting.Toggle("Path blocks", "Outline the blocks in suspected buried paths", true));
         var activity = new GuiSetting.Toggle("Activity estimate", "Show possible activity locations from growth patterns", true);
         settings.add(activity);
@@ -189,7 +191,7 @@ public final class SuspiciousChunkFinderFeature implements ModuleFeature {
             session = server + "/" + world.getRegistryKey().getValue();
         }
         enabled = true; active = this; tick++;
-        threshold = (int) finite(context.slider("Flag score", 35), 35, 5, 130);
+        threshold = (int) finite(context.slider("Flag score", 35), 35, 5, 170);
         showReasons = context.toggle("Show reasons", false);
         showPaths = context.toggle("Path blocks", true);
         boolean nextShowActivity = context.toggle("Activity estimate", true);
@@ -647,7 +649,8 @@ public final class SuspiciousChunkFinderFeature implements ModuleFeature {
             if (!nearest.evaluation.qualifies(threshold)) lines.add("Below flag score " + threshold);
             for (Check check : Check.values()) {
                 int amount = nearest.evaluation.contributions().getOrDefault(check, 0);
-                if (amount != 0) lines.add((check == Check.OPEN_SHAFTS ? "Open shaft" : LABELS[check.ordinal()])
+                if (amount != 0) lines.add((check == Check.OPEN_SHAFTS ? "Open shaft"
+                    : check == Check.MISSING_BUDDING_AMETHYST ? "Missing amethyst/budding" : LABELS[check.ordinal()])
                     + ": " + (amount > 0 ? "+" : "") + amount);
             }
         }

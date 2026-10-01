@@ -12,7 +12,7 @@ The active capture area is the nearest **11×11 loaded chunks** at most, limited
 
 ## Settings and scores
 
-The module starts disabled. `Flag score` defaults to **35**, ranges from **5 to 130**, and changes in steps of five. All nine check toggles start enabled. `Path blocks` and `Activity estimate` start enabled. `Evidence chunks` is removed; its old saved value has no effect. `Tick radius` defaults to **7 chunks**, ranges from 2–12, and is shown with activity estimation enabled. `Show reasons` and `Advanced` start off. Weights and sampling rules are internal.
+The module starts disabled. `Flag score` defaults to **35**, ranges from **5 to 170**, and changes in steps of five. All nine check toggles start enabled. `Path blocks` and `Activity estimate` start enabled. `Evidence chunks` is removed; its old saved value has no effect. `Tick radius` defaults to **7 chunks**, ranges from 2–12, and is shown with activity estimation enabled. `Show reasons` and `Advanced` start off. Weights and sampling rules are internal. The saved `Missing budding` toggle also controls fully stripped amethyst; its existing key is preserved so saved exclusions remain effective. `Show reasons` labels this contribution `Missing amethyst/budding`.
 
 | Check | Weight | Initial qualifying criteria |
 | --- | ---: | --- |
@@ -20,13 +20,13 @@ The module starts disabled. `Flag score` defaults to **35**, ranges from **5 to 
 | Mismatched soil | +10 | Connected 2–12 dirt blocks, at most 4×3×4, compact fill of at least 75%; near surface; at least eight surrounding soil samples with 80% suitable and 80% consistent soil. |
 | Grounded vines | +10 | At least eight independent bottommost endings; at least 75% finish immediately above accepted natural stone. |
 | Mature geode | +15 | Recognized, fully observed geode and at least 12 correctly attached crystals; at least 80% mature clusters. |
-| Missing budding | +25 | Recognized geode with at least 64 inner amethyst/budding blocks; budding fraction at most 2%. |
+| Missing budding / amethyst | +65 | Recognized geode with at least 64 inner amethyst/budding blocks and budding fraction at most 2%, or a sufficiently complete hollow calcite/smooth-basalt shell with all amethyst and budding blocks removed. Both conditions are one check and contribute once. |
 | Surface kelp | +15 | At least 12 independent tips in a local bed, at least 80% with air above; sufficient submerged stalk and wet surroundings. |
 | Mature kelp | +15 | Same population requirements; at least 75% tips age 24–25. |
 | Buried paths | +35 | At least six connected anomalous filler blocks spanning five blocks, narrow shaft/tunnel/stair geometry and natural-rock context; fluid/structure exclusions. |
 | Open shafts | −20 | Qualifying deep, open route within **three chunks of the estimated location**. Surface-open narrow, face-connected route; at least 24 blocks deep, within eight blocks of the floor, at least 80% of surface-to-floor depth and 80% narrow levels. Sideways bends and short landings allowed. |
 
-For each estimated candidate, positive checks use their actual feature chunks within the configured `Tick radius`. Each check contributes once. The two geode checks share a **25-point cap**; the two kelp checks share a **20-point cap**. Positive maximum is **130**. Open shafts use a fixed, inclusive three-chunk Euclidean distance from that candidate: `dx² + dz² <= 9`. For example, offsets (3,0) and (2,2) qualify, while (3,1) does not. This distance never references the old evidence-window center. Apply at most one 20-point deduction, then clamp the result to zero. A score **equal to the threshold qualifies** for a red estimate marker. Without an established estimate, no shaft is flagged or deducted in the displayed score. These are uncalibrated suspicion scores, not percentage probabilities. Sparse crystals is removed from both detection and settings; old saved values have no effect.
+For each estimated candidate, positive checks use their actual feature chunks within the configured `Tick radius`. Each check contributes once. The two geode checks share a **65-point cap**; the two kelp checks share a **20-point cap**. Positive maximum is **170**. Open shafts use a fixed, inclusive three-chunk Euclidean distance from that candidate: `dx² + dz² <= 9`. For example, offsets (3,0) and (2,2) qualify, while (3,1) does not. This distance never references the old evidence-window center. Apply at most one 20-point deduction, then clamp the result to zero. A score **equal to the threshold qualifies** for a red estimate marker. Without an established estimate, no shaft is flagged or deducted in the displayed score. These are uncalibrated suspicion scores, not percentage probabilities. Sparse crystals is removed from both detection and settings; old saved values have no effect.
 
 ## Buried-path outlines
 
@@ -36,7 +36,7 @@ Results retain all nine source revisions. Updates discard affected geometry, and
 
 ## Possible activity area
 
-The estimator uses actual positive growth sample positions from qualified first-observation populations: grounded vine endings, surface/aged kelp tips and fully mature attached geode crystals. It never treats the center of a flagged 3×3 window as the evidence location. Population minimums and ratios still apply. Missing budding and repaired blocks are not growth-position constraints.
+The estimator uses actual positive growth sample positions from qualified first-observation populations: grounded vine endings, surface/aged kelp tips and fully mature attached geode crystals. It never treats the center of a flagged 3×3 window as the evidence location. Population minimums and ratios still apply. Missing budding, fully stripped geodes and repaired blocks are not growth-position constraints. Their evidence strengthens an existing activity estimate; it does not create a fabricated growth observation. A stripped geode alone does not create an estimate without qualifying growth evidence.
 
 Overlapping analyses deduplicate the same physical samples. A deterministic actual sample represents each evidence chunk, so a dense kelp forest does not receive a separate vote per plant. Compact evidence summaries are retained within twice the configured radius plus a two-chunk movement margin, including across terrain unloads. This is at most 2,809 chunks at radius 12. Summaries outside that region cannot affect the current local fit and are discarded; a long flight no longer permanently disables estimates after 512 observations. Every chunk inside the actual fitting region remains eligible (at most 2,401 at radius 12). Changing checks or beginning a new session clears this estimator history. Returning to an evicted first-observation snapshot still does not establish a newer growth baseline.
 
@@ -53,6 +53,11 @@ This is a possible earlier activity area, not triangulation from known distance 
 Plant population windows overlap to avoid arbitrary chunk-edge splits. Each covers up to 24×48×24 blocks within the evaluated neighborhood. Kelp tips need two plant segments below and at least two wet horizontal neighbors; short shallow stalks are excluded. Accepted natural-rock context includes stone, granite, andesite, diorite, tuff and deepslate, with basalt/smooth basalt distinguished for geodes.
 
 Geode recognition requires at least 32 inner blocks, 12 calcite blocks, eight smooth-basalt blocks, eight cavity cells and extents of 4–24 blocks on each axis. The complete bounding volume plus a two-block margin must be known; clipped geodes are excluded. Bud attachment direction is checked against its supporting budding block. Ordinary stone/dirt texture orientation is not a stored rotation and is never used.
+
+The fully stripped-shell fallback does not need surviving amethyst. It requires at least 64 connected calcite blocks, 32 distinct smooth-basalt backing blocks, and 64 air/water cavity cells. Shell extents must be 6-24 blocks on every axis, with the longest axis no more than twice the shortest. At least 90% of the sampled cavity must be face-connected; calcite must enclose at least 85% of that cavity's boundary. There must be at least 48 ordered cavity -> calcite -> smooth-basalt contacts, including four in each of the six directions. This permits a small known entrance or crack while rejecting open layers and solid mineral deposits.
+
+The entire shell bounding volume plus a two-block margin must be known and contain no remaining amethyst or budding-amethyst blocks and no recognized structure markers. Partially stripped interiors are not inferred by this fallback. Regular basalt does not substitute for smooth basalt. Calcite traversal and cavity storage each have a 4,096-cell limit; the old inner-layer pass and the shell pass share the 16-feature attempt limit. Exceeding any bound leaves the feature inconclusive. Shell seeds are limited to one promising calcite position per 4x4x4 area, with chunk-border candidates retained so later neighbor data can complete recognition. Both missing-material cases use the same first-observation baseline and one +65 contribution.
+
 
 ## History and lifecycle
 

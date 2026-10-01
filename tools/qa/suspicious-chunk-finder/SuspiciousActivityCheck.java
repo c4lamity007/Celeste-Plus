@@ -190,13 +190,13 @@ public final class SuspiciousActivityCheck {
             List<Finding> evidence = new ArrayList<>();
             for (Check check : Check.values()) for (int i = 0; i < 4; i++) evidence.add(new Finding(check, i, i % 2, 0));
             Evaluation evaluation = scored(fitted(0, 0, 7), evidence, allChecks());
-            check(evaluation.score() == 110 && evaluation.contributions().get(Check.OPEN_SHAFTS) == -20);
+            check(evaluation.score() == 150 && evaluation.contributions().get(Check.OPEN_SHAFTS) == -20);
             check(evaluation.contributions().getOrDefault(Check.MISSING_BUDDING_AMETHYST, 0)
-                + evaluation.contributions().getOrDefault(Check.MATURE_GEODE, 0) == 25);
+                + evaluation.contributions().getOrDefault(Check.MATURE_GEODE, 0) == 65);
             check(evaluation.contributions().getOrDefault(Check.SURFACE_KELP, 0)
                 + evaluation.contributions().getOrDefault(Check.MATURE_KELP_AGE, 0) == 20);
             EnumSet<Check> enabled = allChecks(); enabled.remove(Check.OPEN_SHAFTS);
-            check(scored(fitted(0, 0, 7), evidence, enabled).score() == 130);
+            check(scored(fitted(0, 0, 7), evidence, enabled).score() == 170);
             check(scored(fitted(0, 0, 7), evidence, Set.of(Check.OPEN_SHAFTS)).score() == 0);
             Evaluation boundary = scored(fitted(0, 0, 7), List.of(finding(Check.BURIED_ACCESS_PATH, 0, 0)), allChecks());
             check(boundary.qualifies(35) && !boundary.qualifies(40));

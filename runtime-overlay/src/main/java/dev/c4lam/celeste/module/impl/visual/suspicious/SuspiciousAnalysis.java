@@ -51,7 +51,7 @@ public final class SuspiciousAnalysis {
 
     public enum Check {
         ROTATED_DEEPSLATE(30), MISMATCHED_SOIL(10), GROUNDED_VINES(10),
-        MATURE_GEODE(15), MISSING_BUDDING_AMETHYST(25),
+        MATURE_GEODE(15), MISSING_BUDDING_AMETHYST(65),
         SURFACE_KELP(15), MATURE_KELP_AGE(15), BURIED_ACCESS_PATH(35), OPEN_SHAFTS(-20);
         public final int weight;
         Check(int weight) { this.weight = weight; }
@@ -124,6 +124,14 @@ public final class SuspiciousAnalysis {
     public static final int MAX_GROWTH_OBSERVATIONS_PER_WINDOW = 512;
     public static final int MIN_STRIPPED_GEODE_INNER = 64;
     public static final double MISSING_BUDDING_RATIO = 0.02;
+    public static final int GEODE_FAMILY_CAP = 65;
+    public static final int MIN_STRIPPED_SHELL_CALCITE = 64;
+    public static final int MIN_STRIPPED_SHELL_BASALT = 32;
+    public static final int MIN_STRIPPED_SHELL_CAVITY = 64;
+    public static final int MIN_STRIPPED_SHELL_CONTACTS = 48;
+    public static final int MIN_STRIPPED_SHELL_DIRECTION_CONTACTS = 4;
+    public static final double STRIPPED_SHELL_CONNECTED_RATIO = 0.90;
+    public static final double STRIPPED_SHELL_ENCLOSURE_RATIO = 0.85;
     private static final int[][] DIRECTIONS = {{0,-1,0},{0,1,0},{0,0,-1},{0,0,1},{-1,0,0},{1,0,0}};
     private static final int[][] HORIZONTAL = {{0,0,-1},{0,0,1},{-1,0,0},{1,0,0}};
 
@@ -134,9 +142,12 @@ public final class SuspiciousAnalysis {
         int[] candidates = new int[128];
         int count = 0;
         boolean complete = true;
+        int shellBand = Integer.MIN_VALUE, shellBuckets = 0;
         int minX = chunkX << 4, minZ = chunkZ << 4;
         for (int y = terrain.floorY(); y < terrain.topY(); y++) {
             interrupted();
+            int band = Math.floorDiv(y, 4);
+            if (band != shellBand) { shellBand = band; shellBuckets = 0; }
             int uniform = terrain.uniformSectionCell(chunkX, Math.floorDiv(y, 16), chunkZ);
             if (uniform >= 0 && !candidate(kind(uniform))) {
                 if (kind(uniform) == UNKNOWN) complete = false;
@@ -147,6 +158,13 @@ public final class SuspiciousAnalysis {
                 for (int x = minX; x < minX + 16; x++) {
                     int k = kind(terrain.cell(x, y, z));
                     if (k == UNKNOWN) complete = false;
+                    // One potential shell seed per 4x4x4 cell, rather than every calcite block.
+                    // Border candidates remain independent of a neighbor chunk's cache revision.
+                    if (k == CALCITE) {
+                        int bucket = 1 << (((z & 15) >> 2) * 4 + ((x & 15) >> 2));
+                        if ((shellBuckets & bucket) != 0 || !possibleShell(terrain, x, y, z)) continue;
+                        shellBuckets |= bucket;
+                    }
                     if (candidate(k) && (k != DIRT || possibleDirt(terrain, x, y, z))) {
                         if (count < MAX_CANDIDATES_PER_CHUNK) {
                             if (count == candidates.length) candidates = Arrays.copyOf(candidates,
@@ -176,7 +194,19 @@ public final class SuspiciousAnalysis {
 
     private static boolean candidate(int k) {
         return k == HORIZONTAL_DEEPSLATE || k == DIRT || k == VINE || k == KELP
-            || k == AMETHYST || k == BUDDING || k == COBBLE || k == COBBLED_DEEPSLATE;
+            || k == AMETHYST || k == BUDDING || k == COBBLE || k == COBBLED_DEEPSLATE || k == CALCITE;
+    }
+
+    private static boolean possibleShell(Terrain terrain, int x, int y, int z) {
+        if ((x & 15) == 0 || (x & 15) == 15 || (z & 15) == 0 || (z & 15) == 15) return true;
+        boolean cavity = false, backing = false;
+        for (int[] d : DIRECTIONS) {
+            int k = kind(terrain.cell(x + d[0], y + d[1], z + d[2]));
+            if (k == UNKNOWN) return true;
+            cavity |= shellAir(k);
+            backing |= k == SMOOTH_BASALT;
+        }
+        return cavity && backing;
     }
 
     public static Evaluation evaluate(Terrain terrain, int centerX, int centerZ,
@@ -201,8 +231,11 @@ public final class SuspiciousAnalysis {
         if (enabled.contains(Check.SURFACE_KELP) || enabled.contains(Check.MATURE_KELP_AGE)) {
             kelp(first, firstSeeds, found, growth);
         }
-        if (enabled.contains(Check.MATURE_GEODE)
-                || enabled.contains(Check.MISSING_BUDDING_AMETHYST)) geodes(first, firstSeeds, found, growth);
+        if (enabled.contains(Check.MATURE_GEODE) || enabled.contains(Check.MISSING_BUDDING_AMETHYST)) {
+            int attempts = geodes(first, firstSeeds, found, growth);
+            if (enabled.contains(Check.MISSING_BUDDING_AMETHYST))
+                strippedShells(first, firstSeeds, found, MAX_GEODES_PER_WINDOW - attempts);
+        }
         for (Finding f : geometry) {
             if (Math.abs((long) f.chunkX() - centerX) <= 1 && Math.abs((long) f.chunkZ() - centerZ) <= 1
                     && (f.check() == Check.BURIED_ACCESS_PATH || f.check() == Check.OPEN_SHAFTS)) found.add(f);
@@ -225,7 +258,7 @@ public final class SuspiciousAnalysis {
                 contributions.put(check, check.weight);
             }
         }
-        capped(contributions, present, 25, Check.MISSING_BUDDING_AMETHYST, Check.MATURE_GEODE);
+        capped(contributions, present, GEODE_FAMILY_CAP, Check.MISSING_BUDDING_AMETHYST, Check.MATURE_GEODE);
         capped(contributions, present, 20, Check.SURFACE_KELP, Check.MATURE_KELP_AGE);
         if (present.contains(Check.OPEN_SHAFTS)) contributions.put(Check.OPEN_SHAFTS, -20);
         int score = Math.max(0, contributions.values().stream().mapToInt(Integer::intValue).sum());
@@ -405,13 +438,14 @@ public final class SuspiciousAnalysis {
         return groups;
     }
 
-    private static void geodes(Window t, List<Pos> seeds, List<Finding> out, GrowthCollector growth) {
+    private static int geodes(Window t, List<Pos> seeds, List<Finding> out, GrowthCollector growth) {
         Set<Pos> visited = new HashSet<>();
         int features = 0;
         for (Pos seed : seeds) {
             if (!inner(t.kind(seed)) || visited.contains(seed)) continue;
             interrupted();
-            if (++features > MAX_GEODES_PER_WINDOW) return;
+            if (features == MAX_GEODES_PER_WINDOW) return features;
+            features++;
             ArrayDeque<Pos> queue = new ArrayDeque<>();
             List<Pos> cells = new ArrayList<>();
             Set<Pos> component = new HashSet<>();
@@ -478,7 +512,107 @@ public final class SuspiciousAnalysis {
                 out.add(finding(Check.MISSING_BUDDING_AMETHYST, seed));
             }
         }
+        return features;
     }
+
+    /** Recognizes an emptied geode from its remaining ordered shell, without inventing growth evidence. */
+    private static void strippedShells(Window t, List<Pos> seeds, List<Finding> out, int remainingAttempts) {
+        Set<Pos> visited = new HashSet<>();
+        for (Pos seed : seeds) {
+            if (remainingAttempts <= 0) return;
+            if (t.kind(seed) != CALCITE || visited.contains(seed)) continue;
+            remainingAttempts--;
+            interrupted();
+            ArrayDeque<Pos> queue = new ArrayDeque<>();
+            Set<Pos> component = new HashSet<>();
+            queue.add(seed); visited.add(seed); component.add(seed);
+            boolean rejected = false;
+            int processed = 0;
+            int minX = seed.x(), maxX = minX, minY = seed.y(), maxY = minY, minZ = seed.z(), maxZ = minZ;
+            while (!queue.isEmpty()) {
+                Pos p = queue.removeFirst();
+                if (++processed > MAX_GEODE_CELLS) { rejected = true; break; }
+                minX = Math.min(minX, p.x()); maxX = Math.max(maxX, p.x());
+                minY = Math.min(minY, p.y()); maxY = Math.max(maxY, p.y());
+                minZ = Math.min(minZ, p.z()); maxZ = Math.max(maxZ, p.z());
+                for (int[] d : DIRECTIONS) {
+                    Pos q = offset(p, d); int k = t.kind(q);
+                    if (k == UNKNOWN || k == STRUCTURE) rejected = true;
+                    if (k == CALCITE) {
+                        if (visited.add(q)) { component.add(q); queue.addLast(q); }
+                        else if (!component.contains(q)) rejected = true;
+                    }
+                }
+            }
+            // A bounded traversal must never reinterpret its unvisited tail as a complete shell.
+            if (rejected || component.size() < MIN_STRIPPED_SHELL_CALCITE) continue;
+            int width = maxX - minX + 1, height = maxY - minY + 1, depth = maxZ - minZ + 1;
+            int smallest = Math.min(width, Math.min(height, depth));
+            int largest = Math.max(width, Math.max(height, depth));
+            if (smallest < 6 || largest > 24 || largest > smallest * 2) continue;
+            if (minX - 2 < t.minX || maxX + 2 >= t.maxX || minZ - 2 < t.minZ || maxZ + 2 >= t.maxZ
+                    || minY - 2 < t.floorY() || maxY + 2 >= t.topY()) continue;
+            Set<Pos> cavity = new HashSet<>();
+            // At most 28^3 probes. Every cell is known, including a two-block outer margin.
+            for (int y = minY - 2; y <= maxY + 2; y++) for (int z = minZ - 2; z <= maxZ + 2; z++) for (int x = minX - 2; x <= maxX + 2; x++) {
+                Pos p = new Pos(x, y, z); int k = t.kind(p);
+                if (k == UNKNOWN || k == STRUCTURE || inner(k)) rejected = true;
+                if (x > minX && x < maxX && y > minY && y < maxY && z > minZ && z < maxZ && shellAir(k)) {
+                    if (cavity.size() < MAX_GEODE_CELLS) cavity.add(p);
+                    else rejected = true;
+                }
+            }
+            if (rejected || cavity.size() < MIN_STRIPPED_SHELL_CAVITY) continue;
+            Set<Pos> mainCavity = largestCavity(cavity);
+            if (mainCavity.size() < cavity.size() * STRIPPED_SHELL_CONNECTED_RATIO) continue;
+            int boundary = 0, enclosed = 0;
+            for (Pos p : mainCavity) for (int[] d : DIRECTIONS) {
+                Pos q = offset(p, d);
+                if (mainCavity.contains(q)) continue;
+                boundary++;
+                if (component.contains(q)) enclosed++;
+            }
+            // Small known cracks are permitted; open ridges and layered cliffs are not enclosed cavities.
+            if (boundary == 0 || enclosed < boundary * STRIPPED_SHELL_ENCLOSURE_RATIO) continue;
+            int[] directional = new int[DIRECTIONS.length];
+            Set<Pos> basalt = new HashSet<>();
+            int contacts = 0;
+            for (Pos p : component) for (int i = 0; i < DIRECTIONS.length; i++) {
+                int[] d = DIRECTIONS[i];
+                if (!mainCavity.contains(offset(p, d))) continue;
+                Pos backing = p.offset(-d[0], -d[1], -d[2]);
+                if (t.kind(backing) == SMOOTH_BASALT) {
+                    contacts++; directional[i]++; basalt.add(backing);
+                }
+            }
+            if (contacts < MIN_STRIPPED_SHELL_CONTACTS || basalt.size() < MIN_STRIPPED_SHELL_BASALT) continue;
+            boolean allDirections = true;
+            for (int count : directional) if (count < MIN_STRIPPED_SHELL_DIRECTION_CONTACTS) allDirections = false;
+            if (allDirections) out.add(finding(Check.MISSING_BUDDING_AMETHYST, seed));
+        }
+    }
+
+    private static Set<Pos> largestCavity(Set<Pos> cavity) {
+        Set<Pos> visited = new HashSet<>(), largest = Set.of();
+        for (Pos seed : cavity) {
+            if (!visited.add(seed)) continue;
+            interrupted();
+            Set<Pos> component = new HashSet<>();
+            ArrayDeque<Pos> queue = new ArrayDeque<>();
+            queue.add(seed);
+            while (!queue.isEmpty()) {
+                Pos p = queue.removeFirst(); component.add(p);
+                for (int[] d : DIRECTIONS) {
+                    Pos q = offset(p, d);
+                    if (cavity.contains(q) && visited.add(q)) queue.addLast(q);
+                }
+            }
+            if (component.size() > largest.size()) largest = component;
+        }
+        return largest;
+    }
+
+    private static boolean shellAir(int k) { return k == AIR || k == WATER || k == FLOWING_WATER; }
 
     /**
      * One observation per actual block even when overlapping population buckets,

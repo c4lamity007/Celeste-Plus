@@ -22,6 +22,7 @@ public final class SuspiciousChunkFinderCheck {
         rockAndSoil();
         plants();
         geodes();
+        strippedGeodes();
         growthObservations();
         windows();
         geometry();
@@ -33,7 +34,7 @@ public final class SuspiciousChunkFinderCheck {
 
     private static void scoring() {
         run("weights apply once per window", () -> {
-            int[] expected = {30,10,10,15,25,15,15,35,0};
+            int[] expected = {30,10,10,15,65,15,15,35,0};
             Check[] kinds = Check.values();
             eq(expected.length, kinds.length, "intentional nine-check contract");
             for (int i=0; i<kinds.length; i++) {
@@ -42,20 +43,20 @@ public final class SuspiciousChunkFinderCheck {
                 eq(expected[i], score(repeated, ALL).score(), "single weight " + kinds[i]);
             }
         });
-        run("geode cap 25 and kelp cap 20", () -> {
-            eq(25, scored(Check.MATURE_GEODE,Check.MISSING_BUDDING_AMETHYST), "geode cap");
+        run("geode cap 65 and kelp cap 20", () -> {
+            eq(65, scored(Check.MATURE_GEODE,Check.MISSING_BUDDING_AMETHYST), "geode cap");
             eq(15, scored(Check.MATURE_GEODE), "mature geode remains independent");
             eq(20, scored(Check.SURFACE_KELP,Check.MATURE_KELP_AGE), "kelp cap");
             Evaluation e=score(List.of(finding(Check.SURFACE_KELP,1,0,0),finding(Check.MATURE_KELP_AGE,1,0,0)),ALL);
             eq(15,e.contributions().get(Check.SURFACE_KELP),"surface contribution");
             eq(5,e.contributions().get(Check.MATURE_KELP_AGE),"age residual contribution");
         });
-        run("maximum score 130 and one shaft deduction 20", () -> {
+        run("maximum score 170 and one shaft deduction 20", () -> {
             List<Finding> evidence = new ArrayList<>();
             for (Check check:Check.values()) if (check!=Check.OPEN_SHAFTS) evidence.add(finding(check,1,0,0));
-            eq(130,score(evidence,ALL).score(),"maximum");
+            eq(170,score(evidence,ALL).score(),"maximum");
             for(int n=0;n<20;n++) evidence.add(finding(Check.OPEN_SHAFTS,n,0,0));
-            eq(110,score(evidence,ALL).score(),"one deduction");
+            eq(150,score(evidence,ALL).score(),"one deduction");
         });
         run("deduction floors at zero and toggles exclude evidence", () -> {
             List<Finding> evidence=List.of(finding(Check.GROUNDED_VINES,1,0,0),finding(Check.OPEN_SHAFTS,2,0,0));
@@ -154,7 +155,7 @@ public final class SuspiciousChunkFinderCheck {
     }
 
     private static void geodes() {
-        run("large complete geode missing budding amethyst scores 25", () -> eq(25,evaluate(geode(0,0,CLUSTER)).score(),"missing budding"));
+        run("large complete geode missing budding amethyst scores 65", () -> eq(65,evaluate(geode(0,0,CLUSTER)).score(),"missing budding"));
         run("mature crystal population scores 15", () -> eq(15,evaluate(geode(15,15,CLUSTER)).score(),"mature geode"));
         run("young crystal population does not score maturity", () -> eq(0,evaluate(geode(15,15,SMALL_BUD)).score(),"young geode"));
         run("sparse crystals no longer contribute any suspicion", () -> eq(0,evaluate(geode(25,0,CLUSTER)).score(),"sparse check removed"));
@@ -189,6 +190,152 @@ public final class SuspiciousChunkFinderCheck {
             s.fill(3,29,3,5,29,3,AMETHYST);s.fill(5,29,3,5,29,5,AMETHYST);
             eq(0,evaluate(s).score(),"clipped remainder is not a complete geode");
         });
+    }
+
+    private static void strippedGeodes() {
+        run("fully stripped known geode shell scores 65 without growth samples", () -> {
+            Evaluation e=evaluate(strippedGeode(8,32,8,4));
+            eq(65,e.score(),"missing all inner material");
+            eq(1,count(e.findings(),Check.MISSING_BUDDING_AMETHYST),"one connected shell");
+            eq(0,e.growthObservations().size(),"stripping is not growth");
+            check(e.growthChecks().isEmpty(),"no fabricated activity seed");
+        });
+        run("rounded stripped shell is recognized", () -> {
+            Scene s=new Scene();
+            for(int x=-6;x<=6;x++)for(int y=-6;y<=6;y++)for(int z=-6;z<=6;z++) {
+                double radius=Math.sqrt(x*x+y*y+z*z);
+                if(radius<6)s.set(8+x,32+y,8+z,radius<4?AIR:radius<5?CALCITE:SMOOTH_BASALT);
+            }
+            eq(65,evaluate(s).score(),"curved shell");
+        });
+        run("small known entrance does not make shell evidence incomplete", () -> {
+            Scene s=strippedGeode(8,32,8,4);s.fill(8,31,3,8,32,5,AIR);
+            eq(65,evaluate(s).score(),"one by two entrance through shell");
+        });
+        run("water-filled stripped cavity is supported", () -> {
+            Scene s=strippedGeode(8,32,8,4);s.fill(5,29,5,11,35,11,WATER);
+            eq(65,evaluate(s).score(),"known water cavity");
+        });
+        run("intact geode with no crystals is not a stripped shell", () -> {
+            eq(0,evaluate(geode(25,0,CLUSTER)).score(),"healthy budding remains");
+            eq(15,evaluate(geode(15,15,CLUSTER)).score(),"mature path preserved");
+        });
+        run("shell fallback requires all inner material to be gone", () -> {
+            for(int inner:new int[]{AMETHYST,BUDDING}) {
+                Scene s=strippedGeode(8,32,8,4);s.set(8,29,8,inner);
+                eq(0,evaluate(s).score(),"single surviving inner block excludes shell inference");
+            }
+        });
+        run("solid calcite inclusion and basalt clump are not hollow geodes", () -> {
+            Scene s=strippedGeode(8,32,8,4);s.fill(5,29,5,11,35,11,CALCITE);
+            eq(0,evaluate(s).score(),"solid calcite");
+            s=new Scene();s.fill(3,27,3,13,37,13,SMOOTH_BASALT);s.fill(4,28,4,12,36,12,CALCITE);
+            eq(0,evaluate(s).score(),"natural two-material clump");
+        });
+        run("flat calcite and basalt layers do not resemble an enclosed shell", () -> {
+            Scene s=new Scene();s.fill(2,31,2,14,31,14,SMOOTH_BASALT);s.fill(2,32,2,14,32,14,CALCITE);
+            s.fill(2,33,2,14,36,14,AIR);eq(0,evaluate(s).score(),"layered patch");
+        });
+        run("broadly open shell fails enclosure and direction coverage", () -> {
+            Scene s=strippedGeode(8,32,8,4);s.fill(4,28,3,12,36,4,AIR);
+            eq(0,evaluate(s).score(),"one entire side removed");
+        });
+        run("all six ordered shell directions are required", () -> {
+            Scene s=strippedGeode(8,32,8,4);s.fill(5,29,3,11,35,3,STONE);
+            eq(0,evaluate(s).score(),"one side lacks basalt backing");
+        });
+        run("regular basalt cannot replace geode smooth basalt", () -> {
+            Scene s=strippedGeode(8,32,8,4);
+            s.cells.replaceAll((key,value)->kind(value)==SMOOTH_BASALT?BASALT:value);
+            eq(0,evaluate(s).score(),"basalt deposit");
+        });
+        run("small and elongated shells do not provide enough structure", () -> {
+            eq(0,evaluate(strippedGeode(8,32,8,2)).score(),"tiny sample");
+            Scene s=new Scene();s.fill(0,29,5,16,35,11,SMOOTH_BASALT);
+            s.fill(1,30,6,15,34,10,CALCITE);s.fill(2,31,7,14,33,9,AIR);
+            eq(0,evaluate(s).score(),"long narrow layered passage");
+        });
+        run("unknown shell or outer margin prevents absence inference", () -> {
+            for(Pos p:List.of(new Pos(8,28,8),new Pos(8,32,8),new Pos(2,26,2))) {
+                Scene s=strippedGeode(8,32,8,4);s.set(p.x(),p.y(),p.z(),UNKNOWN);
+                eq(0,evaluate(s).score(),"unknown at "+p);
+            }
+        });
+        run("known generated structure beside a shell excludes it", () -> {
+            Scene s=strippedGeode(8,32,8,4);s.set(2,26,2,STRUCTURE);
+            eq(0,evaluate(s).score(),"structure context");
+        });
+        run("shell clipped by scan floor or ceiling is inconclusive", () -> {
+            Scene floor=strippedGeode(8,32,8,4);floor.bottom=28;eq(0,evaluate(floor).score(),"floor clipped");
+            Scene ceiling=strippedGeode(8,32,8,4);ceiling.height=37;eq(0,evaluate(ceiling).score(),"ceiling clipped");
+        });
+        run("shell crossing chunk border is deduplicated and negative coordinates work", () -> {
+            Evaluation cross=evaluate(strippedGeode(15,32,8,4));eq(65,cross.score(),"cross chunk");
+            eq(1,count(cross.findings(),Check.MISSING_BUDDING_AMETHYST),"shared shell once");
+            eq(65,evaluate(strippedGeode(-8,32,-8,4)).score(),"negative chunk");
+        });
+        run("shell outside inspected window cannot claim complete coverage", () -> {
+            eq(0,evaluate(strippedGeode(27,32,8,4)).score(),"right window boundary");
+        });
+        run("missing-geode toggle disables stripped shell score", () -> {
+            Scene s=strippedGeode(8,32,8,4);
+            eq(0,SuspiciousAnalysis.evaluate(s,0,0,summaries(s),EnumSet.of(Check.MATURE_GEODE),List.of()).score(),"disabled absence check");
+        });
+        run("shell damage keeps first-observation semantics", () -> {
+            Scene first=geode(25,0,CLUSTER),later=strippedGeode(8,32,8,4);
+            eq(0,SuspiciousAnalysis.evaluate(later,first,0,0,summaries(later),summaries(first),ALL,List.of()).score(),"later mining does not rewrite baseline");
+            eq(65,SuspiciousAnalysis.evaluate(first,later,0,0,summaries(first),summaries(later),ALL,List.of()).score(),"previously stripped baseline retained");
+        });
+        run("missing budding and missing inner layer share exactly one contribution", () -> {
+            Scene s=strippedGeode(-7,32,8,4);
+            Scene normal=geode(0,0,CLUSTER);s.cells.putAll(normal.cells);
+            Evaluation e=evaluate(s);eq(65,e.score(),"two absence interpretations never stack");
+            eq(65,e.contributions().get(Check.MISSING_BUDDING_AMETHYST),"fixed weight");
+            check(e.equals(evaluate(s)),"repeat scan stable");
+        });
+        run("calcite deposit seeds stay sparse and preserve higher unrelated evidence", () -> {
+            Scene s=kelp(12,12,12,25);s.fill(0,0,0,15,58,15,CALCITE);
+            ChunkSummary summary=summarize(s,0,0);
+            check(summary.complete(),"calcite does not consume global seed cap");
+            check(summary.candidates().size()<512,"bounded shell seeds");
+            check(summary.candidates().contains(new Pos(3,64,3)),"higher kelp retained");
+            eq(20,evaluate(s).score(),"unrelated growth stays visible");
+        });
+        run("cached border shell seeds survive adjacent chunk arrival", () -> {
+            Scene complete=strippedGeode(15,32,8,4);
+            Scene partial=strippedGeode(15,32,8,4);partial.fill(16,0,-16,31,95,31,UNKNOWN);
+            ChunkSummary cached=summarize(partial,0,0);
+            List<ChunkSummary> chunks=summaries(complete);chunks.removeIf(s->s.chunkX()==0&&s.chunkZ()==0);chunks.add(cached);
+            eq(65,SuspiciousAnalysis.evaluate(complete,0,0,chunks,ALL,List.of()).score(),"cached first neighbor context");
+        });
+        run("oversized connected calcite cannot become a valid shell tail", () -> {
+            Scene s=strippedGeode(8,32,8,4);
+            s.fill(-12,12,-12,3,27,3,CALCITE);
+            s.fill(3,27,3,4,27,3,CALCITE);s.fill(4,27,3,4,28,4,CALCITE);
+            List<ChunkSummary> chunks=summaries(s);long[] reads={0};
+            Terrain counted=new Terrain() {
+                public int cell(int x,int y,int z){reads[0]++;return s.cell(x,y,z);}
+                public int floorY(){return s.floorY();}public int topY(){return s.topY();}
+                public int surfaceY(int x,int z){return s.surfaceY(x,z);}
+            };
+            eq(0,SuspiciousAnalysis.evaluate(counted,0,0,chunks,Set.of(Check.MISSING_BUDDING_AMETHYST),List.of()).score(),"oversized component tail rejected");
+            check(reads[0]<800000,"shared attempt and cell caps bound analysis probes");
+        });
+        run("shell volume and cavity limits reject giant fragments", () -> {
+            eq(0,evaluate(strippedGeode(8,32,8,13)).score(),"extent exceeds maximum");
+            eq(0,evaluate(strippedGeode(8,32,8,10)).score(),"cavity exceeds4096 cells");
+        });
+    }
+
+    private static Scene strippedGeode(int cx,int cy,int cz,int radius) {
+        Scene s=new Scene();
+        for(int r=radius+1;r>=radius;r--) {
+            int material=r==radius?CALCITE:SMOOTH_BASALT;
+            for(int x=-r;x<=r;x++)for(int y=-r;y<=r;y++)for(int z=-r;z<=r;z++)
+                if(Math.max(Math.max(Math.abs(x),Math.abs(y)),Math.abs(z))==r)s.set(cx+x,cy+y,cz+z,material);
+        }
+        s.fill(cx-radius+1,cy-radius+1,cz-radius+1,cx+radius-1,cy+radius-1,cz+radius-1,AIR);
+        return s;
     }
 
     private static void snapshots() {

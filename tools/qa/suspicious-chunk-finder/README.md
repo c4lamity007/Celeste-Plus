@@ -9,7 +9,7 @@ python tools/qa/suspicious-chunk-finder/run_refinement.py `
   --out build/suspicious-refinement-check-01
 ```
 
-This runs all three fixture classes against the production sources. It adds actual qualifying block publication, cancellation/exhaustion, growth sample attribution, cross-window deduplication, and conservative candidate-region tests. Sparse crystals is removed; mature and missing-budding geode checks remain. Radius defaults to seven chunks.
+This runs all three fixture classes against the production sources. It adds actual qualifying block publication, cancellation/exhaustion, growth sample attribution, cross-window deduplication, and conservative candidate-region tests. Sparse crystals is removed; mature geodes remain +15; missing budding or an independently recognized fully stripped geode share one +65 check and a 65-point geode-family cap. The total positive maximum is 170. Radius defaults to seven chunks.
 
 Compile and exercise the **actual** `SuspiciousAnalysis.java`, `SuspiciousGeometry.java`, and `SuspiciousSnapshots.java` against deterministic, fully specified terrain. Java 21 and Python 3 are required. The output directory must be new; the runner snapshots all inputs, records their SHA-256 hashes, and keeps compile/run logs plus `result.json`.
 
