@@ -24,7 +24,10 @@ public final class SuspiciousActivity {
 
     public static final int DEFAULT_RADIUS = 7, MIN_RADIUS = 2, MAX_RADIUS = 12;
     public static final int MAX_OBSERVATIONS = 8192, MAX_EVIDENCE_CHUNKS = 512;
-    public static final int MIN_EVIDENCE_CHUNKS = 4, MAX_CANDIDATES = 4;
+    public static final int MIN_EVIDENCE_CHUNKS = 1;
+    // This is a work bound, not a cap on the number of displayed answers. The
+    // caller's local +/-2R evidence window expands to at most this grid size.
+    public static final int MAX_GRID_CHUNKS = (6 * MAX_RADIUS + 3) * (6 * MAX_RADIUS + 3);
     public static final int MAX_POINT_TESTS = 2_000_000, MAX_WITNESS_PAIRS = 8192;
     private static final double EPSILON = 1.0e-7;
 
@@ -40,7 +43,7 @@ public final class SuspiciousActivity {
      * Score actual feature locations around established activity estimates.
      * Positive evidence may lie anywhere in the configured activity radius;
      * only an open shaft within three chunks of this candidate can deduct 20.
-     * There is no scoring-window-center fallback when fitting is inconclusive.
+     * Estimates use actual growth positions, never scoring-window centers.
      */
     public static List<ScoredCandidate> score(Result estimate, Collection<Finding> actualFindings,
                                                Set<Check> enabled) {
@@ -87,7 +90,7 @@ public final class SuspiciousActivity {
     /**
      * At most 512 distinct chunks and 8192 raw observations are processed.
      * Each chunk supplies one actual qualified point, so forests/farms receive
-     * no extra vote. Dropping other points in that chunk only broadens the fit.
+     * no extra vote. Every center with the best observed support is retained.
      * Call on the immutable-analysis worker, not the Minecraft/render thread.
      */
     public static Result estimate(Collection<GrowthObservation> observations, int radiusChunks) {
@@ -106,7 +109,7 @@ public final class SuspiciousActivity {
             if (!growthCheck(observation)) continue;
             long key = (long) chunkX(observation) << 32 | chunkZ(observation) & 0xffffffffL;
             byChunk.merge(key, observation, SuspiciousActivity::representative);
-            // Never silently discard a distant contradiction to produce a narrower answer.
+            // Never silently discard evidence to make a partial ranking look complete.
             if (byChunk.size() > MAX_EVIDENCE_CHUNKS)
                 return result(Status.BUDGET_LIMIT, radiusChunks, byChunk.size(), 0);
         }
@@ -116,61 +119,61 @@ public final class SuspiciousActivity {
         double radius = radiusChunks * 16.0, radiusSquared = radius * radius;
         double lowX = Double.NEGATIVE_INFINITY, lowZ = Double.NEGATIVE_INFINITY;
         double highX = Double.POSITIVE_INFINITY, highZ = Double.POSITIVE_INFINITY;
-        double minPointX = Double.POSITIVE_INFINITY, minPointZ = Double.POSITIVE_INFINITY;
-        double maxPointX = Double.NEGATIVE_INFINITY, maxPointZ = Double.NEGATIVE_INFINITY;
+        TreeMap<Long, Integer> support = new TreeMap<>();
+        Budget budget = new Budget();
+        int maximumSupport = 0;
         for (GrowthObservation point : points) {
             double x = point.blockX() + .5, z = point.blockZ() + .5;
             lowX = Math.max(lowX, x - radius); highX = Math.min(highX, x + radius);
             lowZ = Math.max(lowZ, z - radius); highZ = Math.min(highZ, z + radius);
-            minPointX = Math.min(minPointX, x); maxPointX = Math.max(maxPointX, x);
-            minPointZ = Math.min(minPointZ, z); maxPointZ = Math.max(maxPointZ, z);
-        }
-        if (lowX > highX || lowZ > highZ) return result(Status.INCONSISTENT, radiusChunks, count, 0);
-        if (maxPointX - minPointX < radius || maxPointZ - minPointZ < radius)
-            return result(Status.INSUFFICIENT, radiusChunks, count, 0);
 
-        // Preserve uncertainty within each whole chunk. Testing only its center
-        // can discard equally plausible chunks beside a boundary or corner.
-        int minX = (int) Math.floor((lowX - EPSILON) / 16.0);
-        int maxX = (int) Math.floor((highX + EPSILON) / 16.0);
-        int minZ = (int) Math.floor((lowZ - EPSILON) / 16.0);
-        int maxZ = (int) Math.floor((highZ + EPSILON) / 16.0);
-        ArrayList<Candidate> compatible = new ArrayList<>();
-        int compatibleCount = 0;
-        Budget budget = new Budget();
-        for (int x = minX; x <= maxX; x++) for (int z = minZ; z <= maxZ; z++) {
-            interrupted();
-            double left = x * 16.0, bottom = z * 16.0;
-            boolean possible = true;
-            for (GrowthObservation point : points) {
+            // Each qualified evidence chunk casts one vote for every candidate
+            // center inside its radius. Walking each small disk avoids scanning
+            // the potentially enormous empty gap between distant observations.
+            int minX = (int) Math.ceil((x - radius - 8.0) / 16.0);
+            int maxX = (int) Math.floor((x + radius - 8.0) / 16.0);
+            int minZ = (int) Math.ceil((z - radius - 8.0) / 16.0);
+            int maxZ = (int) Math.floor((z + radius - 8.0) / 16.0);
+            for (int cx = minX; cx <= maxX; cx++) for (int cz = minZ; cz <= maxZ; cz++) {
                 if (!budget.take()) return result(Status.BUDGET_LIMIT, radiusChunks, count, 0);
-                double dx = distanceToInterval(point.blockX() + .5, left, left + 16.0);
-                double dz = distanceToInterval(point.blockZ() + .5, bottom, bottom + 16.0);
-                if (dx * dx + dz * dz > radiusSquared + EPSILON) { possible = false; break; }
-            }
-            if (possible) {
-                compatibleCount++;
-                if (compatible.size() < MAX_CANDIDATES) compatible.add(new Candidate(x, z));
+                double dx = cx * 16.0 + 8.0 - x, dz = cz * 16.0 + 8.0 - z;
+                if (dx * dx + dz * dz > radiusSquared + EPSILON) continue;
+                long key = (long) cx << 32 | cz & 0xffffffffL;
+                Integer previous = support.get(key);
+                if (previous == null && support.size() >= MAX_GRID_CHUNKS)
+                    return result(Status.BUDGET_LIMIT, radiusChunks, count, 0);
+                int votes = previous == null ? 1 : previous + 1;
+                support.put(key, votes);
+                maximumSupport = Math.max(maximumSupport, votes);
             }
         }
-        if (compatibleCount == 0) return result(Status.INCONSISTENT, radiusChunks, count, 0);
-        if (compatibleCount > MAX_CANDIDATES) return result(Status.BROAD, radiusChunks, count, compatibleCount);
-        int spanX = compatible.stream().mapToInt(Candidate::chunkX).max().orElseThrow()
-            - compatible.stream().mapToInt(Candidate::chunkX).min().orElseThrow();
-        int spanZ = compatible.stream().mapToInt(Candidate::chunkZ).max().orElseThrow()
-            - compatible.stream().mapToInt(Candidate::chunkZ).min().orElseThrow();
-        if (spanX > 1 || spanZ > 1) return result(Status.BROAD, radiusChunks, count, compatibleCount);
-        // Separate circle/rectangle overlaps are only necessary conditions. Prove
-        // one common disk-intersection point before labeling this an estimate.
-        // All radii are equal: a nonempty intersection contains a disk center or
-        // a pairwise boundary intersection. A failed numerical/work-limited
-        // search stays inconclusive rather than inventing a point.
-        if (!witness(points, radiusSquared, (lowX + highX) / 2, (lowZ + highZ) / 2, budget))
-            return result(budget.exhausted ? Status.BUDGET_LIMIT : Status.INSUFFICIENT,
-                radiusChunks, count, compatibleCount);
-        // Every feasible chunk is reported; there is no forced ranking or top-four cut.
-        compatible.sort(Comparator.comparingInt(Candidate::chunkX).thenComparingInt(Candidate::chunkZ));
-        return new Result(Status.ESTIMATED, compatible, radiusChunks, count, compatibleCount);
+
+        // A small common intersection may sit between chunk centers. Prefer an
+        // exact all-evidence witness over a weaker grid fit, preserving answers
+        // on chunk edges and corners without inventing circle-overlap midpoints.
+        if (maximumSupport < count && lowX <= highX && lowZ <= highZ) {
+            Witness shared = witness(points, radiusSquared, (lowX + highX) / 2, (lowZ + highZ) / 2, budget);
+            if (budget.exhausted) return result(Status.BUDGET_LIMIT, radiusChunks, count, 0);
+            if (shared != null) {
+                ArrayList<Candidate> touching = new ArrayList<>();
+                int minX = (int) Math.floor((shared.x - EPSILON) / 16.0);
+                int maxX = (int) Math.floor((shared.x + EPSILON) / 16.0);
+                int minZ = (int) Math.floor((shared.z - EPSILON) / 16.0);
+                int maxZ = (int) Math.floor((shared.z + EPSILON) / 16.0);
+                for (int x = minX; x <= maxX; x++) for (int z = minZ; z <= maxZ; z++)
+                    touching.add(new Candidate(x, z));
+                return new Result(Status.ESTIMATED, touching, radiusChunks, count, touching.size());
+            }
+        }
+
+        ArrayList<Candidate> best = new ArrayList<>();
+        for (var entry : support.entrySet()) {
+            if (!budget.take()) return result(Status.BUDGET_LIMIT, radiusChunks, count, 0);
+            if (entry.getValue() == maximumSupport)
+                best.add(new Candidate((int) (entry.getKey() >> 32), (int) (long) entry.getKey()));
+        }
+        best.sort(Comparator.comparingInt(Candidate::chunkX).thenComparingInt(Candidate::chunkZ));
+        return new Result(Status.ESTIMATED, best, radiusChunks, count, best.size());
     }
 
     private static boolean growthCheck(GrowthObservation point) {
@@ -186,30 +189,31 @@ public final class SuspiciousActivity {
         double dz = Math.floorMod(point.blockZ(), 16) - 7.5;
         return dx * dx + dz * dz;
     }
-    private static double distanceToInterval(double point, double low, double high) {
-        return point < low ? low - point : Math.max(0, point - high);
-    }
-    private static boolean witness(List<GrowthObservation> points, double radiusSquared,
+    private record Witness(double x, double z) { }
+    private static Witness witness(List<GrowthObservation> points, double radiusSquared,
                                    double middleX, double middleZ, Budget budget) {
-        if (insideAll(points, middleX, middleZ, radiusSquared, budget)) return true;
+        if (insideAll(points, middleX, middleZ, radiusSquared, budget)) return new Witness(middleX, middleZ);
         for (GrowthObservation point : points) {
-            if (budget.exhausted) return false;
-            if (insideAll(points, point.blockX() + .5, point.blockZ() + .5, radiusSquared, budget)) return true;
+            if (budget.exhausted) return null;
+            if (insideAll(points, point.blockX() + .5, point.blockZ() + .5, radiusSquared, budget))
+                return new Witness(point.blockX() + .5, point.blockZ() + .5);
         }
         int pairs = 0;
         for (int i = 0; i < points.size(); i++) for (int j = i + 1; j < points.size(); j++) {
             interrupted();
-            if (budget.exhausted || ++pairs > MAX_WITNESS_PAIRS) { budget.exhausted = true; return false; }
+            if (budget.exhausted || ++pairs > MAX_WITNESS_PAIRS) { budget.exhausted = true; return null; }
             var a = points.get(i); var b = points.get(j);
             double dx = (double) b.blockX() - a.blockX(), dz = (double) b.blockZ() - a.blockZ();
             double distanceSquared = dx * dx + dz * dz;
             if (distanceSquared == 0 || distanceSquared > 4 * radiusSquared) continue;
             double half = Math.sqrt(Math.max(0, radiusSquared - distanceSquared / 4) / distanceSquared);
             double x = a.blockX() + .5 + dx / 2, z = a.blockZ() + .5 + dz / 2;
-            if (insideAll(points, x - dz * half, z + dx * half, radiusSquared, budget)
-                || insideAll(points, x + dz * half, z - dx * half, radiusSquared, budget)) return true;
+            if (insideAll(points, x - dz * half, z + dx * half, radiusSquared, budget))
+                return new Witness(x - dz * half, z + dx * half);
+            if (insideAll(points, x + dz * half, z - dx * half, radiusSquared, budget))
+                return new Witness(x + dz * half, z - dx * half);
         }
-        return false;
+        return null;
     }
     private static boolean insideAll(List<GrowthObservation> points, double x, double z,
                                      double radiusSquared, Budget budget) {

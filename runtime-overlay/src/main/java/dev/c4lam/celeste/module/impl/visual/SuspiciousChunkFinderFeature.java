@@ -55,6 +55,8 @@ public final class SuspiciousChunkFinderFeature implements ModuleFeature {
     private final Map<Long, EnumSet<Check>> growthKinds = new HashMap<>();
     private volatile List<ActivityMarker> displayedActivity = List.of();
     private SuspiciousActivity.Result activityResult;
+    private Set<Finding> activityFindings = Set.of();
+    private List<SuspiciousActivity.ScoredCandidate> activityScores = List.of();
     private Future<ActivityResult> activityFuture;
     private long activityVersion;
     private int activityRadius = 7, nextEstimate, activityX, activityZ;
@@ -155,7 +157,8 @@ public final class SuspiciousChunkFinderFeature implements ModuleFeature {
         future = null; activityFuture = null; worker = null; capture = null;
         cache.clearLive(); revisions.clear(); dirty.clear(); changedChunks.clear(); pending.clear(); results.clear();
         displayed = List.of(); displayedPaths = List.of(); discovery = List.of(); nextDiscovery = 0; failure = "";
-        activityResult = null; displayedActivity = List.of(); activityDirty = !activityEvidence.isEmpty();
+        activityResult = null; activityScores = List.of(); activityFindings = Set.of();
+        displayedActivity = List.of(); activityDirty = !activityEvidence.isEmpty();
     }
     private void reset() {
         suspend(); world = null; resumeHistory = false; cache.clear(); classified.clear();
@@ -375,14 +378,28 @@ public final class SuspiciousChunkFinderFeature implements ModuleFeature {
             blocks.putIfAbsent(block.pos, block);
         }
         displayedPaths = List.copyOf(blocks.values());
+        Set<Finding> findings = activityFindings();
+        if (!findings.equals(activityFindings)) {
+            // Added positive evidence cannot lower a score. Keep the previous
+            // result visible while refreshing; removals and new shafts clear it.
+            boolean additive = findings.containsAll(activityFindings)
+                && findings.stream().noneMatch(f -> f.check() == Check.OPEN_SHAFTS && !activityFindings.contains(f));
+            activityFindings = findings;
+            invalidateActivity(!additive);
+        }
         publishActivity();
     }
 
     private void invalidateActivity() {
+        invalidateActivity(true);
+    }
+    private void invalidateActivity(boolean clearCompleted) {
         activityVersion++;
         if (activityFuture != null) activityFuture.cancel(true);
-        activityFuture = null; activityDirty = true; activityResult = null;
-        displayedActivity = List.of();
+        activityFuture = null; activityDirty = true;
+        if (clearCompleted) {
+            activityResult = null; activityScores = List.of(); displayedActivity = List.of();
+        }
     }
     private void rememberGrowth(Evaluation evaluation) {
         boolean changed = false;
@@ -417,27 +434,31 @@ public final class SuspiciousChunkFinderFeature implements ModuleFeature {
         long version = activityVersion, sessionGeneration = generation;
         int radius = activityRadius;
         ensureWorker();
-        activityFuture = worker.submit(() -> new ActivityResult(sessionGeneration, version,
-            SuspiciousActivity.estimate(local, radius)));
+        Set<Finding> findings = activityFindings;
+        EnumSet<Check> jobChecks = checks.clone();
+        activityFuture = worker.submit(() -> {
+            var estimate = SuspiciousActivity.estimate(local, radius);
+            return new ActivityResult(sessionGeneration, version, estimate,
+                SuspiciousActivity.score(estimate, findings, jobChecks));
+        });
     }
     private void collectActivity() {
         if (activityFuture == null || !activityFuture.isDone()) return;
         try {
             ActivityResult result = activityFuture.get();
             if (result.generation == generation && result.version == activityVersion) {
-                activityResult = result.estimate; publishActivity();
+                activityResult = result.estimate; activityScores = result.scores; publishActivity();
             }
         } catch (CancellationException ignored) {
         } catch (InterruptedException interruption) {
             Thread.currentThread().interrupt();
         } catch (ExecutionException failed) {
-            activityResult = null; displayedActivity = List.of();
+            activityResult = null; activityScores = List.of(); displayedActivity = List.of();
             dev.c4lam.celeste.compat.RuntimeLogging.getLogger("Celeste/SuspiciousChunks")
                 .error("Suspicious activity estimate failed", failed.getCause());
         } finally { activityFuture = null; }
     }
-    private void publishActivity() {
-        if (!showActivity || activityResult == null) { displayedActivity = List.of(); return; }
+    private Set<Finding> activityFindings() {
         // Findings retain their actual feature locations. Old scoring-window centers
         // are never locations to display or reference for the shaft deduction.
         LinkedHashSet<Finding> evidence = new LinkedHashSet<>();
@@ -452,8 +473,14 @@ public final class SuspiciousChunkFinderFeature implements ModuleFeature {
             int x = SuspiciousSnapshots.x(entry.getKey()), z = SuspiciousSnapshots.z(entry.getKey());
             for (Check check : entry.getValue()) evidence.add(new Finding(check, entry.getKey(), x, z));
         }
+        return Set.copyOf(evidence);
+    }
+    private void publishActivity() {
+        if (!showActivity || activityResult == null) { displayedActivity = List.of(); return; }
+        // Scoring runs on the immutable worker. The game thread only binds
+        // completed candidate scores to currently known surface heights.
         ArrayList<ActivityMarker> markers = new ArrayList<>();
-        for (var scored : SuspiciousActivity.score(activityResult, evidence, checks)) {
+        for (var scored : activityScores) {
             var candidate = scored.candidate();
             var terrain = cache.live(key(candidate.chunkX(), candidate.chunkZ()));
             int surface = terrain == null || dirty.contains(key(candidate.chunkX(), candidate.chunkZ()))
@@ -523,8 +550,8 @@ public final class SuspiciousChunkFinderFeature implements ModuleFeature {
             if (activityOverflow) lines.add("Growth history full; toggle to start a new scan");
             else if (activityResult == null) lines.add("Activity estimate: gathering growth evidence");
             else if (activityResult.candidates().isEmpty()) lines.add(switch (activityResult.status()) {
-                case INSUFFICIENT -> "Activity estimate: more spread-out growth evidence needed";
-                case BROAD -> "Activity estimate: area is still too broad";
+                case INSUFFICIENT -> "Activity estimate: gathering growth evidence";
+                case BROAD -> "Activity estimate: gathering growth evidence";
                 case INCONSISTENT -> "Activity estimate: no shared area at this radius";
                 case BUDGET_LIMIT -> "Activity estimate: too much evidence for one area";
                 default -> "Activity estimate: gathering growth evidence";
@@ -637,6 +664,7 @@ public final class SuspiciousChunkFinderFeature implements ModuleFeature {
     }
     private record PathBlock(Pos pos, int cell) { }
     private record ActivityMarker(int x, int z, double y, Evaluation evaluation) { }
-    private record ActivityResult(long generation, long version, SuspiciousActivity.Result estimate) { }
+    private record ActivityResult(long generation, long version, SuspiciousActivity.Result estimate,
+                                  List<SuspiciousActivity.ScoredCandidate> scores) { }
     private record Classified(short code, boolean surface) { }
 }

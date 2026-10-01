@@ -19,12 +19,13 @@ public final class SuspiciousActivityCheck {
             throwsType(IllegalArgumentException.class, () -> estimate(List.of(), 1));
             throwsType(IllegalArgumentException.class, () -> estimate(List.of(), 13));
         });
-        run("empty or one local growth patch cannot invent an activity center", () -> {
+        run("empty evidence waits; a qualified local population can offer many locations", () -> {
             check(estimate(List.of(), 7).status() == Status.INSUFFICIENT);
             List<GrowthObservation> farm = new ArrayList<>();
             for (int i = 0; i < 4096; i++) farm.add(point(i & 15, (i >> 4) & 15));
             Result result = estimate(farm, 7);
-            check(result.evidenceChunks() == 1 && result.candidates().isEmpty());
+            check(result.evidenceChunks() == 1 && result.status() == Status.ESTIMATED);
+            check(result.candidates().size() > 4);
         });
         run("balanced boundary evidence narrows a center without forcing four markers", () -> {
             Result result = estimate(compass(8, 8, 7), 7);
@@ -42,34 +43,50 @@ public final class SuspiciousActivityCheck {
             check(new HashSet<>(result.candidates()).equals(Set.of(new Candidate(-1, -1), new Candidate(-1, 0),
                 new Candidate(0, -1), new Candidate(0, 0))));
         });
-        run("broad positive evidence is not trimmed to the best four chunks", () -> {
+        run("broad positive evidence keeps every best supported chunk", () -> {
             Result result = estimate(compass(8, 8, 4), 7);
-            check(result.status() == Status.BROAD && result.compatibleChunks() > 4);
-            check(result.candidates().isEmpty());
+            check(result.status() == Status.ESTIMATED && result.compatibleChunks() > 4);
+            check(result.candidates().size() == result.compatibleChunks());
+            assertBestCenters(compass(8, 8, 4), 7, result);
         });
-        run("one-sided and collinear evidence remain insufficient", () -> {
+        run("one-sided and collinear evidence can produce locations", () -> {
             check(estimate(List.of(point(-112, 0), point(-64, 0), point(64, 0), point(112, 0)), 7)
-                .candidates().isEmpty());
+                .status() == Status.ESTIMATED);
             check(estimate(List.of(point(0, 0), point(16, 16), point(32, 32), point(48, 48)), 7)
-                .candidates().isEmpty());
+                .candidates().size() > 4);
         });
-        run("one small population spanning four chunk corners stays insufficient", () -> {
+        run("qualified evidence spanning four chunk corners does not need axis spread", () -> {
             Result result = estimate(List.of(point(5, 5), point(25, 5), point(5, 25), point(25, 25)), 2);
-            check(result.evidenceChunks() == 4 && result.status() == Status.INSUFFICIENT);
+            check(result.evidenceChunks() == 4 && result.status() == Status.ESTIMATED);
+            check(!result.candidates().isEmpty());
         });
-        run("separate disk overlaps cannot invent a nonexistent shared center", () -> {
-            Result result = estimate(List.of(point(0, 0), point(200, 0), point(100, 173), point(100, 156)), 7);
-            check(result.status() != Status.ESTIMATED && result.candidates().isEmpty());
+        run("conflicting footprints use real maximum support instead of inventing a shared center", () -> {
+            List<GrowthObservation> data = List.of(point(0, 0), point(200, 0), point(100, 173), point(100, 156));
+            Result result = estimate(data, 7);
+            check(result.status() == Status.ESTIMATED && !result.candidates().isEmpty());
+            assertBestCenters(data, 7, result);
         });
-        run("contradictory distant footprints do not yield a fabricated midpoint", () -> {
-            List<GrowthObservation> evidence = new ArrayList<>(compass(8, 8, 7));
+        run("an isolated distant outlier cannot block the stronger local footprint", () -> {
+            List<GrowthObservation> evidence = new ArrayList<>(compass(8, 8, 4));
             evidence.add(point(1024, 1024));
-            check(estimate(evidence, 7).status() == Status.INCONSISTENT);
+            Result result = estimate(evidence, 7);
+            check(result.status() == Status.ESTIMATED);
+            check(result.candidates().stream().allMatch(c -> Math.abs(c.chunkX()) < 8 && Math.abs(c.chunkZ()) < 8));
+            assertBestCenters(evidence, 7, result);
         });
-        run("changed radius can broaden or reject the same observations", () -> {
-            check(estimate(compass(8, 8, 7), 6).status() == Status.INCONSISTENT);
+        run("changed radius adjusts support without suppressing all locations", () -> {
+            check(estimate(compass(8, 8, 7), 6).status() == Status.ESTIMATED);
             Result large = estimate(compass(8, 8, 7), 8);
-            check(large.status() == Status.BROAD && large.candidates().isEmpty());
+            check(large.status() == Status.ESTIMATED && large.candidates().size() > 4);
+        });
+        run("equally supported separated regions are both kept with no marker count cap", () -> {
+            List<GrowthObservation> evidence = new ArrayList<>(compass(8, 8, 4));
+            evidence.addAll(compass(520, 8, 4));
+            Result result = estimate(evidence, 7);
+            check(result.status() == Status.ESTIMATED && result.candidates().size() > 4);
+            check(result.candidates().stream().anyMatch(c -> c.chunkX() < 8));
+            check(result.candidates().stream().anyMatch(c -> c.chunkX() > 24));
+            assertBestCenters(evidence, 7, result);
         });
         run("negative coordinates and translation across the world preserve geometry", () -> {
             for (int offset : new int[]{-16000, 16000, -29_000_000, 29_000_000}) {
@@ -178,6 +195,32 @@ public final class SuspiciousActivityCheck {
     }
     private static Finding finding(Check check, int chunkX, int chunkZ) {
         return new Finding(check, (long) chunkX << 32 | chunkZ & 0xffffffffL, chunkX, chunkZ);
+    }
+    /** Small independent exhaustive oracle for fixtures whose best locations contain chunk centers. */
+    private static void assertBestCenters(List<GrowthObservation> evidence, int radius, Result actual) {
+        var unique = new java.util.TreeMap<Long, GrowthObservation>();
+        for (var p : evidence) unique.merge((long) Math.floorDiv(p.blockX(), 16) << 32
+            | Math.floorDiv(p.blockZ(), 16) & 0xffffffffL, p, SuspiciousActivity::representative);
+        Set<Candidate> search = new HashSet<>();
+        for (var p : unique.values()) for (int x = Math.floorDiv(p.blockX(), 16) - radius - 1;
+             x <= Math.floorDiv(p.blockX(), 16) + radius + 1; x++)
+            for (int z = Math.floorDiv(p.blockZ(), 16) - radius - 1;
+                 z <= Math.floorDiv(p.blockZ(), 16) + radius + 1; z++) search.add(new Candidate(x, z));
+        int maximum = 0;
+        Set<Candidate> expected = new HashSet<>();
+        for (var c : search) {
+            int support = 0;
+            for (var p : unique.values()) {
+                double dx = c.chunkX() * 16.0 + 8 - (p.blockX() + .5);
+                double dz = c.chunkZ() * 16.0 + 8 - (p.blockZ() + .5);
+                if (dx * dx + dz * dz <= radius * radius * 256.0 + 1e-7) support++;
+            }
+            if (support > maximum) { maximum = support; expected.clear(); }
+            if (support == maximum && support > 0) expected.add(c);
+        }
+        check(maximum > 0);
+        check(new HashSet<>(actual.candidates()).equals(expected));
+        check(actual.candidates().size() == expected.size());
     }
     private static EnumSet<Check> allChecks() { return EnumSet.allOf(Check.class); }
     private static Evaluation scored(Result fit, List<Finding> evidence, Set<Check> enabled) {
