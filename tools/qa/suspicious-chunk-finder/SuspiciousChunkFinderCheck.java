@@ -93,6 +93,17 @@ public final class SuspiciousChunkFinderCheck {
         run("large natural dirt seam is not a compact edit", () -> {
             Scene s=soil(COARSE_DIRT);s.fill(5,64,5,10,64,10,DIRT);eq(0,evaluate(s).score(),"large patch");
         });
+        run("oversized dirt component cannot reappear as a compact unvisited tail", () -> {
+            Scene s=new Scene();s.fill(-2,64,1,16,64,13,COARSE_DIRT);
+            s.fill(0,64,3,14,64,3,DIRT);s.fill(13,64,4,14,64,5,DIRT);
+            eq(0,evaluate(s).score(),"connected nineteen-block seam is never a separate repair");
+        });
+        run("rejecting an oversized dirt component preserves an independent repair", () -> {
+            Scene s=new Scene();s.fill(-2,64,1,16,64,13,COARSE_DIRT);
+            s.fill(0,64,3,14,64,3,DIRT);s.fill(13,64,4,14,64,5,DIRT);
+            s.fill(3,64,10,4,64,11,DIRT);
+            eq(10,evaluate(s).score(),"separate compact repair still recognized");
+        });
     }
 
     private static void plants() {
@@ -172,6 +183,12 @@ public final class SuspiciousChunkFinderCheck {
             for(int i=0;i<15;i++)s.set(6+i%5,30,6+i/5,cell(CLUSTER,0,0));
             check(!evaluate(s).contributions().containsKey(Check.MATURE_GEODE),"crystals face away from attachment");
         });
+        run("oversized amethyst component cannot reappear as a mature geode tail", () -> {
+            Scene s=geode(15,15,CLUSTER);
+            s.fill(-12,14,-12,3,29,3,AMETHYST);
+            s.fill(3,29,3,5,29,3,AMETHYST);s.fill(5,29,3,5,29,5,AMETHYST);
+            eq(0,evaluate(s).score(),"clipped remainder is not a complete geode");
+        });
     }
 
     private static void snapshots() {
@@ -187,6 +204,31 @@ public final class SuspiciousChunkFinderCheck {
             eq(STONE,view.cell(1,1,1),"map copy");eq(UNKNOWN,view.cell(16,1,1),"absent neighbor");
             eq(Integer.MIN_VALUE,view.surfaceY(16,1),"absent surface");boolean immutable=false;
             try{view.chunks().clear();}catch(UnsupportedOperationException expected){immutable=true;}check(immutable,"immutable map");
+        });
+        run("compressed sections skip noncandidate cells and preserve partial-height semantics", () -> {
+            int[] heights=new int[256];Arrays.fill(heights,2);
+            short[] mixed=new short[4096];Arrays.fill(mixed,(short)AIR);
+            mixed[(2<<8)|(3<<4)|4]=(short)cell(KELP,25,0);
+            var c=new SuspiciousSnapshots.Chunk(-1,-2,-7,27,new short[][]{{(short)STONE},mixed,{(short)UNKNOWN}},heights,1,1);
+            var view=new SuspiciousSnapshots.View(Map.of(SuspiciousSnapshots.key(-1,-2),c),-7,27);
+            long[] reads={0};
+            Terrain counted=new Terrain() {
+                public int cell(int x,int y,int z){reads[0]++;return view.cell(x,y,z);}
+                public int floorY(){return view.floorY();} public int topY(){return view.topY();}
+                public int surfaceY(int x,int z){return view.surfaceY(x,z);}
+                public int uniformSectionCell(int x,int y,int z){return view.uniformSectionCell(x,y,z);}
+            };
+            var fast=summarize(counted,-1,-2);eq(4096,(int)reads[0],"only one mixed section visited");
+            Terrain fallback=new Terrain() {
+                public int cell(int x,int y,int z){return view.cell(x,y,z);}
+                public int floorY(){return view.floorY();} public int topY(){return view.topY();}
+                public int surfaceY(int x,int z){return view.surfaceY(x,z);}
+            };
+            var slow=summarize(fallback,-1,-2);
+            check(fast.equals(slow),"optimized and general analysis agree exactly");
+            eq(1,fast.candidates().size(),"candidate preserved");check(!fast.complete(),"unknown section retained");
+            reads[0]=0;var absent=summarize(counted,0,0);eq(0,(int)reads[0],"absent chunk has no block probes");
+            check(!absent.complete()&&absent.candidates().isEmpty(),"absent remains unknown");
         });
         run("unknown surfaces cannot fabricate marker heights and fill only once", () -> {
             int[] heights=new int[256];Arrays.fill(heights,Integer.MIN_VALUE);
@@ -217,6 +259,22 @@ public final class SuspiciousChunkFinderCheck {
             eq(25,age(filled.cell(1,20,1)),"unknown section filled");
             check(filled.observedMillis==111,"original observation time");
             cache.put(chunk(0,0,cell(KELP,24,0),3));eq(25,age(cache.first().get(0L).cell(1,0,0)),"filled only once");
+        });
+        run("unknown-only updates preserve the first snapshot identity", () -> {
+            int[] heights=new int[256];Arrays.fill(heights,Integer.MIN_VALUE);
+            var first=new SuspiciousSnapshots.Chunk(0,0,0,32,new short[][]{null,{0}},heights,111,1);
+            var cache=new SuspiciousSnapshots.Cache();cache.put(first);
+            cache.put(new SuspiciousSnapshots.Chunk(0,0,0,32,new short[][]{{0},{0}},heights.clone(),222,2));
+            check(cache.first(0L)==first,"unknown does not invalidate cached first summary");
+            check(cache.first(1L)==null,"missing direct first lookup");
+        });
+        run("new surface heights fill even when the first block cells were all known", () -> {
+            int[] heights=new int[256];Arrays.fill(heights,Integer.MIN_VALUE);heights[0]=5;
+            var first=new SuspiciousSnapshots.Chunk(0,0,0,32,new short[][]{{3},{3}},heights,111,1);
+            var cache=new SuspiciousSnapshots.Cache();cache.put(first);cache.put(chunk(0,0,DEEPSLATE,2));
+            var filled=cache.first().get(0L);eq(5,filled.surface(0,0),"known original surface stays");
+            eq(20,filled.surface(1,0),"newly observed surface fills");eq(20,filled.representativeSurface(),"cached quartile updated");
+            eq(STONE,filled.cell(1,0,0),"known original block stays");
         });
         run("unload and revisit retain the original growth baseline", () -> {
             var cache=new SuspiciousSnapshots.Cache();cache.put(chunk(0,0,cell(KELP,22,0),1));cache.unload(0L);
@@ -444,6 +502,26 @@ public final class SuspiciousChunkFinderCheck {
             try {summarize(new Scene(),0,0);}catch(CancellationException expected){stopped=true;}
             finally{Thread.interrupted();}
             check(stopped,"interrupted worker stops before scanning");
+        });
+        run("evaluation stops immediately when its worker has been cancelled", () -> {
+            Thread.currentThread().interrupt();boolean cancelled=false;
+            try{SuspiciousAnalysis.evaluate(new Scene(),0,0,List.of(),Set.of(),List.of());}
+            catch(CancellationException expected){cancelled=true;}
+            finally{Thread.interrupted();}
+            check(cancelled,"cancelled job never starts feature processing");
+        });
+        run("active plant evaluation notices cancellation within a bounded probe interval", () -> {
+            List<Pos> seeds=new ArrayList<>();for(int y=4;y<68;y++)for(int x=0;x<16;x++)seeds.add(new Pos(x,y,8));
+            long[] reads={0};Terrain cancelling=new Terrain() {
+                public int floorY(){return 0;}public int topY(){return 96;}
+                public int surfaceY(int x,int z){return 64;}
+                public int cell(int x,int y,int z){if(++reads[0]==128)Thread.currentThread().interrupt();return VINE;}
+            };
+            boolean cancelled=false;
+            try{SuspiciousAnalysis.evaluate(cancelling,0,0,List.of(new ChunkSummary(0,0,seeds,true)),Set.of(Check.GROUNDED_VINES),List.of());}
+            catch(CancellationException expected){cancelled=true;}
+            finally{Thread.interrupted();}
+            check(cancelled,"active cancelled analysis aborted");check(reads[0]<=1024,"bounded cancellation probes");
         });
     }
 

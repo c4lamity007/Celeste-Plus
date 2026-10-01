@@ -77,6 +77,40 @@ public final class SuspiciousGeometryOutlineCheck {
             check(job.buriedBlocks().equals(first), "stable repeated reads");
             check(finish(job(new Scene())).buriedBlocks().isEmpty(), "new lifecycle has no old route");
         });
+        run("disabled geometry checks perform no terrain work", () -> {
+            Terrain forbidden=new Terrain() {
+                public int cell(int x,int y,int z){throw new AssertionError("disabled cell read");}
+                public int surfaceY(int x,int z){throw new AssertionError("disabled surface read");}
+                public int floorY(){throw new AssertionError("disabled floor read");}
+                public int topY(){throw new AssertionError("disabled top read");}
+            };
+            var job=new SuspiciousGeometry.Job(forbidden,0,0,
+                List.of(new ChunkSummary(0,0,List.of(new Pos(8,30,8)),true)),Set.of());
+            check(job.isDone()&&job.advance(512,Long.MAX_VALUE)==0,"no disabled work");
+            check(job.findings().isEmpty()&&job.buriedBlocks().isEmpty(),"no disabled findings");
+        });
+        run("buried-only geometry never scans surface columns", () -> {
+            Scene scene=new Scene();scene.line(8,30,8,8,41,8);
+            Terrain terrain=new Terrain() {
+                public int cell(int x,int y,int z){return scene.cell(x,y,z);}
+                public int surfaceY(int x,int z){throw new AssertionError("shaft phase disabled");}
+                public int floorY(){return scene.floorY();}public int topY(){return scene.topY();}
+            };
+            var job=finish(new SuspiciousGeometry.Job(terrain,0,0,summaries(scene),Set.of(Check.BURIED_ACCESS_PATH)));
+            check(job.findings().size()==1&&job.findings().getFirst().check()==Check.BURIED_ACCESS_PATH,"only buried finding");
+            check(job.workSteps()<50,"no 2304-column shaft scan");
+        });
+        run("shaft-only geometry skips filled candidate classification", () -> {
+            Scene scene=new Scene();scene.line(8,30,8,8,41,8);long[] reads={0};
+            Terrain terrain=new Terrain() {
+                public int cell(int x,int y,int z){reads[0]++;return scene.cell(x,y,z);}
+                public int surfaceY(int x,int z){return scene.surfaceY(x,z);}
+                public int floorY(){return scene.floorY();}public int topY(){return scene.topY();}
+            };
+            var job=new SuspiciousGeometry.Job(terrain,0,0,summaries(scene),Set.of(Check.OPEN_SHAFTS));
+            check(reads[0]==0,"no eager classification of disabled filler seeds");finish(job);
+            check(job.findings().isEmpty()&&job.buriedBlocks().isEmpty(),"buried route remains disabled");
+        });
         System.out.println("RESULT " + cases + " passed; " + assertions + " assertions; fixture only");
     }
 

@@ -19,6 +19,7 @@ public final class SuspiciousSnapshots {
         private final int[] surface;
         private final long bytes;
         private final boolean hasUnknown;
+        private final int representativeSurface;
 
         /** Ownership of arrays transfers to this object; the caller must not mutate them. */
         public Chunk(int x, int z, int floor, int top, short[][] sections, int[] surface,
@@ -38,6 +39,10 @@ public final class SuspiciousSnapshots {
                     if (y >= floor && y < top && section[i] == SuspiciousAnalysis.UNKNOWN) { unknown = true; break; }
                 }
             }
+            int[] knownHeights = java.util.Arrays.stream(surface).filter(y -> y != Integer.MIN_VALUE).toArray();
+            java.util.Arrays.sort(knownHeights);
+            representativeSurface = knownHeights.length == 0 ? Integer.MIN_VALUE : knownHeights[knownHeights.length * 3 / 4];
+            unknown |= knownHeights.length != surface.length;
             this.bytes = size;
             this.hasUnknown = unknown;
         }
@@ -50,6 +55,12 @@ public final class SuspiciousSnapshots {
         }
 
         public int surface(int x, int z) { return surface[(z & 15) << 4 | x & 15]; }
+        public int uniformSectionCell(int sectionY) {
+            int index = sectionY - Math.floorDiv(base, 16);
+            if (index < 0 || index >= sections.length) return SuspiciousAnalysis.UNKNOWN;
+            short[] section = sections[index];
+            return section == null ? SuspiciousAnalysis.UNKNOWN : section.length == 1 ? section[0] & 0xffff : -1;
+        }
         public long bytes() { return bytes; }
         private Chunk fillUnknown(Chunk newer) {
             if (!hasUnknown) return this;
@@ -58,6 +69,14 @@ public final class SuspiciousSnapshots {
                 short[] old = sections[s], fresh = newer.sections[s];
                 if (fresh == null) continue;
                 if (old == null || old.length == 1 && old[0] == SuspiciousAnalysis.UNKNOWN) {
+                    boolean suppliesKnown = false;
+                    int from = Math.max(0, floor - base - s * 16) * 256;
+                    int to = Math.min(16, top - base - s * 16) * 256;
+                    if (fresh.length == 1) suppliesKnown = fresh[0] != SuspiciousAnalysis.UNKNOWN;
+                    else for (int i = from; i < to; i++) if (fresh[i] != SuspiciousAnalysis.UNKNOWN) {
+                        suppliesKnown = true; break;
+                    }
+                    if (!suppliesKnown) continue;
                     if (merged == null) merged = sections.clone();
                     merged[s] = fresh;
                 } else if (old.length > 1) {
@@ -83,10 +102,7 @@ public final class SuspiciousSnapshots {
                 merged == null ? sections : merged, heights, observedMillis, newer.revision);
         }
         public int representativeSurface() {
-            int[] values = java.util.Arrays.stream(surface).filter(y -> y != Integer.MIN_VALUE).toArray();
-            if (values.length == 0) return Integer.MIN_VALUE;
-            java.util.Arrays.sort(values);
-            return values[values.length * 3 / 4]; // Upper quartile keeps a flat marker above most local terrain.
+            return representativeSurface; // Immutable upper quartile; no allocation during marker publication.
         }
     }
 
@@ -101,6 +117,11 @@ public final class SuspiciousSnapshots {
             Chunk chunk = chunks.get(key(x >> 4, z >> 4));
             return chunk == null ? Integer.MIN_VALUE : chunk.surface(x, z);
         }
+        @Override public int uniformSectionCell(int chunkX, int sectionY, int chunkZ) {
+            if ((long) sectionY * 16 >= topY || (long) sectionY * 16 + 16 <= floorY) return SuspiciousAnalysis.UNKNOWN;
+            Chunk chunk = chunks.get(key(chunkX, chunkZ));
+            return chunk == null ? SuspiciousAnalysis.UNKNOWN : chunk.uniformSectionCell(sectionY);
+        }
     }
 
     /** First observations never get replaced by later growth, even after memory eviction. */
@@ -111,6 +132,7 @@ public final class SuspiciousSnapshots {
         private final LinkedHashMap<Long, Chunk> first = new LinkedHashMap<>();
         private final Set<Long> seen = new HashSet<>();
         public Chunk live(long key) { return live.get(key); }
+        public Chunk first(long key) { return first.get(key); }
         public Map<Long, Chunk> live() { return Map.copyOf(live); }
         public Map<Long, Chunk> first() { return Map.copyOf(first); }
         public int size() { return live.size(); }

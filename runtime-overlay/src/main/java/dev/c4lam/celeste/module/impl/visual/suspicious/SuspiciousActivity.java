@@ -3,6 +3,8 @@ package dev.c4lam.celeste.module.impl.visual.suspicious;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -23,7 +25,8 @@ public final class SuspiciousActivity {
     private SuspiciousActivity() { }
 
     public static final int DEFAULT_RADIUS = 7, MIN_RADIUS = 2, MAX_RADIUS = 12;
-    public static final int MAX_OBSERVATIONS = 8192, MAX_EVIDENCE_CHUNKS = 512;
+    public static final int MAX_OBSERVATIONS = 8192;
+    public static final int MAX_EVIDENCE_CHUNKS = (4 * MAX_RADIUS + 1) * (4 * MAX_RADIUS + 1);
     public static final int MIN_EVIDENCE_CHUNKS = 1;
     // This is a work bound, not a cap on the number of displayed answers. The
     // caller's local +/-2R evidence window expands to at most this grid size.
@@ -53,23 +56,44 @@ public final class SuspiciousActivity {
         if (estimate.status() != Status.ESTIMATED || estimate.candidates().isEmpty()) return List.of();
         if (estimate.radiusChunks() < MIN_RADIUS || estimate.radiusChunks() > MAX_RADIUS)
             throw new IllegalArgumentException("Activity radius must be 2 through 12 chunks");
+        // Several checks and overlapping windows can describe the same chunk.
+        // Filter/deduplicate once, then do one distance test per occupied chunk
+        // per candidate instead of repeating it for every individual finding.
+        LinkedHashMap<Long, FindingChunk> chunks = new LinkedHashMap<>();
+        LinkedHashSet<Finding> unique = new LinkedHashSet<>();
+        for (Finding finding : actualFindings) {
+            interrupted();
+            if (!enabled.contains(finding.check()) || !unique.add(finding)) continue;
+            long key = (long) finding.chunkX() << 32 | finding.chunkZ() & 0xffffffffL;
+            FindingChunk chunk = chunks.computeIfAbsent(key,
+                unused -> new FindingChunk(finding.chunkX(), finding.chunkZ()));
+            (finding.check() == Check.OPEN_SHAFTS ? chunk.shafts : chunk.positive).add(finding);
+        }
+        int radius = estimate.radiusChunks(), maximumRadius = Math.max(3, radius);
+        int positiveDistance = radius * radius;
         ArrayList<ScoredCandidate> scored = new ArrayList<>();
         for (Candidate candidate : estimate.candidates()) {
             interrupted();
             ArrayList<Finding> local = new ArrayList<>();
-            for (Finding finding : actualFindings) {
+            for (FindingChunk chunk : chunks.values()) {
                 interrupted();
-                if (!enabled.contains(finding.check())) continue;
-                int radius = finding.check() == Check.OPEN_SHAFTS ? 3 : estimate.radiusChunks();
-                long dx = (long) finding.chunkX() - candidate.chunkX();
-                long dz = (long) finding.chunkZ() - candidate.chunkZ();
+                long dx = (long) chunk.x - candidate.chunkX();
+                long dz = (long) chunk.z - candidate.chunkZ();
                 // Axis checks also prevent overflow for arbitrary fixture coordinates.
-                if (Math.abs(dx) <= radius && Math.abs(dz) <= radius && dx * dx + dz * dz <= radius * radius)
-                    local.add(finding);
+                if (Math.abs(dx) > maximumRadius || Math.abs(dz) > maximumRadius) continue;
+                long distance = dx * dx + dz * dz;
+                if (distance <= positiveDistance) local.addAll(chunk.positive);
+                if (distance <= 9) local.addAll(chunk.shafts);
             }
             scored.add(new ScoredCandidate(candidate, SuspiciousAnalysis.score(local, enabled)));
         }
         return List.copyOf(scored);
+    }
+
+    private static final class FindingChunk {
+        final int x, z;
+        final List<Finding> positive = new ArrayList<>(), shafts = new ArrayList<>();
+        FindingChunk(int x, int z) { this.x = x; this.z = z; }
     }
 
     /** Stable representative of one evidence chunk; suitable for a bounded session map. */
@@ -88,7 +112,7 @@ public final class SuspiciousActivity {
     }
 
     /**
-     * At most 512 distinct chunks and 8192 raw observations are processed.
+     * At most one full local +/-2R window and 8192 raw observations are processed.
      * Each chunk supplies one actual qualified point, so forests/farms receive
      * no extra vote. Every center with the best observed support is retained.
      * Call on the immutable-analysis worker, not the Minecraft/render thread.
@@ -152,7 +176,13 @@ public final class SuspiciousActivity {
         // exact all-evidence witness over a weaker grid fit, preserving answers
         // on chunk edges and corners without inventing circle-overlap midpoints.
         if (maximumSupport < count && lowX <= highX && lowZ <= highZ) {
-            Witness shared = witness(points, radiusSquared, (lowX + highX) / 2, (lowZ + highZ) / 2, budget);
+            // Interior observations remain votes above, but add no constraint
+            // to this exact intersection: distance to a fixed center is convex.
+            // Keeping only hull vertices avoids quadratic redundant pair tests
+            // exhausting the witness budget on a densely observed area.
+            List<GrowthObservation> boundary = convexHull(points, budget);
+            Witness shared = budget.exhausted ? null
+                : witness(boundary, radiusSquared, (lowX + highX) / 2, (lowZ + highZ) / 2, budget);
             if (budget.exhausted) return result(Status.BUDGET_LIMIT, radiusChunks, count, 0);
             if (shared != null) {
                 ArrayList<Candidate> touching = new ArrayList<>();
@@ -190,6 +220,34 @@ public final class SuspiciousActivity {
         return dx * dx + dz * dz;
     }
     private record Witness(double x, double z) { }
+    private static List<GrowthObservation> convexHull(List<GrowthObservation> points, Budget budget) {
+        if (points.size() <= 2) return points;
+        ArrayList<GrowthObservation> ordered = new ArrayList<>(points);
+        ordered.sort(Comparator.comparingInt(GrowthObservation::blockX).thenComparingInt(GrowthObservation::blockZ));
+        ArrayList<GrowthObservation> hull = new ArrayList<>();
+        for (GrowthObservation point : ordered) {
+            if (!budget.take()) return List.of();
+            while (hull.size() >= 2 && turn(hull.get(hull.size() - 2), hull.getLast(), point) <= 0)
+                hull.removeLast();
+            hull.add(point);
+        }
+        int lower = hull.size();
+        for (int i = ordered.size() - 2; i >= 0; i--) {
+            if (!budget.take()) return List.of();
+            GrowthObservation point = ordered.get(i);
+            while (hull.size() > lower && turn(hull.get(hull.size() - 2), hull.getLast(), point) <= 0)
+                hull.removeLast();
+            hull.add(point);
+        }
+        hull.removeLast();
+        return hull;
+    }
+    private static long turn(GrowthObservation a, GrowthObservation b, GrowthObservation c) {
+        // Called only after overlapping radius bounds establish that both axis
+        // spans are <=384 blocks, so these exact integer products cannot overflow.
+        return ((long) b.blockX() - a.blockX()) * ((long) c.blockZ() - a.blockZ())
+            - ((long) b.blockZ() - a.blockZ()) * ((long) c.blockX() - a.blockX());
+    }
     private static Witness witness(List<GrowthObservation> points, double radiusSquared,
                                    double middleX, double middleZ, Budget budget) {
         if (insideAll(points, middleX, middleZ, radiusSquared, budget)) return new Witness(middleX, middleZ);

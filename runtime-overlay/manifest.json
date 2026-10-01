@@ -679,7 +679,7 @@
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/SuspiciousChunkFinderFeature.java",
-      "sha256": "b196ba1ac05a74089699ad8762dbee4219ea67cd93ccf0d417c622342bd3f917",
+      "sha256": "7c234fdcaf46ee3bc882643954703e43797d18edda24e93457da76fbe3f00f7d",
       "baseSha256": null
     },
     {
@@ -1025,21 +1025,21 @@
     {
       "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/suspicious/SuspiciousActivity.java",
       "baseSha256": null,
-      "sha256": "9d8beb59adcb8ef0b08b35dfedc808f2adb8df67667723cc9e57cbc547d3c603"
+      "sha256": "e13dd99580e6a9dc2de21701a44d7906b4006d084c06e5bdc6a98b1a5409fc5e"
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/suspicious/SuspiciousAnalysis.java",
-      "sha256": "56c5265bd0663f607a0a6792bf308fb0bd334cee5b699eac449ac7dfa9b22745",
+      "sha256": "caea1a813d340135c8ccf65e581891758629857f47bfa0dd5238317cd79aafdf",
       "baseSha256": null
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/suspicious/SuspiciousGeometry.java",
-      "sha256": "ac3d9c34a905b9b4e35348379403b7202d05b2a39c5c58efeebf0f4667e414f2",
+      "sha256": "2ca4045c03cee947f12764dc8a984d8e718cea36928671a33e2fded6efe4bd9b",
       "baseSha256": null
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/module/impl/visual/suspicious/SuspiciousSnapshots.java",
-      "sha256": "719b8c14ebd75d5c67df8720f97fab07d07d8545c055ae906e66f34102343c79",
+      "sha256": "c52d1a3aa026cd89e785ebd7e44412c682d265fdc687462361203015298da49a",
       "baseSha256": null
     },
     {

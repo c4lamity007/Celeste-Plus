@@ -50,14 +50,20 @@ public final class SuspiciousGeometry {
         private long workSteps;
 
         public Job(Terrain terrain, int centerChunkX, int centerChunkZ, List<ChunkSummary> summaries) {
+            this(terrain, centerChunkX, centerChunkZ, summaries, Set.of(Check.OPEN_SHAFTS, Check.BURIED_ACCESS_PATH));
+        }
+
+        public Job(Terrain terrain, int centerChunkX, int centerChunkZ, List<ChunkSummary> summaries, Set<Check> enabled) {
             if (terrain == null) throw new IllegalArgumentException("Terrain is required");
             this.terrain = terrain;
             minX = (centerChunkX - 1) * 16;
             maxX = minX + 48;
             minZ = (centerChunkZ - 1) * 16;
             maxZ = minZ + 48;
+            openFound = !enabled.contains(Check.OPEN_SHAFTS);
+            buriedFound = !enabled.contains(Check.BURIED_ACCESS_PATH);
             Set<Pos> candidates = new HashSet<>();
-            if (summaries != null) for (ChunkSummary summary : summaries) {
+            if (!buriedFound && summaries != null) for (ChunkSummary summary : summaries) {
                 interrupted();
                 if (summary == null || Math.abs((long) summary.chunkX() - centerChunkX) > 1
                         || Math.abs((long) summary.chunkZ() - centerChunkZ) > 1) continue;
@@ -70,7 +76,7 @@ public final class SuspiciousGeometry {
                 int byX = Integer.compare(a.x(), b.x());
                 return byX != 0 ? byX : Integer.compare(a.z(), b.z());
             });
-            done = terrain.topY() <= terrain.floorY();
+            done = openFound && buriedFound || terrain.topY() <= terrain.floorY();
         }
 
         public int advance(int maxWorkSteps, long deadlineNanos) {

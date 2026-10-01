@@ -45,6 +45,8 @@ public final class SuspiciousAnalysis {
         int floorY();
         int topY(); // Exclusive.
         int surfaceY(int x, int z); // Top solid/water block, or Integer.MIN_VALUE if unknown.
+        /** Encoded uniform section cell, or -1 when the adapter cannot prove uniformity. */
+        default int uniformSectionCell(int chunkX, int sectionY, int chunkZ) { return -1; }
     }
 
     public enum Check {
@@ -135,6 +137,12 @@ public final class SuspiciousAnalysis {
         int minX = chunkX << 4, minZ = chunkZ << 4;
         for (int y = terrain.floorY(); y < terrain.topY(); y++) {
             interrupted();
+            int uniform = terrain.uniformSectionCell(chunkX, Math.floorDiv(y, 16), chunkZ);
+            if (uniform >= 0 && !candidate(kind(uniform))) {
+                if (kind(uniform) == UNKNOWN) complete = false;
+                y = Math.min(terrain.topY(), Math.floorDiv(y, 16) * 16 + 16) - 1;
+                continue;
+            }
             for (int z = minZ; z < minZ + 16; z++) {
                 for (int x = minX; x < minX + 16; x++) {
                     int k = kind(terrain.cell(x, y, z));
@@ -181,6 +189,7 @@ public final class SuspiciousAnalysis {
             Collection<ChunkSummary> currentSummaries, Collection<ChunkSummary> firstSummaries,
             Set<Check> enabled, Collection<Finding> geometry) {
         Window live = new Window(current, centerX, centerZ);
+        interrupted();
         Window first = new Window(firstGrowth, centerX, centerZ);
         List<Pos> liveSeeds = seeds(currentSummaries, centerX, centerZ);
         List<Pos> firstSeeds = seeds(firstSummaries, centerX, centerZ);
@@ -277,8 +286,10 @@ public final class SuspiciousAnalysis {
             if (!soilNear) continue;
             ArrayDeque<Pos> queue = new ArrayDeque<>();
             List<Pos> patch = new ArrayList<>();
+            Set<Pos> component = new HashSet<>();
             queue.add(seed); visited.add(seed);
-            boolean overflow = false, known = true, structure = false;
+            component.add(seed);
+            boolean overflow = false, known = true, structure = false, clipped = false;
             int minX = seed.x(), maxX = minX, minY = seed.y(), maxY = minY, minZ = seed.z(), maxZ = minZ;
             while (!queue.isEmpty() && patch.size() <= 12) {
                 Pos p = queue.removeFirst(); patch.add(p);
@@ -289,11 +300,14 @@ public final class SuspiciousAnalysis {
                     Pos q = offset(p, d); int k = t.kind(q);
                     if (k == UNKNOWN) known = false;
                     if (k == STRUCTURE) structure = true;
-                    if (k == DIRT && visited.add(q)) queue.addLast(q);
+                    if (k == DIRT) {
+                        if (visited.add(q)) { component.add(q); queue.addLast(q); }
+                        else if (!component.contains(q)) clipped = true;
+                    }
                 }
             }
             if (!queue.isEmpty() || patch.size() > 12) overflow = true;
-            if (overflow || !known || structure || patch.size() < 2 || maxX - minX > 3 || maxY - minY > 2 || maxZ - minZ > 3) continue;
+            if (overflow || clipped || !known || structure || patch.size() < 2 || maxX - minX > 3 || maxY - minY > 2 || maxZ - minZ > 3) continue;
             // A compact regular patch must sit in a consistently different soil, not a mixed deposit.
             Set<Pos> cells = new HashSet<>(patch), boundary = new HashSet<>();
             Map<Integer, Integer> soilCounts = new HashMap<>();
@@ -380,6 +394,7 @@ public final class SuspiciousAnalysis {
         }
         List<List<Sample>> groups = new ArrayList<>();
         for (Pos origin : buckets.keySet()) {
+            interrupted();
             List<Sample> nearby = new ArrayList<>();
             for (int y = -1; y <= 1; y++) for (int z = -1; z <= 1; z++) for (int x = -1; x <= 1; x++) {
                 List<Sample> bucket = buckets.get(origin.offset(x, y, z));
@@ -399,8 +414,10 @@ public final class SuspiciousAnalysis {
             if (++features > MAX_GEODES_PER_WINDOW) return;
             ArrayDeque<Pos> queue = new ArrayDeque<>();
             List<Pos> cells = new ArrayList<>();
+            Set<Pos> component = new HashSet<>();
             queue.add(seed); visited.add(seed);
-            boolean known = true, structure = false, overflow = false;
+            component.add(seed);
+            boolean known = true, structure = false, overflow = false, clipped = false;
             int minX = seed.x(), maxX = minX, minY = seed.y(), maxY = minY, minZ = seed.z(), maxZ = minZ;
             while (!queue.isEmpty()) {
                 Pos p = queue.removeFirst(); cells.add(p);
@@ -412,10 +429,13 @@ public final class SuspiciousAnalysis {
                     Pos q = offset(p, d); int k = t.kind(q);
                     if (k == UNKNOWN) known = false;
                     if (k == STRUCTURE) structure = true;
-                    if (inner(k) && visited.add(q)) queue.addLast(q);
+                    if (inner(k)) {
+                        if (visited.add(q)) { component.add(q); queue.addLast(q); }
+                        else if (!component.contains(q)) clipped = true;
+                    }
                 }
             }
-            if (overflow || structure || cells.size() < MIN_GEODE_INNER) continue;
+            if (overflow || clipped || structure || cells.size() < MIN_GEODE_INNER) continue;
             // Coverage includes the entire shell and cavity; unknown means absence cannot be inferred.
             int width = maxX - minX + 1, height = maxY - minY + 1, depth = maxZ - minZ + 1;
             if (width < 4 || height < 4 || depth < 4 || width > 24 || height > 24 || depth > 24) continue;
@@ -521,12 +541,14 @@ public final class SuspiciousAnalysis {
     private static final class Window implements Terrain {
         private final Terrain source;
         private final int minX, maxX, minZ, maxZ;
+        private int probes;
         private Window(Terrain source, int chunkX, int chunkZ) {
             this.source = source;
             minX = (chunkX - 1) << 4; maxX = (chunkX + 2) << 4;
             minZ = (chunkZ - 1) << 4; maxZ = (chunkZ + 2) << 4;
         }
         @Override public int cell(int x, int y, int z) {
+            if ((probes++ & 1023) == 0) interrupted();
             if (x < minX || x >= maxX || z < minZ || z >= maxZ || y < floorY() || y >= topY()) return UNKNOWN;
             return source.cell(x, y, z);
         }

@@ -66,6 +66,23 @@ public final class SuspiciousActivityCheck {
             check(result.status() == Status.ESTIMATED && !result.candidates().isEmpty());
             assertBestCenters(data, 7, result);
         });
+        run("dense conflicting footprints retain the completed best fit instead of exhausting redundant witness pairs", () -> {
+            // This triangle has no common radius-192 disk center. Interior
+            // evidence supplies real votes but does not change its boundary.
+            List<GrowthObservation> data = new ArrayList<>(List.of(point(0, 0), point(340, 0), point(170, 294)));
+            for (int z = 8; z < 294; z += 16) for (int x = 8; x < 340; x += 16) {
+                if (x < z * 170.0 / 294 || x > 340 - z * 170.0 / 294) continue;
+                int cx = Math.floorDiv(x, 16), cz = Math.floorDiv(z, 16);
+                if ((cx == 0 && cz == 0) || (cx == 21 && cz == 0) || (cx == 10 && cz == 18)) continue;
+                data.add(point(x, z));
+            }
+            check(data.size() > 128);
+            Result result = estimate(data, 12);
+            check(result.status() == Status.ESTIMATED && !result.candidates().isEmpty());
+            assertBestCenters(data, 12, result);
+            Collections.reverse(data);
+            check(estimate(data, 12).equals(result));
+        });
         run("an isolated distant outlier cannot block the stronger local footprint", () -> {
             List<GrowthObservation> evidence = new ArrayList<>(compass(8, 8, 4));
             evidence.add(point(1024, 1024));
@@ -116,9 +133,20 @@ public final class SuspiciousActivityCheck {
         });
         run("over-budget evidence fails without silently selecting convenient points", () -> {
             List<GrowthObservation> data = new ArrayList<>();
-            for (int i = 0; i < 513; i++) data.add(point(i * 16, 0));
+            for (int i = 0; i <= MAX_EVIDENCE_CHUNKS; i++) data.add(point(i * 16, 0));
             check(estimate(data, 7).status() == Status.BUDGET_LIMIT);
             check(estimate(Collections.nCopies(8193, point(0, 0)), 7).status() == Status.BUDGET_LIMIT);
+        });
+        run("all qualified chunks in the largest local window fit without the old 512-chunk cutoff", () -> {
+            List<GrowthObservation> data = new ArrayList<>();
+            for (int x = -2 * MAX_RADIUS; x <= 2 * MAX_RADIUS; x++)
+                for (int z = -2 * MAX_RADIUS; z <= 2 * MAX_RADIUS; z++) data.add(point(x * 16 + 8, z * 16 + 8));
+            check(data.size() == MAX_EVIDENCE_CHUNKS && data.size() > 512);
+            Result result = estimate(data, MAX_RADIUS);
+            check(result.status() == Status.ESTIMATED && !result.candidates().isEmpty());
+            check(result.evidenceChunks() == data.size());
+            Collections.reverse(data);
+            check(estimate(data, MAX_RADIUS).equals(result));
         });
         run("results are immutable and worker cancellation is honored", () -> {
             Result result = estimate(compass(8, 8, 7), 7);
@@ -179,6 +207,37 @@ public final class SuspiciousActivityCheck {
             check(scored(fitted(Integer.MIN_VALUE, Integer.MIN_VALUE, 7),
                 List.of(finding(Check.BURIED_ACCESS_PATH, Integer.MAX_VALUE, Integer.MAX_VALUE)), allChecks()).score() == 0);
         });
+        run("chunk-indexed scoring preserves all findings caps and shaft ranges with a single input traversal", () -> {
+            List<Finding> data = new ArrayList<>();
+            for (int x = -5; x <= 5; x++) for (int z = -5; z <= 5; z++)
+                for (Check check : Check.values()) data.add(finding(check, x, z));
+            data.addAll(List.copyOf(data)); // Repeated overlapping windows must not multiply work or findings.
+            data.add(finding(Check.BURIED_ACCESS_PATH, Integer.MAX_VALUE, Integer.MIN_VALUE));
+            List<Candidate> candidates = List.of(new Candidate(0, 0), new Candidate(-2, 1),
+                new Candidate(3, -4), new Candidate(Integer.MIN_VALUE, Integer.MAX_VALUE));
+            for (int radius : new int[]{2, 7, 12}) {
+                EnumSet<Check> enabled = allChecks(); enabled.remove(Check.MISMATCHED_SOIL);
+                CountingFindings input = new CountingFindings(data);
+                var actual = SuspiciousActivity.score(new Result(Status.ESTIMATED, candidates, radius, 4, 4), input, enabled);
+                check(input.visited == data.size());
+                for (int i = 0; i < candidates.size(); i++) {
+                    Candidate candidate = candidates.get(i);
+                    List<Finding> local = new ArrayList<>();
+                    for (Finding finding : data) {
+                        int reach = finding.check() == Check.OPEN_SHAFTS ? 3 : radius;
+                        long dx = (long) finding.chunkX() - candidate.chunkX();
+                        long dz = (long) finding.chunkZ() - candidate.chunkZ();
+                        if (Math.abs(dx) <= reach && Math.abs(dz) <= reach && dx * dx + dz * dz <= reach * reach)
+                            local.add(finding);
+                    }
+                    Evaluation expected = SuspiciousAnalysis.score(local, enabled), got = actual.get(i).evaluation();
+                    check(got.score() == expected.score());
+                    check(got.contributions().equals(expected.contributions()));
+                    check(new HashSet<>(got.findings()).equals(new HashSet<>(expected.findings())));
+                    check(got.findings().size() == expected.findings().size());
+                }
+            }
+        });
         System.out.println("RESULT " + cases + " passed; " + assertions + " assertions; production activity estimator, no in-game proof");
     }
     private static List<GrowthObservation> compass(int centerX, int centerZ, int radius) {
@@ -195,6 +254,19 @@ public final class SuspiciousActivityCheck {
     }
     private static Finding finding(Check check, int chunkX, int chunkZ) {
         return new Finding(check, (long) chunkX << 32 | chunkZ & 0xffffffffL, chunkX, chunkZ);
+    }
+    private static final class CountingFindings extends java.util.AbstractCollection<Finding> {
+        private final List<Finding> findings;
+        int visited;
+        CountingFindings(List<Finding> findings) { this.findings = findings; }
+        @Override public int size() { return findings.size(); }
+        @Override public java.util.Iterator<Finding> iterator() {
+            var source = findings.iterator();
+            return new java.util.Iterator<>() {
+                @Override public boolean hasNext() { return source.hasNext(); }
+                @Override public Finding next() { visited++; return source.next(); }
+            };
+        }
     }
     /** Small independent exhaustive oracle for fixtures whose best locations contain chunk centers. */
     private static void assertBestCenters(List<GrowthObservation> evidence, int radius, Result actual) {
