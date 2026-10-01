@@ -24,6 +24,8 @@ public final class FreecamFeature implements ModuleFeature {
     private float bodyHeadYaw;
     private float bodyBodyYaw;
     private long lastFrameNanos;
+    private MinecraftClient cullingClient;
+    private boolean previousChunkCulling;
 
     @Override
     public String name() {
@@ -47,6 +49,7 @@ public final class FreecamFeature implements ModuleFeature {
             deactivate(client);
             return;
         }
+        disableChunkCulling(client);
         adoptExternalBodyLook();
         restoreBodyLook();
         if (client.getCameraEntity() != camera) {
@@ -61,6 +64,7 @@ public final class FreecamFeature implements ModuleFeature {
             deactivate(client);
             return;
         }
+        disableChunkCulling(client);
         adoptExternalBodyLook();
         restoreBodyLook();
         moveCamera(client, context.slider("Speed", DEFAULT_SPEED));
@@ -161,7 +165,39 @@ public final class FreecamFeature implements ModuleFeature {
         active = this;
         lastFrameNanos = System.nanoTime();
         restoreBodyLook();
+        disableChunkCulling(client);
         client.setCameraEntity(camera);
+    }
+
+    /**
+     * Both vanilla and Sodium honor this flag for section-to-section occlusion.
+     * A detached camera can see enclosed caves without entering their visibility
+     * graph first. Keep ordinary frustum and render-distance limits intact.
+     */
+    private void disableChunkCulling(MinecraftClient client) {
+        if (cullingClient != client) {
+            restoreChunkCulling();
+            cullingClient = client;
+            previousChunkCulling = client.chunkCullingEnabled;
+        }
+        setChunkCulling(client, false);
+    }
+
+    private void restoreChunkCulling() {
+        if (cullingClient == null) {
+            return;
+        }
+        MinecraftClient client = cullingClient;
+        cullingClient = null;
+        setChunkCulling(client, previousChunkCulling);
+    }
+
+    private static void setChunkCulling(MinecraftClient client, boolean enabled) {
+        if (client.chunkCullingEnabled != enabled) {
+            client.chunkCullingEnabled = enabled;
+            // Invalidate visibility only when it changes, not every frame.
+            client.worldRenderer.scheduleTerrainUpdate();
+        }
     }
 
     private boolean valid(MinecraftClient client) {
@@ -283,6 +319,7 @@ public final class FreecamFeature implements ModuleFeature {
         if (active == this) {
             active = null;
         }
+        restoreChunkCulling();
         body = null;
         camera = null;
         previousCamera = null;
