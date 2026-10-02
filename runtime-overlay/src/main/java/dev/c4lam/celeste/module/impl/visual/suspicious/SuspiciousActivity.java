@@ -6,6 +6,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.TreeMap;
@@ -46,8 +47,16 @@ public final class SuspiciousActivity {
         }
     }
     public record Result(Status status, List<Candidate> candidates, int radiusChunks,
-                         int evidenceChunks, int compatibleChunks) {
-        public Result { candidates = List.copyOf(candidates); }
+                         int evidenceChunks, int compatibleChunks,
+                         Map<Long, GrowthObservation> growthPoints, boolean commonIntersection) {
+        public Result {
+            candidates = List.copyOf(candidates);
+            growthPoints = Map.copyOf(growthPoints);
+        }
+        public Result(Status status, List<Candidate> candidates, int radiusChunks,
+                      int evidenceChunks, int compatibleChunks) {
+            this(status, candidates, radiusChunks, evidenceChunks, compatibleChunks, Map.of(), false);
+        }
     }
 
     /**
@@ -87,6 +96,7 @@ public final class SuspiciousActivity {
             FindingChunk chunk = chunks.computeIfAbsent(key,
                 unused -> new FindingChunk(finding.chunkX(), finding.chunkZ()));
             (finding.check() == Check.OPEN_SHAFTS ? chunk.shafts : chunk.positive).add(finding);
+            if (growthCheck(finding.check())) chunk.growth.add(finding);
         }
         return chunks;
     }
@@ -114,12 +124,28 @@ public final class SuspiciousActivity {
                 // Axis checks also prevent overflow for arbitrary fixture coordinates.
                 if (Math.abs(dx) > maximumRadius || Math.abs(dz) > maximumRadius) continue;
                 long distance = dx * dx + dz * dz;
-                if (distance <= positiveDistance && !append(local, chunk.positive, budget)) return List.of();
+                if (distance <= positiveDistance) {
+                    if (!append(local, chunk.positive, budget)) return List.of();
+                } else if (supportsGrowth(estimate, candidate, chunk)
+                    && !append(local, chunk.growth, budget)) return List.of();
                 if (distance <= 9 && !append(local, chunk.shafts, budget)) return List.of();
             }
             scored.add(new ScoredCandidate(candidate, SuspiciousAnalysis.score(local, enabled)));
         }
         return List.copyOf(scored);
+    }
+
+    private static boolean supportsGrowth(Result estimate, Candidate candidate, FindingChunk chunk) {
+        GrowthObservation point = estimate.growthPoints().get((long) chunk.x << 32 | chunk.z & 0xffffffffL);
+        if (point == null) return false;
+        // The continuous fallback has proved that every candidate cell contains
+        // a center compatible with every normalized observation. For grid fits,
+        // reuse the exact point test, rather than rounding the sample to a chunk.
+        if (estimate.commonIntersection()) return true;
+        double dx = candidate.chunkX() * 16.0 + 8 - (point.blockX() + .5);
+        double dz = candidate.chunkZ() * 16.0 + 8 - (point.blockZ() + .5);
+        double radius = estimate.radiusChunks() * 16.0;
+        return dx * dx + dz * dz <= radius * radius + EPSILON;
     }
 
     private static boolean append(List<Finding> target, List<Finding> findings, Budget budget) {
@@ -133,7 +159,7 @@ public final class SuspiciousActivity {
      * Adds candidates at actual observed land disturbances, even without plant growth.
      * These candidates gather positives only from their immediate 3x3 neighborhood;
      * they never create a ticking disk or mark unrelated scoring-window centers.
-     * A shared coordinate keeps its higher whole evaluation, with growth winning ties.
+     * A shared coordinate always keeps its simulation-radius evaluation and estimate identity.
      * Work-limit exhaustion returns no partial ranking. All inputs are immutable worker data.
      */
     public static List<ScoredCandidate> scoreWithLand(Result growthEstimate, Collection<Finding> actualFindings,
@@ -183,7 +209,7 @@ public final class SuspiciousActivity {
             }
             ScoredCandidate land = new ScoredCandidate(candidate, SuspiciousAnalysis.score(local, enabled), Origin.LOCAL_EVIDENCE);
             ScoredCandidate previous = combined.get(candidate);
-            if (previous == null || land.evaluation().score() > previous.evaluation().score()) combined.put(candidate, land);
+            if (previous == null) combined.put(candidate, land);
         }
         ArrayList<ScoredCandidate> result = new ArrayList<>(combined.values());
         result.sort(Comparator.comparingInt((ScoredCandidate c) -> c.candidate().chunkX())
@@ -199,7 +225,7 @@ public final class SuspiciousActivity {
 
     private static final class FindingChunk {
         final int x, z;
-        final List<Finding> positive = new ArrayList<>(), shafts = new ArrayList<>();
+        final List<Finding> positive = new ArrayList<>(), shafts = new ArrayList<>(), growth = new ArrayList<>();
         FindingChunk(int x, int z) { this.x = x; this.z = z; }
     }
 
@@ -292,14 +318,10 @@ public final class SuspiciousActivity {
                 : witness(boundary, radiusSquared, (lowX + highX) / 2, (lowZ + highZ) / 2, budget);
             if (budget.exhausted) return result(Status.BUDGET_LIMIT, radiusChunks, count, 0);
             if (shared != null) {
-                ArrayList<Candidate> touching = new ArrayList<>();
-                int minX = (int) Math.floor((shared.x - EPSILON) / 16.0);
-                int maxX = (int) Math.floor((shared.x + EPSILON) / 16.0);
-                int minZ = (int) Math.floor((shared.z - EPSILON) / 16.0);
-                int maxZ = (int) Math.floor((shared.z + EPSILON) / 16.0);
-                for (int x = minX; x <= maxX; x++) for (int z = minZ; z <= maxZ; z++)
-                    touching.add(new Candidate(x, z));
-                return new Result(Status.ESTIMATED, touching, radiusChunks, count, touching.size());
+                List<Candidate> touching = commonChunks(boundary, radiusSquared, shared,
+                    lowX, highX, lowZ, highZ, budget);
+                if (budget.exhausted) return result(Status.BUDGET_LIMIT, radiusChunks, count, 0);
+                return new Result(Status.ESTIMATED, touching, radiusChunks, count, touching.size(), byChunk, true);
             }
         }
 
@@ -310,11 +332,12 @@ public final class SuspiciousActivity {
                 best.add(new Candidate((int) (entry.getKey() >> 32), (int) (long) entry.getKey()));
         }
         best.sort(Comparator.comparingInt(Candidate::chunkX).thenComparingInt(Candidate::chunkZ));
-        return new Result(Status.ESTIMATED, best, radiusChunks, count, best.size());
+        return new Result(Status.ESTIMATED, best, radiusChunks, count, best.size(), byChunk, false);
     }
 
-    private static boolean growthCheck(GrowthObservation point) {
-        return switch (point.check()) {
+    private static boolean growthCheck(GrowthObservation point) { return growthCheck(point.check()); }
+    private static boolean growthCheck(Check check) {
+        return switch (check) {
             case GROUNDED_VINES, MATURE_GEODE, SURFACE_KELP, MATURE_KELP_AGE -> true;
             default -> false;
         };
@@ -327,6 +350,48 @@ public final class SuspiciousActivity {
         return dx * dx + dz * dz;
     }
     private record Witness(double x, double z) { }
+
+    /** Enumerate every chunk touched by the continuous common intersection. */
+    private static List<Candidate> commonChunks(List<GrowthObservation> boundary, double radiusSquared,
+                                                Witness shared, double lowX, double highX,
+                                                double lowZ, double highZ, Budget budget) {
+        int minX = (int) Math.floor((lowX - EPSILON) / 16.0);
+        int maxX = (int) Math.floor((highX + EPSILON) / 16.0);
+        int minZ = (int) Math.floor((lowZ - EPSILON) / 16.0);
+        int maxZ = (int) Math.floor((highZ + EPSILON) / 16.0);
+        ArrayList<Candidate> touching = new ArrayList<>();
+        for (int x = minX; x <= maxX; x++) for (int z = minZ; z <= maxZ; z++) {
+            if (!budget.take()) return List.of();
+            double left = x * 16.0, right = left + 16, top = z * 16.0, bottom = top + 16;
+            // The feasible region is convex. If it touches this cell, either
+            // its known point lies inside, or it crosses one of the cell edges.
+            // Intersecting a line segment with every disk is just interval clipping.
+            boolean contains = shared.x >= left - EPSILON && shared.x <= right + EPSILON
+                && shared.z >= top - EPSILON && shared.z <= bottom + EPSILON;
+            if (contains || commonEdge(boundary, radiusSquared, true, left, top, bottom, budget)
+                || commonEdge(boundary, radiusSquared, true, right, top, bottom, budget)
+                || commonEdge(boundary, radiusSquared, false, top, left, right, budget)
+                || commonEdge(boundary, radiusSquared, false, bottom, left, right, budget))
+                touching.add(new Candidate(x, z));
+            if (budget.exhausted) return List.of();
+        }
+        return List.copyOf(touching);
+    }
+
+    private static boolean commonEdge(List<GrowthObservation> boundary, double radiusSquared,
+                                      boolean vertical, double fixed, double low, double high, Budget budget) {
+        for (GrowthObservation point : boundary) {
+            if (!budget.take()) return false;
+            double delta = fixed - (vertical ? point.blockX() + .5 : point.blockZ() + .5);
+            double remaining = radiusSquared - delta * delta;
+            if (remaining < -EPSILON) return false;
+            double reach = Math.sqrt(Math.max(0, remaining));
+            double along = vertical ? point.blockZ() + .5 : point.blockX() + .5;
+            low = Math.max(low, along - reach); high = Math.min(high, along + reach);
+            if (low > high + EPSILON) return false;
+        }
+        return true;
+    }
     private static List<GrowthObservation> convexHull(List<GrowthObservation> points, Budget budget) {
         if (points.size() <= 2) return points;
         ArrayList<GrowthObservation> ordered = new ArrayList<>(points);

@@ -11,6 +11,12 @@ public final class SuspiciousFeatureCheck {
     private static int cases, assertions;
     public static void main(String[] args) throws Exception {
         if (args.length != 1) throw new IllegalArgumentException("Pass the actual runtime classes directory");
+        run("only simulation-radius estimates use the red footprint", () -> {
+            var method=SuspiciousChunkFinderFeature.class.getDeclaredMethod("activityColor",SuspiciousActivity.Origin.class);
+            method.setAccessible(true);
+            check((int)method.invoke(null,SuspiciousActivity.Origin.GROWTH_ESTIMATE)==0x35FF3838);
+            check((int)method.invoke(null,SuspiciousActivity.Origin.LOCAL_EVIDENCE)==0x35FFB85C);
+        });
         run("fixture loads the five actual runtime classes", () -> {
             var expected = java.nio.file.Path.of(args[0]).toRealPath();
             for (Class<?> type : List.of(SuspiciousChunkFinderFeature.class, SuspiciousActivity.class,

@@ -44,6 +44,71 @@ public final class SuspiciousActivityCheck {
             check(new HashSet<>(result.candidates()).equals(Set.of(new Candidate(-1, -1), new Candidate(-1, 0),
                 new Candidate(0, -1), new Candidate(0, 0))));
         });
+        run("thin continuous intersection retains every touched chunk, not one witness", () -> {
+            List<GrowthObservation> data = List.of(point(-110, 0), point(110, 0));
+            Result fit = estimate(data, 7);
+            Set<Candidate> expected = new HashSet<>();
+            for (int x = -1; x <= 0; x++) for (int z = -2; z <= 1; z++) expected.add(new Candidate(x, z));
+            check(fit.status() == Status.ESTIMATED);
+            check(new HashSet<>(fit.candidates()).equals(expected));
+            check(fit.compatibleChunks() == 8);
+            // Both x strips have an explicit feasible point on each z strip.
+            for (Candidate candidate : expected) {
+                double x = candidate.chunkX() < 0 ? -.125 : .125;
+                double z = Math.max(candidate.chunkZ() * 16.0 + .25,
+                    Math.min(candidate.chunkZ() * 16.0 + 15.75, .5));
+                for (GrowthObservation sample : data) {
+                    double dx = x - sample.blockX() - .5, dz = z - sample.blockZ() - .5;
+                    check(dx * dx + dz * dz <= 112 * 112);
+                }
+            }
+        });
+        run("continuous intersection respects translation and rotated lenses", () -> {
+            for (int offset : new int[]{-16000, 16000, -29_000_000, 29_000_000}) {
+                var fit = estimate(List.of(point(offset, offset - 110), point(offset, offset + 110)), 7);
+                Set<Candidate> expected = new HashSet<>();
+                for (int x = -2; x <= 1; x++) for (int z = -1; z <= 0; z++)
+                    expected.add(new Candidate(offset / 16 + x, offset / 16 + z));
+                check(new HashSet<>(fit.candidates()).equals(expected));
+                var reverse = estimate(List.of(point(offset, offset + 110), point(offset, offset - 110)), 7);
+                check(reverse.equals(fit));
+            }
+        });
+        run("thin common-region scores retain proven growth without broadening land or shaft ranges", () -> {
+            var data = List.of(new GrowthObservation(Check.MATURE_GEODE, 1, -110, 30, 0),
+                new GrowthObservation(Check.GROUNDED_VINES, 2, 110, 30, 0));
+            var fit = estimate(data, 7);
+            check(fit.commonIntersection() && fit.growthPoints().size() == 2);
+            var findings = List.of(finding(Check.MATURE_GEODE, -7, 0), finding(Check.GROUNDED_VINES, 6, 0),
+                finding(Check.BURIED_ACCESS_PATH, -7, 0), finding(Check.OPEN_SHAFTS, 3, 0));
+            var scores = SuspiciousActivity.score(fit, findings, allChecks());
+            check(scores.size() == 8);
+            for (var candidate : scores) {
+                var present = candidate.evaluation().findings();
+                check(present.stream().anyMatch(f -> f.check() == Check.MATURE_GEODE));
+                check(present.stream().anyMatch(f -> f.check() == Check.GROUNDED_VINES));
+                check(candidate.evaluation().score() >= 35);
+            }
+            var corner = find(scores, 0, -2);
+            check(corner.evaluation().score() == 45);
+            check(corner.evaluation().findings().stream().noneMatch(f -> f.check() == Check.BURIED_ACCESS_PATH
+                || f.check() == Check.OPEN_SHAFTS));
+            var disabled = EnumSet.copyOf(allChecks()); disabled.remove(Check.MATURE_GEODE);
+            check(find(SuspiciousActivity.score(fit, findings, disabled), 0, -2).evaluation().score() == 10);
+        });
+        run("grid-fit growth scoring uses the actual source point rather than its chunk center", () -> {
+            var fit = estimate(List.of(new GrowthObservation(Check.MATURE_GEODE, 1, 15, 30, 15)), 2);
+            check(!fit.commonIntersection());
+            check(fit.candidates().contains(new Candidate(2, 1)));
+            // Candidate center (40,24) is <32 from (15.5,15.5), while chunk delta (2,1) exceeds radius 2.
+            var evidence = List.of(finding(Check.MATURE_GEODE, 0, 0), finding(Check.BURIED_ACCESS_PATH, 0, 0));
+            var candidate = find(SuspiciousActivity.score(fit, evidence, allChecks()), 2, 1);
+            check(candidate.evaluation().score() == 35);
+            check(candidate.evaluation().findings().stream().noneMatch(f -> f.check() == Check.BURIED_ACCESS_PATH));
+            throwsType(UnsupportedOperationException.class, () -> fit.growthPoints().clear());
+            var manual = new Result(Status.ESTIMATED, List.of(new Candidate(2, 1)), 2, 1, 1);
+            check(SuspiciousActivity.score(manual, evidence, allChecks()).getFirst().evaluation().score() == 0);
+        });
         run("broad positive evidence keeps every best supported chunk", () -> {
             Result result = estimate(compass(8, 8, 4), 7);
             check(result.status() == Status.ESTIMATED && result.compatibleChunks() > 4);
@@ -361,6 +426,22 @@ public final class SuspiciousActivityCheck {
             check(scores.getFirst().origin()==Origin.GROWTH_ESTIMATE);
             check(scores.getFirst().evaluation().findings().size()==2);
             check(new ScoredCandidate(new Candidate(0,0),score(List.of(),allChecks())).origin()==Origin.GROWTH_ESTIMATE);
+        });
+        run("land additions preserve every triangulated location and its radius score", () -> {
+            Result fit=estimate(List.of(new GrowthObservation(Check.MATURE_GEODE,991,8,30,8)),7);
+            check(fit.candidates().size()>4);
+            List<Finding> evidence=List.of(finding(Check.MATURE_GEODE,0,0),
+                finding(Check.BURIED_ACCESS_PATH,0,0),finding(Check.STRIPPED_GEODE,20,20),
+                finding(Check.OPEN_SHAFTS,3,0));
+            var expected=SuspiciousActivity.score(fit,evidence,allChecks());
+            var combined=scoreWithLand(fit,evidence,allChecks());
+            for(var candidate:expected) {
+                var actual=find(combined,candidate.candidate().chunkX(),candidate.candidate().chunkZ());
+                check(actual.equals(candidate));
+                check(actual.origin()==Origin.GROWTH_ESTIMATE);
+            }
+            check(find(combined,20,20).origin()==Origin.LOCAL_EVIDENCE);
+            check(combined.stream().filter(c->c.origin()==Origin.GROWTH_ESTIMATE).count()==fit.candidates().size());
         });
         run("land evidence still yields local answers when growth fitting cannot finish", () -> {
             for(Status status:Status.values())if(status!=Status.ESTIMATED) {

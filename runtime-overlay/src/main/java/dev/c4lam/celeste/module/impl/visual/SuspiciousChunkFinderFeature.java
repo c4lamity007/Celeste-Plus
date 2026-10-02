@@ -86,7 +86,7 @@ public final class SuspiciousChunkFinderFeature implements ModuleFeature {
                 : label.equals("Stripped geodes") ? "Add 65 for a complete calcite and basalt shell with no amethyst remaining"
                 : "Include this evidence", true));
         settings.add(new GuiSetting.Toggle("Path blocks", "Outline the blocks in suspected buried paths", true));
-        var activity = new GuiSetting.Toggle("Activity estimate", "Show growth estimates and nearby land disturbances", true);
+        var activity = new GuiSetting.Toggle("Activity estimate", "Red activity estimates; amber direct land evidence", true);
         settings.add(activity);
         settings.add(new GuiSetting.Slider("Tick radius", "Estimated activity radius in chunks", 7, 2, 12, 1)
             .visibleWhen(activity::value));
@@ -679,9 +679,13 @@ public final class SuspiciousChunkFinderFeature implements ModuleFeature {
             Box footprint = new Box(marker.x * 16.0, marker.y, marker.z * 16.0,
                 marker.x * 16.0 + 16, marker.y, marker.z * 16.0 + 16);
             if (context.frustum() != null && !context.frustum().isVisible(footprint.expand(0, .03, 0))) continue;
-            boxes.add(new VisualWorldRenderer.WorldBox(footprint, 0x35FF3838, 0, 0, 1,
+            boxes.add(new VisualWorldRenderer.WorldBox(footprint, activityColor(marker.origin), 0, 0, 1,
                 VisualWorldRenderer.Shape.FOOTPRINT, false));
         }
+    }
+    private static int activityColor(SuspiciousActivity.Origin origin) {
+        // A measured disturbance is not a triangulated activity center.
+        return origin == SuspiciousActivity.Origin.GROWTH_ESTIMATE ? 0x35FF3838 : 0x35FFB85C;
     }
     private void reasons(DrawContext context) {
         MinecraftClient client = MinecraftClient.getInstance();
