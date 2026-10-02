@@ -39,8 +39,8 @@ public final class SuspiciousChunkFinderFeature implements ModuleFeature {
     public static final String NAME = "Suspicious Chunk Finder";
     private static final String[] LABELS = {"Rotated deepslate", "Mismatched soil", "Grounded vines",
         "Mature geode", "Missing budding", "Surface kelp", "Mature kelp",
-        "Buried paths", "Open shafts"};
-    private static final int CAPTURE_BLOCKS = 8192, MAX_RESULTS = 512, MAX_RADIUS = 5;
+        "Buried paths", "Open shafts", "Stripped geodes"};
+    private static final int CAPTURE_BLOCKS = 8192, MAX_RESULTS = 512, MAX_RADIUS = 5, PENDING_VISITS = 32;
     private static final long CAPTURE_NANOS = 1_000_000L;
     private static final int MAX_PATH_BLOCKS = 2048, PATH_PUBLICATION_VISITS = 8192;
     private static volatile SuspiciousChunkFinderFeature active;
@@ -81,7 +81,8 @@ public final class SuspiciousChunkFinderFeature implements ModuleFeature {
         settings.add(new GuiSetting.Slider("Flag score", "Higher scores need more evidence", 35, 5, 175, 5));
         for (String label : LABELS) settings.add(new GuiSetting.Toggle(label,
             label.equals("Open shafts") ? "Subtract 20 for a deep shaft within 3 chunks of an estimate"
-                : label.equals("Missing budding") ? "Add 65 for missing budding or stripped amethyst in a complete geode"
+                : label.equals("Missing budding") ? "Add 25 for missing budding blocks in a complete amethyst geode"
+                : label.equals("Stripped geodes") ? "Add 65 for a complete calcite and basalt shell with no amethyst remaining"
                 : "Include this evidence", true));
         settings.add(new GuiSetting.Toggle("Path blocks", "Outline the blocks in suspected buried paths", true));
         var activity = new GuiSetting.Toggle("Activity estimate", "Show growth estimates and nearby land disturbances", true);
@@ -132,6 +133,7 @@ public final class SuspiciousChunkFinderFeature implements ModuleFeature {
     }
     private boolean discardChunk(int x, int z) {
         long id = key(x, z);
+        pending.remove(id);
         boolean surfaceChanged = estimateSurfaces.remove(id) != null;
         if (cache.live(id) == null && !dirty.contains(id) && !changedChunks.contains(id)
             && (capture == null || capture.id != id)) return surfaceChanged;
@@ -140,10 +142,11 @@ public final class SuspiciousChunkFinderFeature implements ModuleFeature {
         invalidate(x, z);
         return true;
     }
-    private void invalidate(int x, int z) {
+    private void invalidate(int x, int z) { refreshWindows(x, z, true); }
+    private void refreshWindows(int x, int z, boolean removeCompleted) {
         for (int dz = -1; dz <= 1; dz++) for (int dx = -1; dx <= 1; dx++) {
             long center = key(x + dx, z + dz);
-            results.remove(center);
+            if (removeCompleted) results.remove(center);
             if (cache.live(center) != null && pending.size() < MAX_RESULTS) pending.add(center);
         }
     }
@@ -210,19 +213,10 @@ public final class SuspiciousChunkFinderFeature implements ModuleFeature {
             activityEvidence.clear(); growthKinds.clear(); invalidateActivity();
         }
         if (floor >= top || !failure.isEmpty() || checks.isEmpty()) return;
-        for (long id : changedChunks) {
-            if (cache.live(id) != null) dirty.add(id);
-            invalidate(SuspiciousSnapshots.x(id), SuspiciousSnapshots.z(id));
-        }
-        if (!changedChunks.isEmpty()) { changedChunks.clear(); publish(); }
+        collectChanges();
         collectResult();
         int cx = client.player.getBlockX() >> 4, cz = client.player.getBlockZ() >> 4;
-        if (cx != activityX || cz != activityZ) {
-            activityX = cx; activityZ = cz;
-            pruneActivityHistory();
-            invalidateActivity();
-        }
-        collectActivity();
+        moveActivityCenter(cx, cz);
         // Keep a complete moving neighborhood in memory instead of continuously evicting
         // and rescanning a stationary client's entire high-distance chunk view.
         long worstChunkBytes = 1200L + ((top - Math.floorDiv(floor, 16) * 16 + 15) / 16) * 8224L;
@@ -258,11 +252,7 @@ public final class SuspiciousChunkFinderFeature implements ModuleFeature {
                 if (loaded != null) dirty.add(capture.id);
                 capture = null;
             } else if (capture.advance(deadline)) {
-                var completed = capture.finish();
-                cache.put(completed); dirty.remove(capture.id); capture = null;
-                results.entrySet().removeIf(e -> !inputsCurrent(e.getValue()));
-                invalidate(completed.x, completed.z);
-                publish();
+                acceptCapture(capture.finish());
             }
         }
         // Packet bursts, unloads, completed scans and surfaces publish once per tick.
@@ -272,6 +262,25 @@ public final class SuspiciousChunkFinderFeature implements ModuleFeature {
         launchAnalysis();
     }
 
+    private void collectChanges() {
+        for (long id : changedChunks) {
+            boolean observed = cache.live(id) != null;
+            if (observed) dirty.add(id);
+            // First availability of an uncaptured neighbor is enrichment too.
+            // Known captured terrain changes still revoke dependent windows.
+            refreshWindows(SuspiciousSnapshots.x(id), SuspiciousSnapshots.z(id), observed);
+        }
+        if (!changedChunks.isEmpty()) { changedChunks.clear(); publish(); }
+    }
+    private void acceptCapture(SuspiciousSnapshots.Chunk completed) {
+        cache.put(completed); dirty.remove(key(completed.x, completed.z)); capture = null;
+        // New neighbors enrich a previously accepted observation. Keep that
+        // provisional result until replacement, but never preserve a changed,
+        // dirty or lost input that the observation actually depended on.
+        results.entrySet().removeIf(e -> !observedInputsCurrent(e.getValue()));
+        refreshWindows(completed.x, completed.z, false);
+        publish();
+    }
     private void selectCapture() {
         if (preferDirty && selectDirtyCapture()) { preferDirty = false; return; }
         // Discovery is bounded too: a large view distance never walks every loaded chunk in one tick.
@@ -308,10 +317,17 @@ public final class SuspiciousChunkFinderFeature implements ModuleFeature {
             launchActivity();
             return;
         }
-        if (pending.isEmpty()) return;
-        long id = pending.iterator().next(); pending.remove(id);
+        Long selected = null;
+        for (int visited = 0; visited < PENDING_VISITS && !pending.isEmpty(); visited++) {
+            long id = pending.iterator().next(); pending.remove(id);
+            int x = SuspiciousSnapshots.x(id), z = SuspiciousSnapshots.z(id);
+            if (cache.live(id) != null && !dirty.contains(id) && loaded(x, z) != null) {
+                selected = id; break;
+            }
+        }
+        if (selected == null) return;
+        long id = selected;
         int x = SuspiciousSnapshots.x(id), z = SuspiciousSnapshots.z(id);
-        if (cache.live(id) == null || dirty.contains(id) || loaded(x, z) == null) return;
         Map<Long, SuspiciousSnapshots.Chunk> now = new HashMap<>(), first = new HashMap<>();
         for (int dz = -1; dz <= 1; dz++) for (int dx = -1; dx <= 1; dx++) {
             long neighbor = key(x + dx, z + dz);
@@ -379,11 +395,7 @@ public final class SuspiciousChunkFinderFeature implements ModuleFeature {
         if (future == null || !future.isDone()) return;
         try {
             Result result = future.get();
-            boolean fresh = result.generation == generation;
-            for (var e : result.inputs.entrySet()) {
-                var current = cache.live(e.getKey());
-                fresh &= (current == null ? -1L : current.revision) == e.getValue() && !dirty.contains(e.getKey());
-            }
+            boolean fresh = result.generation == generation && inputsCurrent(result);
             if (fresh) {
                 results.remove(result.id); results.put(result.id, result);
                 while (results.size() > MAX_RESULTS) results.remove(results.keySet().iterator().next());
@@ -407,6 +419,14 @@ public final class SuspiciousChunkFinderFeature implements ModuleFeature {
         }
         return true;
     }
+    private boolean observedInputsCurrent(Result result) {
+        for (var e : result.inputs.entrySet()) {
+            if (e.getValue() == -1L) continue;
+            var current = cache.live(e.getKey());
+            if (current == null || current.revision != e.getValue() || dirty.contains(e.getKey())) return false;
+        }
+        return true;
+    }
     private void publish() {
         publicationDirty = true;
     }
@@ -421,8 +441,8 @@ public final class SuspiciousChunkFinderFeature implements ModuleFeature {
         displayedPaths = List.copyOf(blocks.values());
         Set<Finding> findings = activityFindings();
         if (!findings.equals(activityFindings)) {
-            // Added positive evidence cannot lower a score. Keep the previous
-            // result visible while refreshing; removals and new shafts clear it.
+            // Additions request a replacement snapshot without restarting its
+            // running predecessor. Removals and new shaft penalties invalidate it.
             boolean additive = findings.containsAll(activityFindings)
                 && findings.stream().noneMatch(f -> f.check() == Check.OPEN_SHAFTS && !activityFindings.contains(f));
             activityFindings = findings;
@@ -435,12 +455,38 @@ public final class SuspiciousChunkFinderFeature implements ModuleFeature {
         invalidateActivity(true);
     }
     private void invalidateActivity(boolean clearCompleted) {
+        if (!clearCompleted) { refreshActivity(); return; }
         activityVersion++;
         if (activityFuture != null) activityFuture.cancel(true);
         activityFuture = null; activityDirty = true;
-        if (clearCompleted) {
-            activityResult = null; activityScores = List.of(); displayedActivity = List.of();
-        }
+        // Invalidated work cannot supply a result, so do not keep its old cooldown.
+        nextEstimate = Math.min(nextEstimate, tick);
+        activityResult = null; activityScores = List.of(); displayedActivity = List.of();
+    }
+    private void refreshActivity() {
+        // Coalesce ordinary movement and additions. Never slide nextEstimate
+        // forward or cancel the one immutable snapshot already being evaluated.
+        activityDirty = true;
+    }
+    private void moveActivityCenter(int x, int z) {
+        collectActivity();
+        if (x == activityX && z == activityZ) return;
+        activityX = x; activityZ = z;
+        pruneActivityHistory();
+        // Retained results are provisional until replacement, not a claim that
+        // the fit is mathematically unchanged after its local input window moves.
+        activityScores = activityScores.stream().filter(this::inActivityArea).toList();
+        estimateSurfaces.keySet().removeIf(id -> !inActivityArea(SuspiciousSnapshots.x(id), SuspiciousSnapshots.z(id)));
+        refreshActivity(); publishActivity();
+    }
+    private boolean inActivityArea(SuspiciousActivity.ScoredCandidate score) {
+        return inActivityArea(score.candidate().chunkX(), score.candidate().chunkZ());
+    }
+    private boolean inActivityArea(int x, int z) {
+        // Inputs are within 2R; a compatible center can be another R away.
+        // One extra chunk conservatively covers the continuous-center boundary.
+        long range = activityRadius * 3L + 1;
+        return Math.abs((long) x - activityX) <= range && Math.abs((long) z - activityZ) <= range;
     }
     private void rememberGrowth(Evaluation evaluation) {
         boolean changed = false;
@@ -458,7 +504,7 @@ public final class SuspiciousChunkFinderFeature implements ModuleFeature {
         // intentionally keeps one positional observation. Preserve both score reasons.
         for (var entry : evaluation.growthChecks().entrySet())
             for (Check check : entry.getValue()) rememberGrowthKind(entry.getKey(), check);
-        if (changed) invalidateActivity();
+        if (changed) refreshActivity();
     }
     private void rememberGrowthKind(long id, Check check) {
         if (!retainActivityHistory(id)) return;
@@ -498,10 +544,11 @@ public final class SuspiciousChunkFinderFeature implements ModuleFeature {
         try {
             ActivityResult result = activityFuture.get();
             if (result.generation == generation && result.version == activityVersion) {
+                activityScores = result.scores.stream().filter(this::inActivityArea).toList();
                 HashSet<Long> candidates = new HashSet<>();
-                for (var scored : result.scores) candidates.add(key(scored.candidate().chunkX(), scored.candidate().chunkZ()));
+                for (var scored : activityScores) candidates.add(key(scored.candidate().chunkX(), scored.candidate().chunkZ()));
                 estimateSurfaces.keySet().retainAll(candidates); nextSurface = 0;
-                activityResult = result.estimate; activityScores = result.scores; publishActivity();
+                activityResult = result.estimate; publishActivity();
             }
         } catch (CancellationException ignored) {
         } catch (InterruptedException interruption) {
@@ -651,7 +698,7 @@ public final class SuspiciousChunkFinderFeature implements ModuleFeature {
             for (Check check : Check.values()) {
                 int amount = nearest.evaluation.contributions().getOrDefault(check, 0);
                 if (amount != 0) lines.add((check == Check.OPEN_SHAFTS ? "Open shaft"
-                    : check == Check.MISSING_BUDDING_AMETHYST ? "Missing amethyst/budding" : LABELS[check.ordinal()])
+                    : LABELS[check.ordinal()])
                     + ": " + (amount > 0 ? "+" : "") + amount);
             }
         }

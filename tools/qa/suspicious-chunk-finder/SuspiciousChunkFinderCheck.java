@@ -23,6 +23,7 @@ public final class SuspiciousChunkFinderCheck {
         plants();
         geodes();
         strippedGeodes();
+        splitGeodeChecks();
         growthObservations();
         windows();
         geometry();
@@ -34,9 +35,9 @@ public final class SuspiciousChunkFinderCheck {
 
     private static void scoring() {
         run("weights apply once per window", () -> {
-            int[] expected = {35,10,10,35,65,15,15,35,0};
+            int[] expected = {35,10,10,35,25,15,15,35,0,65};
             Check[] kinds = Check.values();
-            eq(expected.length, kinds.length, "intentional nine-check contract");
+            eq(expected.length, kinds.length, "intentional ten-check contract");
             for (int i=0; i<kinds.length; i++) {
                 List<Finding> repeated = new ArrayList<>();
                 for (int n=0;n<100;n++) repeated.add(finding(kinds[i],n,n%3-1,n/3%3-1));
@@ -44,7 +45,8 @@ public final class SuspiciousChunkFinderCheck {
             }
         });
         run("geode cap 65 and kelp cap 20", () -> {
-            eq(65, scored(Check.MATURE_GEODE,Check.MISSING_BUDDING_AMETHYST), "geode cap");
+            eq(65, scored(Check.MATURE_GEODE,Check.MISSING_BUDDING_AMETHYST,Check.STRIPPED_GEODE), "geode cap");
+            eq(60, scored(Check.MATURE_GEODE,Check.MISSING_BUDDING_AMETHYST), "original two checks keep their full weights");
             eq(35, scored(Check.MATURE_GEODE), "mature geode remains independent");
             eq(20, scored(Check.SURFACE_KELP,Check.MATURE_KELP_AGE), "kelp cap");
             Evaluation e=score(List.of(finding(Check.SURFACE_KELP,1,0,0),finding(Check.MATURE_KELP_AGE,1,0,0)),ALL);
@@ -167,7 +169,7 @@ public final class SuspiciousChunkFinderCheck {
     }
 
     private static void geodes() {
-        run("large complete geode missing budding amethyst scores 65", () -> eq(65,evaluate(geode(0,0,CLUSTER)).score(),"missing budding"));
+        run("large complete geode missing budding amethyst scores 25", () -> eq(25,evaluate(geode(0,0,CLUSTER)).score(),"missing budding"));
         run("mature crystal population scores 35", () -> eq(35,evaluate(geode(15,15,CLUSTER)).score(),"mature geode"));
         run("young crystal population does not score maturity", () -> eq(0,evaluate(geode(15,15,SMALL_BUD)).score(),"young geode"));
         run("sparse crystals no longer contribute any suspicion", () -> eq(0,evaluate(geode(25,0,CLUSTER)).score(),"sparse check removed"));
@@ -208,7 +210,8 @@ public final class SuspiciousChunkFinderCheck {
         run("fully stripped known geode shell scores 65 without growth samples", () -> {
             Evaluation e=evaluate(strippedGeode(8,32,8,4));
             eq(65,e.score(),"missing all inner material");
-            eq(1,count(e.findings(),Check.MISSING_BUDDING_AMETHYST),"one connected shell");
+            eq(1,count(e.findings(),Check.STRIPPED_GEODE),"one connected shell");
+            eq(0,count(e.findings(),Check.MISSING_BUDDING_AMETHYST),"empty shell is not missing budding in an inner layer");
             eq(0,e.growthObservations().size(),"stripping is not growth");
             check(e.growthChecks().isEmpty(),"no fabricated activity seed");
         });
@@ -283,13 +286,13 @@ public final class SuspiciousChunkFinderCheck {
         });
         run("shell crossing chunk border is deduplicated and negative coordinates work", () -> {
             Evaluation cross=evaluate(strippedGeode(15,32,8,4));eq(65,cross.score(),"cross chunk");
-            eq(1,count(cross.findings(),Check.MISSING_BUDDING_AMETHYST),"shared shell once");
+            eq(1,count(cross.findings(),Check.STRIPPED_GEODE),"shared shell once");
             eq(65,evaluate(strippedGeode(-8,32,-8,4)).score(),"negative chunk");
         });
         run("shell outside inspected window cannot claim complete coverage", () -> {
             eq(0,evaluate(strippedGeode(27,32,8,4)).score(),"right window boundary");
         });
-        run("missing-geode toggle disables stripped shell score", () -> {
+        run("stripped-geode toggle disables stripped shell score", () -> {
             Scene s=strippedGeode(8,32,8,4);
             eq(0,SuspiciousAnalysis.evaluate(s,0,0,summaries(s),EnumSet.of(Check.MATURE_GEODE),List.of()).score(),"disabled absence check");
         });
@@ -298,11 +301,13 @@ public final class SuspiciousChunkFinderCheck {
             eq(0,SuspiciousAnalysis.evaluate(later,first,0,0,summaries(later),summaries(first),ALL,List.of()).score(),"later mining does not rewrite baseline");
             eq(65,SuspiciousAnalysis.evaluate(first,later,0,0,summaries(first),summaries(later),ALL,List.of()).score(),"previously stripped baseline retained");
         });
-        run("missing budding and missing inner layer share exactly one contribution", () -> {
+        run("missing budding and stripped inner layer remain distinct within the shared cap", () -> {
             Scene s=strippedGeode(-7,32,8,4);
             Scene normal=geode(0,0,CLUSTER);s.cells.putAll(normal.cells);
             Evaluation e=evaluate(s);eq(65,e.score(),"two absence interpretations never stack");
-            eq(65,e.contributions().get(Check.MISSING_BUDDING_AMETHYST),"fixed weight");
+            eq(65,e.contributions().get(Check.STRIPPED_GEODE),"stripped weight wins family cap");
+            eq(1,count(e.findings(),Check.STRIPPED_GEODE),"stripped geode finding retained");
+            eq(1,count(e.findings(),Check.MISSING_BUDDING_AMETHYST),"ordinary missing budding finding retained");
             check(e.equals(evaluate(s)),"repeat scan stable");
         });
         run("calcite deposit seeds stay sparse and preserve higher unrelated evidence", () -> {
@@ -330,12 +335,80 @@ public final class SuspiciousChunkFinderCheck {
                 public int floorY(){return s.floorY();}public int topY(){return s.topY();}
                 public int surfaceY(int x,int z){return s.surfaceY(x,z);}
             };
-            eq(0,SuspiciousAnalysis.evaluate(counted,0,0,chunks,Set.of(Check.MISSING_BUDDING_AMETHYST),List.of()).score(),"oversized component tail rejected");
+            eq(0,SuspiciousAnalysis.evaluate(counted,0,0,chunks,Set.of(Check.STRIPPED_GEODE),List.of()).score(),"oversized component tail rejected");
             check(reads[0]<800000,"shared attempt and cell caps bound analysis probes");
         });
         run("shell volume and cavity limits reject giant fragments", () -> {
             eq(0,evaluate(strippedGeode(8,32,8,13)).score(),"extent exceeds maximum");
             eq(0,evaluate(strippedGeode(8,32,8,10)).score(),"cavity exceeds4096 cells");
+        });
+    }
+
+    private static void splitGeodeChecks() {
+        run("new stripped check is appended without moving any original check ordinal", () -> {
+            Check[] original={Check.ROTATED_DEEPSLATE,Check.MISMATCHED_SOIL,Check.GROUNDED_VINES,
+                Check.MATURE_GEODE,Check.MISSING_BUDDING_AMETHYST,Check.SURFACE_KELP,
+                Check.MATURE_KELP_AGE,Check.BURIED_ACCESS_PATH,Check.OPEN_SHAFTS};
+            for(int i=0;i<original.length;i++)eq(i,original[i].ordinal(),"preserved ordinal "+original[i]);
+            eq(9,Check.STRIPPED_GEODE.ordinal(),"appended stripped ordinal");
+        });
+        run("missing budding and stripped shell toggles operate independently", () -> {
+            Scene missing=geode(0,0,CLUSTER),stripped=strippedGeode(8,32,8,4);
+            for(Scene scene:List.of(missing,stripped)) {
+                var chunks=summaries(scene);
+                eq(scene==missing?25:0,SuspiciousAnalysis.evaluate(scene,0,0,chunks,
+                    Set.of(Check.MISSING_BUDDING_AMETHYST),List.of()).score(),"only missing enabled");
+                eq(scene==stripped?65:0,SuspiciousAnalysis.evaluate(scene,0,0,chunks,
+                    Set.of(Check.STRIPPED_GEODE),List.of()).score(),"only stripped enabled");
+                eq(0,SuspiciousAnalysis.evaluate(scene,0,0,chunks,Set.of(),List.of()).score(),"both disabled");
+            }
+        });
+        run("original missing budding ratio and existing inner material semantics remain", () -> {
+            eq(25,evaluate(geode(4,0,CLUSTER)).score(),"four of218 inner blocks below two percent");
+            eq(0,evaluate(geode(5,0,CLUSTER)).score(),"five of218 above two percent");
+            Evaluation missing=evaluate(geode(0,0,CLUSTER));
+            eq(1,count(missing.findings(),Check.MISSING_BUDDING_AMETHYST),"original check still finds surviving amethyst");
+            eq(0,count(missing.findings(),Check.STRIPPED_GEODE),"surviving inner layer never becomes fully stripped");
+        });
+        run("repeated stripped and missing findings preserve one shared geode family cap", () -> {
+            List<Finding> findings=new ArrayList<>();
+            for(int i=0;i<100;i++)for(Check check:List.of(Check.STRIPPED_GEODE,Check.MISSING_BUDDING_AMETHYST,Check.MATURE_GEODE))
+                findings.add(finding(check,i,0,0));
+            Evaluation both=score(findings,ALL);eq(65,both.score(),"family caps after repeats");
+            eq(65,both.contributions().get(Check.STRIPPED_GEODE),"stripped first in cap order");
+            check(!both.contributions().containsKey(Check.MISSING_BUDDING_AMETHYST),"no stacked missing contribution");
+            eq(60,score(findings,Set.of(Check.MISSING_BUDDING_AMETHYST,Check.MATURE_GEODE)).score(),"disabled stripped releases remaining weights");
+            eq(25,score(findings,Set.of(Check.MISSING_BUDDING_AMETHYST)).score(),"old check remains25");
+        });
+        run("stripped-only scan does not spend feature budget on disabled inner-layer checks", () -> {
+            Scene s=strippedGeode(8,32,8,4);
+            for(int i=0;i<17;i++)s.set(-14+i*2,8,-12,AMETHYST);
+            var chunks=summaries(s);
+            Evaluation stripped=SuspiciousAnalysis.evaluate(s,0,0,chunks,Set.of(Check.STRIPPED_GEODE),List.of());
+            eq(65,stripped.score(),"unrelated inner fragments do not starve enabled shell check");
+            check(stripped.growthObservations().isEmpty()&&stripped.growthChecks().isEmpty(),"no fabricated growth");
+            eq(0,SuspiciousAnalysis.evaluate(s,0,0,chunks,Set.of(Check.MATURE_GEODE,Check.STRIPPED_GEODE),List.of()).score(),
+                "both enabled still share sixteen attempted features");
+        });
+        run("disabled stripped shells cannot consume mature geode component attempts", () -> {
+            Scene s=geode(15,15,CLUSTER);
+            for(int z=-12;z<=-8;z+=4)for(int x=-12;x<=28;x+=4) {
+                s.set(x,8,z,CALCITE);s.set(x,9,z,AIR);s.set(x,7,z,SMOOTH_BASALT);
+            }
+            eq(35,SuspiciousAnalysis.evaluate(s,0,0,summaries(s),Set.of(Check.MATURE_GEODE),List.of()).score(),
+                "more than sixteen shell seeds cannot starve mature detector");
+        });
+        run("disabled geode phases perform no shell traversal", () -> {
+            Scene s=strippedGeode(8,32,8,4);var chunks=summaries(s);long[] reads={0};
+            Terrain counted=new Terrain() {
+                public int cell(int x,int y,int z){reads[0]++;return s.cell(x,y,z);}
+                public int floorY(){return s.floorY();}public int topY(){return s.topY();}
+                public int surfaceY(int x,int z){return s.surfaceY(x,z);}
+            };
+            eq(0,SuspiciousAnalysis.evaluate(counted,0,0,chunks,Set.of(),List.of()).score(),"none enabled");
+            eq(0,(int)reads[0],"zero disabled detector cell probes");
+            eq(0,SuspiciousAnalysis.evaluate(counted,0,0,chunks,Set.of(Check.MATURE_GEODE),List.of()).score(),"mature only");
+            eq(chunks.stream().mapToInt(c->c.candidates().size()).sum(),(int)reads[0],"only seed-kind probes, no shell flood or volume scan");
         });
     }
 

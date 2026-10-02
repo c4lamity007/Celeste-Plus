@@ -193,7 +193,8 @@ public final class SuspiciousActivity {
 
     private static boolean landCheck(Check check) {
         return check == Check.ROTATED_DEEPSLATE || check == Check.MISMATCHED_SOIL
-            || check == Check.MISSING_BUDDING_AMETHYST || check == Check.BURIED_ACCESS_PATH;
+            || check == Check.MISSING_BUDDING_AMETHYST || check == Check.STRIPPED_GEODE
+            || check == Check.BURIED_ACCESS_PATH;
     }
 
     private static final class FindingChunk {

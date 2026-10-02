@@ -9,7 +9,7 @@ python tools/qa/suspicious-chunk-finder/run_refinement.py `
   --out build/suspicious-refinement-check-01
 ```
 
-This runs all three fixture classes against the production sources. It adds actual qualifying block publication, cancellation/exhaustion, growth sample attribution, cross-window deduplication, and conservative candidate-region tests. Sparse crystals is removed; mature geodes and rotated deepslate contribute +35; missing budding or an independently recognized fully stripped geode share one +65 check and a 65-point geode-family cap. The total positive maximum is 175. Radius defaults to seven chunks.
+This runs all three fixture classes against the production sources. It adds actual qualifying block publication, cancellation/exhaustion, growth sample attribution, cross-window deduplication, and conservative candidate-region tests. Sparse crystals is removed; mature geodes and rotated deepslate contribute +35; missing budding retains its original +25 check, and fully stripped geodes have a separate +65 check and toggle. The three geode checks share a 65-point family cap. The total positive maximum is 175. Radius defaults to seven chunks.
 
 Compile and exercise the **actual** `SuspiciousAnalysis.java`, `SuspiciousGeometry.java`, and `SuspiciousSnapshots.java` against deterministic, fully specified terrain. Java 21 and Python 3 are required. The output directory must be new; the runner snapshots all inputs, records their SHA-256 hashes, and keeps compile/run logs plus `result.json`.
 
@@ -27,3 +27,7 @@ Coverage includes every score and family cap, toggles and threshold equality, ex
 The exhaustion fixture deliberately uses a synthetic column taller than a real Minecraft world so the actual 4,096-node cap is reached deterministically. The work-slice budget counts bounded work units, not raw neighbor lookups. These tests establish core behavior only. They do **not** establish Minecraft collection accuracy, real-world heuristic accuracy, render appearance, FPS, authentication, or release readiness. Full build and game-side lifecycle/render checks remain separate.
 
 Land-candidate fixtures separately verify isolated strong land evidence, local versus distant corroboration, exact feature chunks, shared-coordinate deduplication, three-chunk shaft deductions, disabled checks, stable ordering and bounded work. Land findings never become historical growth samples. Actual compiled Feature checks cover worker integration and origin attribution; they are not an in-game verification.
+
+The geode-split regression fixtures verify separate +25/+65 findings and reason labels, independent toggles, unchanged saved Missing budding settings, shared family caps, repeated-finding deduplication, and land-candidate behavior without growth.
+
+Actual Feature regressions also cover coalesced refreshes during continuous movement and added evidence, completed worker publication, hard invalidation of incompatible evidence, and bounded draining of obsolete pending scans. These scheduling fixtures do not measure live flight speed or frame rate.

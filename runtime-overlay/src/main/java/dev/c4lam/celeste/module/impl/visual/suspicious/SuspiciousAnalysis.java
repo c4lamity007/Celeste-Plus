@@ -51,8 +51,9 @@ public final class SuspiciousAnalysis {
 
     public enum Check {
         ROTATED_DEEPSLATE(35), MISMATCHED_SOIL(10), GROUNDED_VINES(10),
-        MATURE_GEODE(35), MISSING_BUDDING_AMETHYST(65),
-        SURFACE_KELP(15), MATURE_KELP_AGE(15), BURIED_ACCESS_PATH(35), OPEN_SHAFTS(-20);
+        MATURE_GEODE(35), MISSING_BUDDING_AMETHYST(25),
+        SURFACE_KELP(15), MATURE_KELP_AGE(15), BURIED_ACCESS_PATH(35), OPEN_SHAFTS(-20),
+        STRIPPED_GEODE(65);
         public final int weight;
         Check(int weight) { this.weight = weight; }
         public int weight() { return weight; }
@@ -231,11 +232,11 @@ public final class SuspiciousAnalysis {
         if (enabled.contains(Check.SURFACE_KELP) || enabled.contains(Check.MATURE_KELP_AGE)) {
             kelp(first, firstSeeds, found, growth);
         }
-        if (enabled.contains(Check.MATURE_GEODE) || enabled.contains(Check.MISSING_BUDDING_AMETHYST)) {
-            int attempts = geodes(first, firstSeeds, found, growth);
-            if (enabled.contains(Check.MISSING_BUDDING_AMETHYST))
-                strippedShells(first, firstSeeds, found, MAX_GEODES_PER_WINDOW - attempts);
-        }
+        int geodeAttempts = 0;
+        if (enabled.contains(Check.MATURE_GEODE) || enabled.contains(Check.MISSING_BUDDING_AMETHYST))
+            geodeAttempts = geodes(first, firstSeeds, found, growth);
+        if (enabled.contains(Check.STRIPPED_GEODE))
+            strippedShells(first, firstSeeds, found, MAX_GEODES_PER_WINDOW - geodeAttempts);
         for (Finding f : geometry) {
             if (Math.abs((long) f.chunkX() - centerX) <= 1 && Math.abs((long) f.chunkZ() - centerZ) <= 1
                     && (f.check() == Check.BURIED_ACCESS_PATH || f.check() == Check.OPEN_SHAFTS)) found.add(f);
@@ -258,7 +259,7 @@ public final class SuspiciousAnalysis {
                 contributions.put(check, check.weight);
             }
         }
-        capped(contributions, present, GEODE_FAMILY_CAP, Check.MISSING_BUDDING_AMETHYST, Check.MATURE_GEODE);
+        capped(contributions, present, GEODE_FAMILY_CAP, Check.STRIPPED_GEODE, Check.MISSING_BUDDING_AMETHYST, Check.MATURE_GEODE);
         capped(contributions, present, 20, Check.SURFACE_KELP, Check.MATURE_KELP_AGE);
         if (present.contains(Check.OPEN_SHAFTS)) contributions.put(Check.OPEN_SHAFTS, -20);
         int score = Math.max(0, contributions.values().stream().mapToInt(Integer::intValue).sum());
@@ -273,7 +274,7 @@ public final class SuspiciousAnalysis {
         }
     }
     private static boolean geodeCheck(Check c) {
-        return c == Check.MATURE_GEODE || c == Check.MISSING_BUDDING_AMETHYST;
+        return c == Check.MATURE_GEODE || c == Check.MISSING_BUDDING_AMETHYST || c == Check.STRIPPED_GEODE;
     }
     private static boolean kelpCheck(Check c) { return c == Check.SURFACE_KELP || c == Check.MATURE_KELP_AGE; }
 
@@ -587,7 +588,7 @@ public final class SuspiciousAnalysis {
             if (contacts < MIN_STRIPPED_SHELL_CONTACTS || basalt.size() < MIN_STRIPPED_SHELL_BASALT) continue;
             boolean allDirections = true;
             for (int count : directional) if (count < MIN_STRIPPED_SHELL_DIRECTION_CONTACTS) allDirections = false;
-            if (allDirections) out.add(finding(Check.MISSING_BUDDING_AMETHYST, seed));
+            if (allDirections) out.add(finding(Check.STRIPPED_GEODE, seed));
         }
     }
 

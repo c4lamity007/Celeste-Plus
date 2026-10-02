@@ -5,6 +5,7 @@ import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CancellationException;
 import static dev.c4lam.celeste.module.impl.visual.suspicious.SuspiciousAnalysis.*;
@@ -127,8 +128,9 @@ public final class SuspiciousActivityCheck {
         });
         run("disturbance and window-score locations are excluded from growth fitting", () -> {
             List<GrowthObservation> data = new ArrayList<>();
-            for (GrowthObservation p : compass(8, 8, 7)) data.add(new GrowthObservation(Check.MISSING_BUDDING_AMETHYST,
-                p.sampleId(), p.blockX(), p.blockY(), p.blockZ()));
+            for (Check check : List.of(Check.MISSING_BUDDING_AMETHYST, Check.STRIPPED_GEODE))
+                for (GrowthObservation p : compass(8, 8, 7)) data.add(new GrowthObservation(check,
+                    p.sampleId(), p.blockX(), p.blockY(), p.blockZ()));
             check(estimate(data, 7).status() == Status.INSUFFICIENT);
         });
         run("over-budget evidence fails without silently selecting convenient points", () -> {
@@ -191,7 +193,8 @@ public final class SuspiciousActivityCheck {
             for (Check check : Check.values()) for (int i = 0; i < 4; i++) evidence.add(new Finding(check, i, i % 2, 0));
             Evaluation evaluation = scored(fitted(0, 0, 7), evidence, allChecks());
             check(evaluation.score() == 155 && evaluation.contributions().get(Check.OPEN_SHAFTS) == -20);
-            check(evaluation.contributions().getOrDefault(Check.MISSING_BUDDING_AMETHYST, 0)
+            check(evaluation.contributions().getOrDefault(Check.STRIPPED_GEODE, 0)
+                + evaluation.contributions().getOrDefault(Check.MISSING_BUDDING_AMETHYST, 0)
                 + evaluation.contributions().getOrDefault(Check.MATURE_GEODE, 0) == 65);
             check(evaluation.contributions().getOrDefault(Check.SURFACE_KELP, 0)
                 + evaluation.contributions().getOrDefault(Check.MATURE_KELP_AGE, 0) == 20);
@@ -244,13 +247,40 @@ public final class SuspiciousActivityCheck {
 
     private static void landScoring() {
         run("direct land evidence can qualify without any plant or geode growth", () -> {
-            for(Check check:List.of(Check.MISSING_BUDDING_AMETHYST,Check.BURIED_ACCESS_PATH,Check.ROTATED_DEEPSLATE)) {
+            for(Check check:List.of(Check.STRIPPED_GEODE,Check.BURIED_ACCESS_PATH,Check.ROTATED_DEEPSLATE)) {
                 var scores=scoreWithLand(estimate(List.of(),7),List.of(finding(check,4,-3)),allChecks());
                 check(scores.size()==1);
                 check(scores.getFirst().candidate().equals(new Candidate(4,-3)));
                 check(scores.getFirst().origin()==Origin.LOCAL_EVIDENCE);
                 check(scores.getFirst().evaluation().score()==check.weight() && scores.getFirst().evaluation().qualifies(35));
             }
+        });
+        run("missing budding stays below the default threshold while stripped geodes qualify", () -> {
+            var missing = scoreWithLand(estimateEmpty(), List.of(finding(Check.MISSING_BUDDING_AMETHYST, -2, 3)), allChecks()).getFirst();
+            check(missing.origin() == Origin.LOCAL_EVIDENCE && missing.evaluation().score() == 25);
+            check(!missing.evaluation().qualifies(35));
+            var stripped = scoreWithLand(estimateEmpty(), List.of(finding(Check.STRIPPED_GEODE, -2, 3)), allChecks()).getFirst();
+            check(stripped.candidate().equals(missing.candidate()) && stripped.evaluation().score() == 65);
+            check(stripped.evaluation().qualifies(35));
+        });
+        run("missing budding and stripped geode toggles independently control local scoring", () -> {
+            List<Finding> evidence = List.of(finding(Check.MISSING_BUDDING_AMETHYST, 0, 0), finding(Check.STRIPPED_GEODE, 0, 0));
+            var missing = scoreWithLand(estimateEmpty(), evidence, Set.of(Check.MISSING_BUDDING_AMETHYST)).getFirst().evaluation();
+            var stripped = scoreWithLand(estimateEmpty(), evidence, Set.of(Check.STRIPPED_GEODE)).getFirst().evaluation();
+            check(missing.score() == 25 && missing.contributions().equals(Map.of(Check.MISSING_BUDDING_AMETHYST, 25)));
+            check(stripped.score() == 65 && stripped.contributions().equals(Map.of(Check.STRIPPED_GEODE, 65)));
+            check(scoreWithLand(estimateEmpty(), evidence, Set.of()).isEmpty());
+            check(scoreWithLand(estimateEmpty(), List.of(finding(Check.STRIPPED_GEODE, 0, 0)), Set.of(Check.MISSING_BUDDING_AMETHYST)).isEmpty());
+            check(scoreWithLand(estimateEmpty(), List.of(finding(Check.MISSING_BUDDING_AMETHYST, 0, 0)), Set.of(Check.STRIPPED_GEODE)).isEmpty());
+        });
+        run("independent geode findings still share one family cap", () -> {
+            List<Finding> evidence = List.of(finding(Check.MISSING_BUDDING_AMETHYST, 0, 0),
+                finding(Check.MATURE_GEODE, 0, 0), finding(Check.STRIPPED_GEODE, 0, 0));
+            var both = scoreWithLand(estimateEmpty(), evidence, allChecks()).getFirst().evaluation();
+            check(both.score() == 65 && both.contributions().get(Check.STRIPPED_GEODE) == 65);
+            var old = scoreWithLand(estimateEmpty(), evidence, Set.of(Check.MISSING_BUDDING_AMETHYST, Check.MATURE_GEODE)).getFirst().evaluation();
+            check(old.score() == 60 && old.contributions().get(Check.MISSING_BUDDING_AMETHYST) == 25
+                && old.contributions().get(Check.MATURE_GEODE) == 35);
         });
         run("qualified mature geode growth alone now meets the default score", () -> {
             GrowthObservation mature=new GrowthObservation(Check.MATURE_GEODE,1,8,32,8);
@@ -291,12 +321,12 @@ public final class SuspiciousActivityCheck {
             check(scores.stream().noneMatch(s->s.candidate().equals(new Candidate(0,0))));
         });
         run("nearby land anchors remain distinct and share fixed check caps", () -> {
-            List<Finding> findings=List.of(finding(Check.BURIED_ACCESS_PATH,0,0),finding(Check.MISSING_BUDDING_AMETHYST,1,1),
+            List<Finding> findings=List.of(finding(Check.BURIED_ACCESS_PATH,0,0),finding(Check.STRIPPED_GEODE,1,1),
                 finding(Check.MATURE_GEODE,0,1),finding(Check.SURFACE_KELP,1,0),finding(Check.MATURE_KELP_AGE,1,0));
             var scores=scoreWithLand(estimate(List.of(),7),findings,allChecks());
             check(scores.size()==2);
             check(scores.stream().allMatch(s->s.evaluation().score()==120));
-            check(scores.stream().allMatch(s->s.evaluation().contributions().get(Check.MISSING_BUDDING_AMETHYST)==65));
+            check(scores.stream().allMatch(s->s.evaluation().contributions().get(Check.STRIPPED_GEODE)==65));
         });
         run("local shaft deduction is one within Euclidean three chunks only", () -> {
             for(int[] shaft:new int[][]{{3,0},{-3,0},{2,2}}) {
