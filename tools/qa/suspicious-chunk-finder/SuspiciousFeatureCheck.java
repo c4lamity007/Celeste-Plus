@@ -280,7 +280,7 @@ public final class SuspiciousFeatureCheck {
                 check(pending.isEmpty());
             } finally { invoke(feature, "reset"); }
         });
-        run("new neighbor capture preserves completed observations while queued completion remains exact", () -> {
+        run("new neighbor capture and completed analysis both preserve useful progress", () -> {
             var feature = new SuspiciousChunkFinderFeature();
             try {
                 var cache = (SuspiciousSnapshots.Cache) field(feature, "cache"); cache.put(chunk(STONE, 1));
@@ -297,7 +297,7 @@ public final class SuspiciousFeatureCheck {
                 ((java.util.concurrent.Future<?>) running).get(5, java.util.concurrent.TimeUnit.SECONDS);
                 invoke(feature, "collectActivity"); check(scores(feature).getFirst().evaluation().score() == 65);
                 results.clear(); field(feature, "future", java.util.concurrent.CompletableFuture.completedFuture(observation));
-                invoke(feature, "collectResult"); check(results.isEmpty() && pending.contains(key(0, 0)));
+                invoke(feature, "collectResult"); check(results.get(key(0, 0)) == observation && pending.contains(key(0, 0)));
             } finally { invoke(feature, "reset"); }
         });
         run("first chunk availability is enrichment while known chunk change still revokes", () -> {
@@ -348,6 +348,50 @@ public final class SuspiciousFeatureCheck {
                     check(field(feature, "activityResult") == null && field(feature, "activityFuture") == null);
                 } finally { invoke(feature, "reset"); }
             }
+        });
+        run("packed capture matches real Minecraft palettes for singular local and global storage", () -> {
+            var ids = new net.minecraft.util.collection.IdList<String>();
+            String[] entries = new String[4096];
+            for (int i = 0; i < entries.length; i++) { entries[i] = "state-" + i; ids.add(entries[i]); }
+            var provider = net.minecraft.world.chunk.PaletteProvider.forBlockStates(ids);
+            for (int distinct : new int[]{1, 16, 23, 200, 300}) {
+                var container = new net.minecraft.world.chunk.PalettedContainer<String>(entries[0], provider);
+                for (int i = 0; i < 4096; i++) container.set(i & 15, i >> 8, i >> 4 & 15, entries[i % distinct]);
+                for (boolean clipped : List.of(false, true)) {
+                    int[] surfaces = new int[256]; Arrays.fill(surfaces, -1);
+                    int low = clipped ? 35 : 32, high = clipped ? 44 : 48;
+                    java.util.function.IntUnaryOperator classifier = id -> (id + 1) | (id % 3 == 0 ? 0x10000 : 0);
+                    short[] section = (short[]) call(new SuspiciousChunkFinderFeature(), "copySection",
+                        new Class<?>[]{net.minecraft.world.chunk.PalettedContainer.class,
+                            java.util.function.IntUnaryOperator.class, int[].class, int.class, int.class, int.class, int[].class},
+                        container, classifier, new int[4096], 32, low, high, surfaces);
+                    int[] expectedSurface = new int[256]; Arrays.fill(expectedSurface, -1);
+                    for (int i = 0; i < 4096; i++) {
+                        int y = 32 + (i >> 8), id = ids.getRawId(container.get(i & 15, i >> 8, i >> 4 & 15));
+                        int expected = y >= low && y < high ? id + 1 : UNKNOWN;
+                        check((section[section.length == 1 ? 0 : i] & 0xffff) == expected);
+                        if (expected != UNKNOWN && id % 3 == 0) expectedSurface[i & 255] = y;
+                    }
+                    check(Arrays.equals(surfaces, expectedSurface));
+                }
+            }
+        });
+        run("continuous neighbor arrivals do not starve completed analysis but real mutations reject it", () -> {
+            var feature = new SuspiciousChunkFinderFeature();
+            try {
+                var cache = (SuspiciousSnapshots.Cache) field(feature, "cache"); cache.put(chunk(STONE, 1));
+                @SuppressWarnings("unchecked") Map<Long, Object> results = (Map<Long, Object>) field(feature, "results");
+                for (int x = 1; x <= 8; x++) {
+                    Object observation = observation(Map.of(key(0, 0), 1L, key(x, 0), -1L));
+                    cache.put(chunk(x, 0, STONE, x + 1));
+                    field(feature, "future", java.util.concurrent.CompletableFuture.completedFuture(observation));
+                    invoke(feature, "collectResult"); check(results.get(key(0, 0)) == observation);
+                }
+                results.clear();
+                Object stale = observation(Map.of(key(0, 0), 1L)); cache.put(chunk(DIRT, 99));
+                field(feature, "future", java.util.concurrent.CompletableFuture.completedFuture(stale));
+                invoke(feature, "collectResult"); check(results.isEmpty());
+            } finally { invoke(feature, "reset"); }
         });
         System.out.println("RESULT " + cases + " passed; " + assertions + " assertions; actual Feature reflection, no game/auth initialized");
     }

@@ -40,7 +40,7 @@ public final class SuspiciousChunkFinderFeature implements ModuleFeature {
     private static final String[] LABELS = {"Rotated deepslate", "Mismatched soil", "Grounded vines",
         "Mature geode", "Missing budding", "Surface kelp", "Mature kelp",
         "Buried paths", "Open shafts", "Stripped geodes"};
-    private static final int CAPTURE_BLOCKS = 8192, MAX_RESULTS = 512, MAX_RADIUS = 5, PENDING_VISITS = 32;
+    private static final int CAPTURE_CHUNKS = 4, MAX_RESULTS = 512, MAX_RADIUS = 5, PENDING_VISITS = 32;
     private static final long CAPTURE_NANOS = 1_000_000L;
     private static final int MAX_PATH_BLOCKS = 2048, PATH_PUBLICATION_VISITS = 8192;
     private static volatile SuspiciousChunkFinderFeature active;
@@ -49,6 +49,7 @@ public final class SuspiciousChunkFinderFeature implements ModuleFeature {
     private final LinkedHashSet<Long> dirty = new LinkedHashSet<>(), pending = new LinkedHashSet<>(), changedChunks = new LinkedHashSet<>();
     private final LinkedHashMap<Long, Result> results = new LinkedHashMap<>();
     private final IdentityHashMap<BlockState, Classified> classified = new IdentityHashMap<>();
+    private int[] rawClassified;
     private volatile List<Result> displayed = List.of();
     private volatile List<PathBlock> displayedPaths = List.of();
     private final LinkedHashMap<Long, GrowthObservation> activityEvidence = new LinkedHashMap<>();
@@ -178,7 +179,7 @@ public final class SuspiciousChunkFinderFeature implements ModuleFeature {
         publicationDirty = false; activityMarkersDirty = false;
     }
     private void reset() {
-        suspend(); world = null; resumeHistory = false; cache.clear(); classified.clear();
+        suspend(); world = null; resumeHistory = false; cache.clear(); classified.clear(); rawClassified = null;
         activityEvidence.clear(); growthKinds.clear(); activityVersion++;
     }
 
@@ -243,17 +244,19 @@ public final class SuspiciousChunkFinderFeature implements ModuleFeature {
         }
         if (capture != null && !captureArea(capture.id)) { dirty.remove(capture.id); capture = null; }
         long deadline = System.nanoTime() + CAPTURE_NANOS;
-        if (capture == null) selectCapture();
-        if (capture != null) {
+        for (int completedChunks = 0; completedChunks < CAPTURE_CHUNKS && System.nanoTime() < deadline; completedChunks++) {
+            if (capture == null) selectCapture();
+            if (capture == null) break;
             WorldChunk loaded = loaded(capture.x, capture.z);
             if (loaded != capture.chunk || capture.revision != revisions.getOrDefault(capture.id, 0L)) {
                 // A busy farm/liquid chunk must not monopolize retries ahead of new terrain.
                 dirty.remove(capture.id);
                 if (loaded != null) dirty.add(capture.id);
                 capture = null;
+                break;
             } else if (capture.advance(deadline)) {
                 acceptCapture(capture.finish());
-            }
+            } else break;
         }
         // Packet bursts, unloads, completed scans and surfaces publish once per tick.
         if (publicationDirty) { publicationDirty = false; publishNow(); }
@@ -395,11 +398,14 @@ public final class SuspiciousChunkFinderFeature implements ModuleFeature {
         if (future == null || !future.isDone()) return;
         try {
             Result result = future.get();
-            boolean fresh = result.generation == generation && inputsCurrent(result);
+            boolean fresh = result.generation == generation && observedInputsCurrent(result);
             if (fresh) {
                 results.remove(result.id); results.put(result.id, result);
                 while (results.size() > MAX_RESULTS) results.remove(results.keySet().iterator().next());
                 rememberGrowth(result.evaluation);
+                // Finishing a valid partial observation must not wait for the moving
+                // neighborhood to stop receiving new chunks. Enrich it afterward.
+                if (!inputsCurrent(result)) pending.add(result.id);
                 publish();
             } else if (cache.live(result.id) != null) pending.add(result.id);
         } catch (CancellationException ignored) {
@@ -725,7 +731,7 @@ public final class SuspiciousChunkFinderFeature implements ModuleFeature {
         final long id, revision, time = System.currentTimeMillis();
         final short[][] sections;
         final int[] surfaces = new int[256];
-        int section, index;
+        int section;
         Capture(WorldChunk chunk) {
             this.chunk = chunk; x = chunk.getPos().x; z = chunk.getPos().z; id = key(x, z);
             revision = revisions.getOrDefault(id, 0L); base = Math.floorDiv(floor, 16) * 16;
@@ -733,33 +739,15 @@ public final class SuspiciousChunkFinderFeature implements ModuleFeature {
             Arrays.fill(surfaces, floor - 1);
         }
         boolean advance(long deadline) {
-            int visited = 0;
-            while (section < sections.length && visited < CAPTURE_BLOCKS) {
-                if ((visited & 63) == 0 && System.nanoTime() >= deadline) return false;
-                int sectionY = (base >> 4) + section;
-                int actual = world.sectionCoordToIndex(sectionY);
-                ChunkSection states = chunk.getSectionArray()[actual];
-                if (states == null) { section++; index = 0; visited++; continue; }
-                if (states.isEmpty()) { sections[section++] = new short[]{(short) AIR}; index = 0; visited++; continue; }
-                if (sections[section] == null) sections[section] = new short[4096];
-                int y = base + section * 16 + (index >> 8);
-                if (y < floor || y >= top) sections[section][index] = (short) UNKNOWN;
-                else {
-                    Classified type = classify(states.getBlockState(index & 15, index >> 8, index >> 4 & 15));
-                    sections[section][index] = type.code;
-                    if (type.surface) surfaces[index & 255] = y;
-                }
-                visited++;
-                if (++index == 4096) {
-                    short[] values = sections[section]; boolean uniform = true;
-                    for (int i = 1; i < values.length; i++) if (values[i] != values[0]) { uniform = false; break; }
-                    if (uniform) sections[section] = new short[]{values[0]};
-                    section++; index = 0;
-                }
+            while (section < sections.length) {
+                if (System.nanoTime() >= deadline) return false;
+                int bottom = base + section * 16;
+                ChunkSection states = chunk.getSectionArray()[world.sectionCoordToIndex(bottom >> 4)];
+                if (states != null) sections[section] = states.isEmpty()
+                    ? decodeSection(0, new int[]{AIR}, new long[0], bottom, floor, top, surfaces)
+                    : captureSection(states, bottom, surfaces);
+                section++;
             }
-            if (section < sections.length) return false;
-            // Use the heightmap's predicate during the bounded scan. Asking Minecraft to
-            // populate an absent heightmap here could scan a whole column below the cutoff.
             for (int s = 0; s < sections.length; s++) if (sections[s] == null)
                 for (int column = 0; column < 256; column++)
                     if (surfaces[column] < base + (s + 1) * 16) surfaces[column] = Integer.MIN_VALUE;
@@ -768,6 +756,81 @@ public final class SuspiciousChunkFinderFeature implements ModuleFeature {
         SuspiciousSnapshots.Chunk finish() {
             return new SuspiciousSnapshots.Chunk(x, z, floor, top, sections, surfaces, time, ++snapshotSerial);
         }
+    }
+
+    /** Copy Minecraft's packed palette storage, not 4096 world lookups per section.
+     * Packet serialization here is entirely local: no packet is sent or requested.
+     * Java 1.21.11 uses an unsigned bits byte, palette varints and fixed-length longs. */
+    private short[] captureSection(ChunkSection states, int bottom, int[] surfaces) {
+        if (rawClassified == null || rawClassified.length != Block.STATE_IDS.size())
+            rawClassified = new int[Block.STATE_IDS.size()];
+        return copySection(states.getBlockStateContainer(), this::classifyRaw, rawClassified,
+            bottom, floor, top, surfaces);
+    }
+    private static short[] copySection(net.minecraft.world.chunk.PalettedContainer<?> container,
+                                        java.util.function.IntUnaryOperator classify, int[] directPalette,
+                                        int bottom, int floor, int top, int[] surfaces) {
+        var buffer = new net.minecraft.network.PacketByteBuf(io.netty.buffer.Unpooled.buffer());
+        try {
+            container.writePacket(buffer);
+            int bits = buffer.readUnsignedByte();
+            if (bits > 32) throw new IllegalStateException("Invalid block palette bits");
+            int[] palette;
+            if (bits == 0) palette = new int[]{classify.applyAsInt(buffer.readVarInt())};
+            else if (bits <= 8) {
+                int size = buffer.readVarInt();
+                if (size < 1 || size > 1 << bits) throw new IllegalStateException("Invalid block palette size");
+                palette = new int[size];
+                for (int i = 0; i < size; i++) palette[i] = classify.applyAsInt(buffer.readVarInt());
+            } else {
+                palette = directPalette;
+            }
+            int perLong = bits == 0 ? 0 : 64 / bits;
+            long[] data = new long[bits == 0 ? 0 : (4096 + perLong - 1) / perLong];
+            for (int i = 0; i < data.length; i++) data[i] = buffer.readLong();
+            if (buffer.isReadable()) throw new IllegalStateException("Unexpected block palette storage");
+            if (bits > 8) {
+                long mask = (1L << bits) - 1;
+                for (int i = 0; i < 4096; i++) {
+                    int id = (int) (data[i / perLong] >>> ((i % perLong) * bits) & mask);
+                    if (id < 0 || id >= palette.length) throw new IllegalStateException("Unknown block state");
+                    if (palette[id] == 0) palette[id] = classify.applyAsInt(id);
+                }
+            }
+            return decodeSection(bits, palette, data, bottom, floor, top, surfaces);
+        } finally { buffer.release(); }
+    }
+    private int classifyRaw(int id) {
+        BlockState state = Block.STATE_IDS.get(id);
+        if (state == null) throw new IllegalStateException("Unknown block palette state");
+        Classified value = classify(state);
+        return (value.code & 0xffff) | (value.surface ? 0x10000 : 0);
+    }
+    /** Pure decoder; only primitive copies enter terrain snapshots. */
+    private static short[] decodeSection(int bits, int[] palette, long[] data,
+                                         int bottom, int floor, int top, int[] surfaces) {
+        if (bits < 0 || bits > 32 || palette.length == 0 || surfaces.length != 256)
+            throw new IllegalArgumentException("Invalid section input");
+        int perLong = bits == 0 ? 0 : 64 / bits;
+        if (data.length != (bits == 0 ? 0 : (4096 + perLong - 1) / perLong))
+            throw new IllegalArgumentException("Invalid section storage");
+        if (bits == 0 && bottom >= floor && bottom + 16 <= top) {
+            if ((palette[0] & 0x10000) != 0) Arrays.fill(surfaces, bottom + 15);
+            return new short[]{(short) palette[0]};
+        }
+        long mask = (1L << bits) - 1;
+        short[] values = new short[4096]; boolean uniform = true;
+        for (int i = 0; i < values.length; i++) {
+            int y = bottom + (i >> 8);
+            if (y >= floor && y < top) {
+                int id = bits == 0 ? 0 : (int) (data[i / perLong] >>> ((i % perLong) * bits) & mask);
+                if (id < 0 || id >= palette.length) throw new IllegalArgumentException("Invalid palette index");
+                int value = palette[id]; values[i] = (short) value;
+                if ((value & 0x10000) != 0) surfaces[i & 255] = y;
+            }
+            if (i > 0 && values[i] != values[0]) uniform = false;
+        }
+        return uniform ? new short[]{values[0]} : values;
     }
 
     private Classified classify(BlockState state) {
