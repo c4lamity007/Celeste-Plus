@@ -69,18 +69,18 @@
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/auth/AuthBootstrap.java",
-      "sha256": "91daeb25e1dbc228b1bdf639298fe13e67f2a2c0d59576a9ba5cbbc85934de1c",
+      "sha256": "71dd0b7f13114661c054d663f90fe788405a86a9d2ea44212aedb3a2b859e0a0",
       "baseSha256": "4fd99b1932863ebb17cb99d970ab466b3e3032d267d7fe21d5ec0e8fab369717"
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/auth/AuthServiceClient.java",
-      "sha256": "a8a8e87cb127b5c253151db2cbc87dbe5dbe0641938e6e6aba900cbf001f98d3",
+      "sha256": "0ee0b7df8ecf755ac51facf4116a26bfe6196aea22aa082035d6a3e27a361838",
       "baseSha256": "00c18092c9d59746a78b238158b93442cbb87972803888a9ac027b26717b7e57"
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/auth/AuthenticatedModulePayloadProvider.java",
       "baseSha256": null,
-      "sha256": "dc09a98f2e4654e7f213a70360706520d283e95d9e0e9c8093b4124b6a705c3b"
+      "sha256": "a88d0b211962a329fa44543a30682c3b5b2262a3d1da57c410ac58970bcae2e7"
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/auth/CredentialMaterial.java",
@@ -94,7 +94,7 @@
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/auth/DpopProofSigner.java",
-      "sha256": "49362526e201fe4cb56b46df8f64b448f0ce946fc727caec08b6f63b8b0b6378",
+      "sha256": "a70c4460904e13afa7009bee274cbe67c4ed233c7a0d9be576cc582d4a150275",
       "baseSha256": "557bbb42633f8ebb29610613919c4ccac1221f4a94a54b17b47c7ac6ad04d722"
     },
     {
@@ -128,9 +128,29 @@
       "baseSha256": null
     },
     {
+      "path": "src/main/java/dev/c4lam/celeste/auth/SecurityIncidentController.java",
+      "baseSha256": null,
+      "sha256": "8acebde0ec95b8ce048d8899945b128c27faa92fa0d9f62b32f63437a37b5fe3"
+    },
+    {
+      "path": "src/main/java/dev/c4lam/celeste/auth/SecurityIncidentProtocol.java",
+      "baseSha256": null,
+      "sha256": "c91707e5c40a59058cd695808122cb72069940a01efef815050a08e716e91e70"
+    },
+    {
+      "path": "src/main/java/dev/c4lam/celeste/auth/SecurityWarningRenderer.java",
+      "baseSha256": null,
+      "sha256": "385dcffb13a5b9949c08138dade3e8383bb54f71d8d922320fd731041e88db8f"
+    },
+    {
       "path": "src/main/java/dev/c4lam/celeste/auth/WindowsFirmwareIdentity.java",
       "sha256": "413a8adfcba67f536b5ce4f74069aa3c1d38e3c9493b50001008feb838225a9a",
       "baseSha256": null
+    },
+    {
+      "path": "src/main/java/dev/c4lam/celeste/auth/WindowsSelfDebuggerProbe.java",
+      "baseSha256": null,
+      "sha256": "dcbe4666c10bb6088af9a1e569ce034aa4f0d80ae94a9d3809922d1ccc7c5a8b"
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/beta/delivery/ArtifactEnvelope.java",
@@ -190,12 +210,17 @@
     {
       "path": "src/main/java/dev/c4lam/celeste/beta/memory/ModuleMemoryClassLoader.java",
       "baseSha256": null,
-      "sha256": "f5ef94f90f4a94bc2205f21be05f46f7c831ca43e7acaf73fd48b5e069bf2ba2"
+      "sha256": "bb28a3d10ba4ae5f8c852fc050c1424020355ed5bf9251721add8196d1781c9d"
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/beta/memory/NativeResourceBudget.java",
       "sha256": "782506b345db21939862d753e6e4c8cea16dbd8fe3ee40e31c9c25cb7f2a2442",
       "baseSha256": null
+    },
+    {
+      "path": "src/main/java/dev/c4lam/celeste/beta/memory/RetainedIntegrityException.java",
+      "baseSha256": null,
+      "sha256": "90a61dd03af028dfe4b780e7a51cd35f6d7b34fb973e3931e00e3e65f277f9eb"
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/beta/resources/MemoryResourceBytes.java",
@@ -259,7 +284,7 @@
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/compat/PresentationHooks.java",
-      "sha256": "867089aa1107744a74bca0452335323f9b4df1907b478c195873f32e86014798",
+      "sha256": "5c1b99d5ba2590e30997f6c679025e703dee94841bcba2c17c9cf40a2f257f13",
       "baseSha256": "4325bb94e5cb41277f3830ef5cdeb3420d1b50c84315985ad16764721b283a33"
     },
     {

@@ -2,6 +2,7 @@ package dev.c4lam.celeste.auth;
 
 import dev.c4lam.celeste.beta.delivery.ModuleDeliveryClient;
 import dev.c4lam.celeste.beta.memory.ModuleMemoryClassLoader;
+import dev.c4lam.celeste.beta.memory.RetainedIntegrityException;
 import dev.c4lam.celeste.module.ModuleFeature;
 import dev.c4lam.celeste.module.delivery.*;
 import java.security.GeneralSecurityException;
@@ -33,6 +34,7 @@ final class AuthenticatedModulePayloadProvider implements ModulePayloadProvider,
     private final ConcurrentHashMap<Activation,Request> requests=new ConcurrentHashMap<>();
     private final Set<Lease> installedLeases=ConcurrentHashMap.newKeySet();
     private final AtomicBoolean pumping=new AtomicBoolean();
+    private final AtomicBoolean quarantined=new AtomicBoolean();
     private volatile boolean closed;
     private volatile CompletableFuture<Void> stopped=CompletableFuture.completedFuture(null);
     private CompletableFuture<Void> catalogPrefetch;
@@ -50,6 +52,26 @@ final class AuthenticatedModulePayloadProvider implements ModulePayloadProvider,
         });
     }
     ModuleDeliveryClient delivery(){return delivery;}
+    /** Immediate dispatch fence; retain verified source bytes for an independent second observation. */
+    void quarantine(){quarantined.set(true);}
+    static final class RetainedModuleMismatch extends GeneralSecurityException implements AutoCloseable {
+        private static final long serialVersionUID=1L;
+        private final Lease lease;
+        private final ModuleMemoryClassLoader retained;
+        private final AtomicBoolean released=new AtomicBoolean();
+        private final SecurityIncidentProtocol.Observation observation;
+        RetainedModuleMismatch(Lease lease,ModuleMemoryClassLoader retained,RetainedIntegrityException failure){
+            super("Retained module integrity mismatch",failure);this.lease=lease;this.retained=retained;
+            observation=lease.observation(failure);
+        }
+        SecurityIncidentProtocol.Observation observation(){return observation;}
+        SecurityIncidentProtocol.Observation sample() throws GeneralSecurityException {
+            if(released.get())return null;
+            try{retained.verifyIntegrity();return null;}
+            catch(RetainedIntegrityException failure){return lease.observation(failure);}
+        }
+        @Override public void close(){if(released.compareAndSet(false,true))lease.releaseDiagnostic();}
+    }
     /** Starts only after the resident session is published; never authorizes or loads a module. */
     synchronized CompletionStage<Void> prefetchCatalog() {
         if(closed)return CompletableFuture.failedFuture(new CancellationException("Module delivery stopped"));
@@ -68,11 +90,11 @@ final class AuthenticatedModulePayloadProvider implements ModulePayloadProvider,
     }
     /** Called by the heartbeat worker, independently of the fixed resident-runtime digest. */
     void verifyRetainedModules() throws GeneralSecurityException {
-        for (Lease lease:installedLeases) lease.verifyRetained();
+        for (Lease lease:installedLeases)lease.verifyRetained();
     }
     @Override public synchronized CompletionStage<ModulePayloadLease> acquire(String id,long generation) {
         CompletableFuture<ModulePayloadLease> result=new CompletableFuture<>();
-        if(closed)return CompletableFuture.failedFuture(new IllegalStateException("Module delivery stopped"));
+        if(closed||quarantined.get())return CompletableFuture.failedFuture(new IllegalStateException("Module delivery stopped"));
         Request request=new Request(id,generation,result);outstanding.add(result);
         Activation activation=new Activation(id,generation);
         if(requests.putIfAbsent(activation,request)!=null){outstanding.remove(result);return CompletableFuture.failedFuture(new IllegalStateException("Activation generation already requested"));}
@@ -157,7 +179,7 @@ final class AuthenticatedModulePayloadProvider implements ModulePayloadProvider,
             // this last check. Wire and integrity rejections remain separate.
             checkCancelled(request);
             if(!authorized)throw new GeneralSecurityException("Module authorization ended during preparation");
-            delivered=new Lease(prepared,loader,assets,request.id,request.generation,installedLeases);
+            delivered=new Lease(prepared,loader,assets,request.id,request.generation,installedLeases,quarantined);
             installedLeases.add(delivered);
             prepared=null;loader=null;assets=null;
         }catch(Throwable problem){failure=problem;securityFailure(problem);}
@@ -219,10 +241,19 @@ final class AuthenticatedModulePayloadProvider implements ModulePayloadProvider,
         private ModuleMemoryClassLoader loader;
         private Map<String,byte[]> pendingAssets;
         private final String id;private final long generation;
+        private final String artifact;
+        private final AtomicBoolean quarantined;
         private boolean created;
+        private int diagnosticPins;
+        private ModuleMemoryClassLoader retiredDiagnostic;
         private Set<Lease> membership;
-        Lease(ModuleDeliveryClient.Prepared prepared,ModuleMemoryClassLoader loader,Map<String,byte[]> assets,String id,long generation,Set<Lease> membership) {
+        Lease(ModuleDeliveryClient.Prepared prepared,ModuleMemoryClassLoader loader,Map<String,byte[]> assets,String id,long generation,Set<Lease> membership,AtomicBoolean quarantined) {
             this.prepared=prepared;this.loader=loader;this.pendingAssets=assets;this.id=id;this.generation=generation;this.membership=membership;
+            this.artifact=prepared.module().artifactId();this.quarantined=quarantined;
+        }
+        SecurityIncidentProtocol.Observation observation(RetainedIntegrityException failure){
+            return new SecurityIncidentProtocol.Observation(SecurityIncidentProtocol.Kind.MODULE_MUTATION,
+                artifact,failure.expected(),failure.observed());
         }
         @Override public synchronized ModuleFeature create(ModuleServices services) throws Exception {
             if(created || !authorized() || !id.equals(services.moduleId()) || generation!=services.generation())
@@ -248,18 +279,33 @@ final class AuthenticatedModulePayloadProvider implements ModulePayloadProvider,
             // read monitor or this lease's game/render authorization monitor.
             try { retained.verifyIntegrity(); }
             catch (GeneralSecurityException failure) {
-                synchronized(this){if(loader==retained)throw failure;}
+                synchronized(this){if(loader==retained){
+                    if(failure instanceof RetainedIntegrityException mismatch){
+                        diagnosticPins++;
+                        throw new RetainedModuleMismatch(this,retained,mismatch);
+                    }
+                    throw failure;
+                }}
                 // This exact lease retired while verification was waiting; its bytes
                 // were deliberately wiped and can no longer authorize dispatch.
             }
         }
         @Override public synchronized ClassLoader definingLoader(){return loader;}
-        @Override public synchronized boolean authorized(){return loader!=null && prepared!=null && !loader.isClosed() && prepared.authorized();}
+        @Override public synchronized boolean authorized(){return !quarantined.get()&&loader!=null && prepared!=null && !loader.isClosed() && prepared.authorized();}
         @Override public synchronized void close(){
             if(pendingAssets!=null){wipeAssets(pendingAssets);pendingAssets=null;}
-            if(loader!=null){loader.close();loader=null;}
+            if(loader!=null){
+                ModuleMemoryClassLoader retiring=loader;loader=null;
+                if(diagnosticPins>0)retiredDiagnostic=retiring;else retiring.close();
+            }
             if(prepared!=null){prepared.close();prepared=null;}
             if(membership!=null){membership.remove(this);membership=null;}
+        }
+        private synchronized void releaseDiagnostic(){
+            if(diagnosticPins<=0)throw new IllegalStateException("Diagnostic pin already released");
+            if(--diagnosticPins==0&&retiredDiagnostic!=null){
+                ModuleMemoryClassLoader retiring=retiredDiagnostic;retiredDiagnostic=null;retiring.close();
+            }
         }
     }
 }

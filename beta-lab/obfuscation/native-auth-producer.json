@@ -1,8 +1,8 @@
 {
   "schema": "celeste-auth-native-producer-policy-1",
-  "scope": "Reviewed exact method-selector adaptation for independent module delivery; executable producer code unchanged. This is not native protection or publication approval.",
-  "native_tool_bundle_sha256": "35e9f521ffa2f4f43bbc1366fbf3c461a8b8a2aa906bb6931be7d63e580f553e",
-  "adaptation_provenance_sha256": "2b3bd4386d94ea35d0f61516503f0d0b762ba6f7c2e5471c9912c58dc223758d",
+  "scope": "Reviewed exact selector adaptation for signed security incidents; executable producer code unchanged. This is not native protection or publication approval.",
+  "native_tool_bundle_sha256": "e74ed128488901aa73c59f2ec42caabe64bd0f173a0041dde95f8982a001068a",
+  "adaptation_provenance_sha256": "bc5b192ee56a83c86e8a40e7dcddd6a60d0cc496396db3a2acdd2b9dbd365d78",
   "source_patch_sha256": "11010fd2e68060eabfe7b74825dd73682ba3ee98b1960031ca42ac8a1d36b620",
   "required_properties": {
     "celeste.prototype.callLocalJni": "true",
@@ -16,7 +16,7 @@
   "method_selections": {
     "auth": {
       "path": "final-native-auth/auth.methods",
-      "sha256": "cc47ef80b168a5796e4a47f43f2d8fa31e36df1a37f06d6cd664f5851e0f096b"
+      "sha256": "fb8c3b43b1e54afa3dfdf39e2bf3edc8e4083f7af850a7dc24f02a2486c91bfe"
     },
     "signer": {
       "path": "final-native-auth/signer.methods",
@@ -24,7 +24,7 @@
     },
     "bootstrap": {
       "path": "final-native-auth/bootstrap.methods",
-      "sha256": "451f650df076557f4a73c67595096390d5b67d265e736c87a0725f16cdbf23d3"
+      "sha256": "788fe63d6e6c97b7ed540750ff68820ce5469a8d95422ce8000a82c80c9aadae"
     }
   },
   "limits": [
@@ -39,7 +39,7 @@
     "lifecycle_process_cases": 40
   },
   "selector_preflight": {
-    "selected_bodies": 16,
+    "selected_bodies": 17,
     "input_namespace": "intermediary",
     "production_approved": false
   }

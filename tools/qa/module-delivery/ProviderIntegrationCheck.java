@@ -26,7 +26,7 @@ public final class ProviderIntegrationCheck {
  public static void main(String[] args)throws Exception{
   JsonObject golden=JsonParser.parseString(Files.readString(Path.of(args[0]))).getAsJsonObject();
   warmAndAssets(golden);bounded(golden);cancelGeneration(golden);closeRace(golden);nonBlockingIntegrity(golden);prefetchCatalog(golden);
-  workerAssets(golden);
+  workerAssets(golden);diagnosticRetention(golden);
   cancelQueued(golden);cancelBatchSibling(golden);cancelAllRetry(golden);cancelTransferDrain(golden);cancelDeniedTransfer(golden);
   cancelQueuedPreparation(golden);cancelVerifiedPreparation(golden);closeFinalValidation(golden,false);closeFinalValidation(golden,true);
   System.out.println("PASS authenticated module provider: "+assertions+" integration assertions; synthetic server, real crypto/loader/runtime; no game verification");
@@ -309,6 +309,33 @@ public final class ProviderIntegrationCheck {
    }finally{release.countDown();stopped(provider);}
   }
  }
+ private static void diagnosticRetention(JsonObject golden)throws Exception{
+  try(var fixture=new ProviderFixture(golden)){
+   var provider=new AuthenticatedModulePayloadProvider(fixture.client(),failure->{throw new AssertionError(failure);});
+   var lease=get(provider.acquire("fixture_a",1));var sibling=get(provider.acquire("fixture_b",1));
+   var loader=(dev.c4lam.celeste.beta.memory.ModuleMemoryClassLoader)lease.definingLoader();
+   var siblingLoader=(dev.c4lam.celeste.beta.memory.ModuleMemoryClassLoader)sibling.definingLoader();
+   var entriesField=loader.getClass().getDeclaredField("entries");entriesField.setAccessible(true);
+   @SuppressWarnings("unchecked") Map<String,byte[]> entries=(Map<String,byte[]>)entriesField.get(loader);
+   Map<String,byte[]> retained=new HashMap<>(entries);byte[] bytes=retained.get("assets/celeste/provider-fixture.txt");bytes[0]^=1;
+   AuthenticatedModulePayloadProvider.RetainedModuleMismatch diagnostic;
+   try{provider.verifyRetainedModules();throw new AssertionError("Expected confirmed retained mismatch");}
+   catch(AuthenticatedModulePayloadProvider.RetainedModuleMismatch detected){diagnostic=detected;}
+   try{
+    provider.quarantine();lease.close();sibling.close();
+    check(!lease.authorized()&&lease.definingLoader()==null&&count(provider,"installedLeases")==0,"Mid-tick retirement immediately removes live module access despite diagnostic pin");
+    check(siblingLoader.isClosed()&&!loader.isClosed()&&!zeroed(retained),"Only exact mismatching source remains pinned; unrelated modules wipe normally");
+    check(provider.acquire("fixture_a",2).toCompletableFuture().isCompletedExceptionally(),"Quarantine never grants a replacement activation");
+    var first=diagnostic.observation();var second=diagnostic.sample();
+    check(first.equals(second)&&first.artifact().equals("00000000000000000000000000000001"),"Fresh confirmation still hashes exact approved opaque artifact after retirement");
+    bytes[0]^=2;var changed=diagnostic.sample();
+    check(first.sameFamily(changed)&&!first.observed().equals(changed.observed()),"Diagnostic pin rehashes fresh bytes instead of replaying first mismatch");
+   }finally{diagnostic.close();}
+   check(loader.isClosed()&&zeroed(retained)&&diagnostic.sample()==null,"Reporter retirement wipes deferred bytes and ends observation rights");
+   diagnostic.close();lease.close();stopped(provider);
+   check(loader.isClosed()&&count(provider,"installedLeases")==0,"Diagnostic and lease retirement are idempotent");
+  }
+ }
  private static void nonBlockingIntegrity(JsonObject golden)throws Exception{
   try(var fixture=new ProviderFixture(golden)){
    var provider=new AuthenticatedModulePayloadProvider(fixture.client(),failure->{throw new AssertionError(failure);});
@@ -317,7 +344,7 @@ public final class ProviderIntegrationCheck {
    @SuppressWarnings("unchecked") Map<String,byte[]> entries=(Map<String,byte[]>)entriesField.get(loader);
    byte[] retained=entries.get("assets/celeste/provider-fixture.txt");retained[0]^=1;
    try{provider.verifyRetainedModules();throw new AssertionError("Corrupt live lease accepted");}
-   catch(java.security.GeneralSecurityException expected){assertions++;}
+   catch(AuthenticatedModulePayloadProvider.RetainedModuleMismatch expected){expected.close();assertions++;}
    finally{retained[0]^=1;}
    AtomicReference<Throwable> integrityFailure=new AtomicReference<>();
    Thread verifier=new Thread(()->{try{provider.verifyRetainedModules();}catch(Throwable failure){integrityFailure.set(failure);}},"fixture-integrity-blocked");

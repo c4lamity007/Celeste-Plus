@@ -226,8 +226,9 @@ public final class ModuleMemoryClassLoader extends ClassLoader implements AutoCl
             verifyingThread = Thread.currentThread();
         }
         try {
-            if (!entryDigest(entries).equals(expectedEntriesDigest))
-                throw new GeneralSecurityException("Retained module integrity mismatch");
+            String observed=entryDigest(entries);
+            if (!observed.equals(expectedEntriesDigest))
+                throw new RetainedIntegrityException(expectedEntriesDigest,observed);
         } finally {
             synchronized (this) { verifyingThread = null; notifyAll(); }
         }

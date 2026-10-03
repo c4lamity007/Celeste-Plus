@@ -27,6 +27,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .beta_delivery import beta_enabled, beta_runtime_catalog, create_beta_router, require_current_runtime_catalog
 from .module_delivery import create_module_router
+from .security_incidents import create_incident_router
 from .api_responses import ApiResponseMiddleware
 from .native_manifest import create_native_manifest_router
 from .native_download import create_native_download_router
@@ -1397,6 +1398,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                             (body.device_id, body.nonce, now + 120),
                         )
                     except sqlite3.IntegrityError:
+                        if runtime is not None:
+                            # Reject Plus replay before runtime/tamper state can mutate.
+                            raise HTTPException(401, "session verification denied") from None
                         replayed = True
                         security_event(
                             connection,
@@ -1410,6 +1414,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     tampered = body.event == "integrity_mismatch" or not hmac.compare_digest(
                         body.observed_sha256, expected_digest
                     )
+                    if runtime is not None and tampered:
+                        # Plus incidents require the separate fresh two-observation protocol.
+                        # A legacy report still fails closed, but cannot revoke the license.
+                        raise HTTPException(401, "session verification denied")
                     license_active = (
                         row["status"] == "active"
                         and row["license_status"] == "active"
@@ -1448,6 +1456,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                                 "nonce": body.nonce,
                                 "status": "active",
                                 "sub": str(row["license_uid"]),
+                                **({"security_incident_scope": settings.plus_security_incident_scope}
+                                   if runtime is not None and settings.plus_security_incident_scope else {}),
                                 **({"release": runtime["release_id"], "client_version": runtime["client_version"],
                                     "beta_catalog_sha256": runtime["catalog_sha256"]} if runtime is not None else {}),
                                 **({"hardware_sha256": body.hardware_sha256, "process_id": body.process_id,
@@ -2239,6 +2249,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return response
 
     app.include_router(create_module_router(settings, database, signer, dpop, apply_limit))
+    app.include_router(create_incident_router(settings, database, signer, dpop, apply_limit))
     app.include_router(create_beta_router(settings, database, signer, require_active_artifact_device,
                                          apply_limit, admit_beta_artifact))
     app.include_router(create_native_manifest_router(settings, database, signer, apply_limit))

@@ -212,6 +212,9 @@ dependencies {
 def runtimeAuthCheckOutput = layout.buildDirectory.dir('module-qa/runtime-auth-check/classes')
 def runtimeAuthCheckSourcePaths = [
     'dev/c4lam/celeste/auth/AuthServiceClient.java',
+    'dev/c4lam/celeste/auth/SecurityIncidentProtocol.java',
+    'dev/c4lam/celeste/auth/SecurityIncidentController.java',
+    'dev/c4lam/celeste/auth/WindowsSelfDebuggerProbe.java',
     'dev/c4lam/celeste/auth/CredentialStore.java',
     'dev/c4lam/celeste/auth/HardwareIdentityV2.java',
     'dev/c4lam/celeste/auth/WindowsFirmwareIdentity.java',
@@ -247,6 +250,24 @@ tasks.register('runtimeAuthProtocolCheck', JavaExec) {
     enableAssertions = true
     jvmArgs '-Xverify:all'
 }
+
+tasks.register('runtimeIncidentTransportCheck', JavaExec) {
+    dependsOn compileRuntimeAuthCheck
+    classpath = files(runtimeAuthCheckOutput) + sourceSets.main.runtimeClasspath + configurations.runtimeAuthCheckDependencies
+    mainClass = 'dev.c4lam.celeste.auth.IncidentTransportCheck'
+    enableAssertions = true
+    jvmArgs '-Xverify:all'
+}
+
+tasks.register('runtimeSecurityIncidentCheck', JavaExec) {
+    dependsOn compileRuntimeAuthCheck
+    classpath = files(runtimeAuthCheckOutput) + sourceSets.main.runtimeClasspath + configurations.runtimeAuthCheckDependencies
+    mainClass = 'dev.c4lam.celeste.auth.SecurityIncidentCheck'
+    enableAssertions = true
+    jvmArgs '-Xverify:all'
+}
+
+tasks.named('check') { dependsOn tasks.named('runtimeIncidentTransportCheck'), tasks.named('runtimeSecurityIncidentCheck') }
 
 tasks.register('runtimeHardwareIdentityCheck', JavaExec) {
     dependsOn compileRuntimeAuthCheck

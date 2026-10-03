@@ -21,7 +21,9 @@ public final class PresentationHooks {
 
     /** Call immediately after Minecraft's GuiRenderer.render(GpuBufferSlice). */
     public static void flushGui() {
+        Object warning=dev.c4lam.celeste.auth.SecurityWarningRenderer.beforeFlush();
         GuiRenderer.getInstance().flush();
+        dev.c4lam.celeste.auth.SecurityWarningRenderer.afterFlush(warning);
     }
 
     /** At InGameHud.render HEAD; true means return without rendering the rest of the HUD. */

@@ -26,7 +26,6 @@ that request; clients must compare it before accepting the manifest.
 from __future__ import annotations
 
 import hashlib
-import asyncio
 import hmac
 import json
 import re
@@ -48,7 +47,7 @@ from .security import GrantSigner, canonical_json
 from .dpop import access_token, confirmation
 from .token_revocation import require_unrevoked
 from .artifact_envelope import encrypt_chunks, recipient, OVERHEAD_BYTES
-from .artifact_transfer import ArtifactResponse, plain_chunks
+from .artifact_transfer import ArtifactResponse, plain_chunks, run_authorization_guard
 from .auth_errors import failure
 from .auth_lifecycle import require_artifact_hardware
 from .release_assignment import selected_settings
@@ -419,7 +418,7 @@ def create_beta_router(
 
             async def guard():
                 # SQLite and identity checks never block the ASGI event loop.
-                await asyncio.to_thread(still_authorized)
+                await run_authorization_guard(still_authorized)
 
             return ArtifactResponse(chunks, length, transfer_slots, authorization_guard=guard)
         except BaseException:

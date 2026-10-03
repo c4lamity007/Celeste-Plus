@@ -1,5 +1,6 @@
 package dev.c4lam.celeste.auth;
 
+import static dev.c4lam.celeste.auth.SecurityIncidentProtocol.*;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -17,6 +18,8 @@ import java.security.KeyPair;
 import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.security.SecureRandom;
+import java.security.Signature;
+import java.util.Map;
 import java.time.Duration;
 import java.time.DateTimeException;
 import java.time.Instant;
@@ -65,6 +68,7 @@ final class AuthServiceClient implements AutoCloseable {
     private InstallCredential boundCredential;
     private volatile boolean closed;
     private volatile SessionBinding sessionBinding;
+    private final java.util.Set<IncidentTransport> incidentTransports = java.util.concurrent.ConcurrentHashMap.newKeySet();
     record SessionBinding(String hardware, String hwid, long pid, String session) {
         SessionBinding {
             if (hardware == null || !hardware.matches("[0-9a-f]{64}") || hwid == null
@@ -162,6 +166,301 @@ final class AuthServiceClient implements AutoCloseable {
         if (closed) throw new IOException("Authentication transport is closed");
         if (http != null) return http; // Package-local deterministic protocol fixture only.
         return transportOwner.client();
+    }
+
+    /** Full incident signature/context/decision gate; selected as an actual native body. */
+    static Decision verifyIncidentDecision(PublicKey serverKey, Request request, String compact,
+                           long nowEpochSeconds, long nowNanos) throws GeneralSecurityException {
+        try {
+            if (compact == null || compact.length()>8192) throw invalid();
+            String[] parts=compact.split("\\.",-1);
+            if(parts.length!=3)throw invalid();
+            byte[] header=decode(parts[0]), payload=decode(parts[1]), signature=decode(parts[2]);
+            if(signature.length!=64)throw invalid();
+            Signature verifier=Signature.getInstance("Ed25519"); verifier.initVerify(serverKey);
+            verifier.update((parts[0]+"."+parts[1]).getBytes(StandardCharsets.US_ASCII));
+            if(!verifier.verify(signature))throw invalid();
+            Map<String,String> h=object(header);
+            if(!h.equals(Map.of("alg","EdDSA","kid","celeste-release-1","typ","CST")))throw invalid();
+            Map<String,String> c=object(payload); Binding b=request.binding(); Observation o=request.observation();
+            expect(c,"aud","celeste-security-incident"); expect(c,"product","celeste_plus");
+            expect(c,"sub",Long.toString(b.account())); expect(c,"device",b.device());
+            expect(c,"process_id",Long.toString(b.process())); expect(c,"session_id",b.session());
+            expect(c,"release",b.release()); expect(c,"beta_catalog_sha256",b.catalog());
+            expect(c,"client_sha256",b.hostDigest()); expect(c,"scope",b.scope()==Scope.PLUS?"celeste_plus":"license");
+            expect(c,"incident_id",request.incident()); expect(c,"request_nonce",request.nonce());
+            expect(c,"phase",request.phase().name().toLowerCase(java.util.Locale.ROOT));
+            expect(c,"first_observation_id",request.firstObservationId());expect(c,"observation_id",request.sample().id());
+            expect(c,"observed_at_ms",Long.toString(request.sample().atMillis()));
+            expect(c,"signal",o.kind().name().toLowerCase(java.util.Locale.ROOT));
+            expect(c,"artifact",o.artifact()); expect(c,"expected_sha256",o.expected()); expect(c,"observed_sha256",o.observed());
+            long issued=number(c,"iat"), expiration=number(c,"exp"), notBefore=number(c,"nbf");
+            if(issued<0 || issued>nowEpochSeconds+5 || expiration<=nowEpochSeconds || expiration<=issued
+                    || expiration-issued>90 || notBefore>nowEpochSeconds+5 || notBefore>issued)throw invalid();
+            String challenge=c.get("challenge_id"); if(!opaque(challenge,22,64))throw invalid();
+            Status status;
+            try {status=Status.valueOf(c.get("status").toUpperCase(java.util.Locale.ROOT));}
+            catch(RuntimeException invalidStatus){throw invalid();}
+            if(request.phase()==Phase.BEGIN&&status!=Status.WARNING
+                    ||request.phase()==Phase.CONFIRM&&status!=Status.REVOKED
+                    ||request.phase()==Phase.OUTCOME&&status!=Status.PENDING&&status!=Status.REVOKED)throw invalid();
+            if(request.phase()!=Phase.BEGIN && !request.challenge().equals(challenge))throw invalid();
+            long confirm=number(c,"confirm_after");
+            if(status==Status.WARNING && (confirm<issued+5 || confirm>=expiration))throw invalid();
+            if(status!=Status.WARNING && confirm>nowEpochSeconds)throw invalid();
+            // Differences are bounded before multiplication; subtraction comparison
+            // is safe across nanoTime wraparound for these <=90-second intervals.
+            long remaining=Math.min(90,expiration-nowEpochSeconds);
+            long delay=Math.max(0,Math.min(90,confirm-nowEpochSeconds));
+            return new Decision(challenge,status,nowNanos+delay*1_000_000_000L,nowNanos+remaining*1_000_000_000L);
+        } catch(IOException | IllegalArgumentException | IllegalStateException | ArithmeticException error) { throw invalid(); }
+    }
+
+    /** Punitive reporting is absent unless this exact signed session opts in. */
+    synchronized SecurityIncidentProtocol.Scope incidentScope(String verifiedSession) throws GeneralSecurityException {
+        JsonObject claims = incidentClaims(verifiedSession);
+        if (!claims.has("security_incident_scope")) return null;
+        try {
+            return switch (requiredString(claims, "security_incident_scope")) {
+                case "celeste_plus" -> SecurityIncidentProtocol.Scope.PLUS;
+                case "license" -> SecurityIncidentProtocol.Scope.LICENSE;
+                default -> throw new GeneralSecurityException("Unrecognized security incident policy");
+            };
+        } catch (IllegalArgumentException | IllegalStateException malformed) {
+            throw new GeneralSecurityException("Malformed security incident policy", malformed);
+        }
+    }
+
+    private JsonObject incidentClaims(String token) throws GeneralSecurityException {
+        if (closed || expectedBetaCatalog == null || boundCredential == null || boundCredential.isDestroyed()
+                || proofSigner == null || proofSigner.isDestroyed())
+            throw new GeneralSecurityException("Incident reporting requires an active Plus installation");
+        JsonObject claims = verifyToken(token, "celeste-session");
+        try {
+            requireProduct(claims); requireBetaContext(claims); proofSigner.requireBinding(claims);
+            SessionBinding current = binding(null);
+            if (!"active".equals(requiredString(claims, "status"))
+                    || !Long.toString(boundCredential.uid()).equals(requiredString(claims, "sub"))
+                    || !boundCredential.deviceId().equals(requiredString(claims, "device"))
+                    || !config.releaseDigest().equals(requiredHex(claims, "client_sha256"))
+                    || !current.hardware().equals(requiredHex(claims, "hardware_sha256"))
+                    || !current.hwid().equals(requiredHex(claims, "hwid_sha256"))
+                    || current.pid() != requiredLong(claims, "process_id")
+                    || !current.session().equals(requiredString(claims, "session_id")))
+                throw new GeneralSecurityException("Incident session binding differs");
+            return claims;
+        } catch (IllegalArgumentException | IllegalStateException malformed) {
+            throw new GeneralSecurityException("Malformed incident session binding", malformed);
+        }
+    }
+
+    @FunctionalInterface interface IncidentHardware {
+        SecurityIncidentProtocol.Hardware collect() throws GeneralSecurityException;
+    }
+
+    private static SecurityIncidentProtocol.Hardware currentIncidentHardware() throws GeneralSecurityException {
+        try {
+            HardwareIdentityV2.ModuleHardware measured = HardwareIdentityV2.freshWindowsEvidence();
+            HardwareFingerprint hardware = measured.fingerprint();
+            java.util.TreeSet<String> monitors = new java.util.TreeSet<>(hardware.monitors());
+            if (monitors.isEmpty() || monitors.size() > 8
+                    || monitors.stream().anyMatch(value -> !value.matches("[0-9a-f]{64}")))
+                throw new GeneralSecurityException("Current monitor evidence unavailable");
+            JsonArray values = new JsonArray(); monitors.forEach(values::add);
+            JsonObject document = new JsonObject(); document.add("monitors", values);
+            return new SecurityIncidentProtocol.Hardware(coreHardwareDigest(hardware),
+                Crypto.sha256(GSON.toJson(document)), measured.hwid());
+        } catch (RuntimeException unavailable) {
+            throw new GeneralSecurityException("Current incident hardware unavailable", unavailable);
+        }
+    }
+
+    IncidentTransport incidentTransport(InstallCredential credential, String verifiedSession, long originalDeadline)
+            throws GeneralSecurityException {
+        return incidentTransport(credential, verifiedSession, originalDeadline, AuthServiceClient::currentIncidentHardware);
+    }
+
+    /** Package-local hardware seam; production always uses a fresh firmware/monitor measurement. */
+    synchronized IncidentTransport incidentTransport(InstallCredential credential, String verifiedSession,
+            long originalDeadline, IncidentHardware hardware) throws GeneralSecurityException {
+        SecurityIncidentProtocol.Scope scope = incidentScope(verifiedSession);
+        if (scope == null || credential != boundCredential)
+            throw new GeneralSecurityException("Incident reporting is not enabled for this installation");
+        long now = System.nanoTime(), remaining = originalDeadline - now;
+        if (remaining <= 0 || remaining > 90_000_000_000L)
+            throw new GeneralSecurityException("Original incident lease is unavailable");
+        long deadline = now + Math.min(remaining, sessionValidityNanos(verifiedSession));
+        JsonObject certificate = verifyToken(credential.certificate(), "celeste-installation");
+        DpopProofSigner signer = credential.signer(Crypto.b64(requiredString(certificate, "install_key")));
+        try {
+            signer.requireBinding(incidentClaims(verifiedSession));
+            IncidentTransport reporter = new IncidentTransport(credential, signer, verifiedSession, deadline, scope, hardware);
+            incidentTransports.add(reporter);
+            return reporter;
+        } catch (GeneralSecurityException | RuntimeException | Error failure) { signer.close(); throw failure; }
+    }
+
+    /** One incident, one original host lease; no gameplay or delivery authority is conferred here. */
+    final class IncidentTransport implements SecurityIncidentController.Transport, AutoCloseable {
+        private final InstallCredential credential;
+        private final DpopProofSigner signer;
+        private final IncidentHardware hardware;
+        private final SecurityIncidentProtocol.Binding context;
+        private final long originalDeadline;
+        private final java.util.concurrent.ThreadPoolExecutor worker;
+        private String token, incident;
+        private SecurityIncidentProtocol.Hardware originalHardware;
+        private IncidentCall active;
+        private long outcomeDeadline;
+        private boolean retired, confirmationSent;
+
+        private IncidentTransport(InstallCredential credential, DpopProofSigner signer, String token, long deadline,
+                SecurityIncidentProtocol.Scope scope, IncidentHardware hardware) {
+            this.credential = credential; this.signer = signer; this.token = token;
+            this.originalDeadline = deadline; this.hardware = java.util.Objects.requireNonNull(hardware);
+            SessionBinding current = AuthServiceClient.this.binding(null);
+            this.context = new SecurityIncidentProtocol.Binding(credential.uid(), credential.deviceId(), current.pid(),
+                current.session(), config.releaseId(), expectedBetaCatalog, config.releaseDigest(), scope);
+            worker = new java.util.concurrent.ThreadPoolExecutor(1, 1, 0, java.util.concurrent.TimeUnit.MILLISECONDS,
+                new java.util.concurrent.ArrayBlockingQueue<>(1), runnable -> {
+                    Thread thread = new Thread(runnable, "celeste-incident-report");
+                    thread.setDaemon(true); thread.setContextClassLoader(null); return thread;
+                }, new java.util.concurrent.ThreadPoolExecutor.AbortPolicy());
+        }
+
+        SecurityIncidentProtocol.Binding binding() { return context; }
+
+        @Override public synchronized SecurityIncidentController.Call report(SecurityIncidentProtocol.Request request, long deadline) {
+            IncidentCall call = new IncidentCall(request, deadline);
+            try {
+                if (active != null && !active.result.isDone()) throw new IOException("Incident request already in progress");
+                check(call);
+                if (incident == null) {
+                    if (request.phase() != SecurityIncidentProtocol.Phase.BEGIN) throw new IOException("Incident has not begun");
+                    incident = request.incident();
+                }
+                if (!incident.equals(request.incident())) throw new IOException("Incident identity changed");
+                active = call;
+                long remaining = call.deadline - System.nanoTime();
+                call.result.orTimeout(remaining, java.util.concurrent.TimeUnit.NANOSECONDS);
+                call.work = worker.submit(call::run);
+                if (call.result.isDone()) call.stop();
+            } catch (IOException | RuntimeException failure) { call.result.completeExceptionally(failure); }
+            return call;
+        }
+
+        private synchronized void check(IncidentCall call) throws IOException {
+            long now = System.nanoTime();
+            boolean outcome = call.request.phase() == SecurityIncidentProtocol.Phase.OUTCOME;
+            long limit = outcome ? outcomeDeadline : originalDeadline;
+            if (retired || closed || credential.isDestroyed() || signer.isDestroyed() || call.result.isDone()
+                    || !context.equals(call.request.binding()) || outcome && !confirmationSent
+                    || limit - now <= 0 || call.deadline - now <= 0)
+                throw new IOException("Incident request is canceled, expired or belongs to another session");
+            call.deadline = now + Math.min(5_000_000_000L, Math.min(call.deadline - now, limit - now));
+        }
+
+        @Override public void close() {
+            IncidentCall pending;
+            synchronized (this) {
+                if (retired) return;
+                retired = true; pending = active; active = null; token = null; originalHardware = null;
+            }
+            if (pending != null) pending.cancel();
+            worker.shutdownNow(); signer.close(); incidentTransports.remove(this);
+        }
+
+        private final class IncidentCall implements SecurityIncidentController.Call {
+            final SecurityIncidentProtocol.Request request;
+            final CompletableFuture<String> result = new CompletableFuture<>();
+            volatile long deadline;
+            volatile java.util.concurrent.Future<?> work;
+            volatile CompletableFuture<HttpResponse<byte[]>> network;
+            IncidentCall(SecurityIncidentProtocol.Request request, long deadline) {
+                this.request = java.util.Objects.requireNonNull(request); this.deadline = deadline;
+                result.whenComplete((value, failure) -> stop());
+            }
+            @Override public CompletionStage<String> response() { return result; }
+            @Override public void cancel() { result.cancel(true); }
+            void stop() {
+                var pending = network; if (pending != null) pending.cancel(true);
+                var task = work;
+                if (task != null) { task.cancel(true); if (task instanceof Runnable runnable) worker.remove(runnable); }
+            }
+            void run() {
+                byte[] body = null, signature = null, message = null, responseBytes = null;
+                try {
+                    check(this);
+                    SecurityIncidentProtocol.Hardware measured;
+                    if (request.phase() == SecurityIncidentProtocol.Phase.OUTCOME) {
+                        synchronized (IncidentTransport.this) { measured = originalHardware; }
+                        if (measured == null) throw new IOException("Original incident evidence unavailable");
+                    } else measured = hardware.collect();
+                    check(this);
+                    SessionBinding current = AuthServiceClient.this.binding(null);
+                    if (!current.hardware().equals(measured.core()) || !current.hwid().equals(measured.hwid()))
+                        throw new GeneralSecurityException("Incident device identity changed");
+                    String session;
+                    synchronized (IncidentTransport.this) {
+                        check(this);
+                        if (originalHardware == null) originalHardware = measured;
+                        session = token;
+                    }
+                    body = SecurityIncidentProtocol.body(request, measured);
+                    URI endpoint = sameOrigin("/v1/security/incidents");
+                    String proof = signer.proofForIncident("POST", endpoint, session, measured.hwid(), body);
+                    message = ("celeste-incident-proof-v1\n" + proof).getBytes(StandardCharsets.US_ASCII);
+                    signature = credential.signToken(message);
+                    HttpClient client = transport();
+                    check(this);
+                    HttpRequest outgoing = HttpRequest.newBuilder(endpoint)
+                        .timeout(Duration.ofNanos(deadline - System.nanoTime()))
+                        .header("Content-Type", "application/json").header("Accept", "application/json")
+                        .header("Authorization", "DPoP " + session).header("DPoP", proof)
+                        .header("X-Celeste-Incident-Token-Proof", Crypto.b64(signature))
+                        .POST(HttpRequest.BodyPublishers.ofByteArray(body)).build();
+                    check(this);
+                    network = client.sendAsync(outgoing, boundedBytes(16_384));
+                    synchronized (IncidentTransport.this) {
+                        if (request.phase() == SecurityIncidentProtocol.Phase.CONFIRM) {
+                            confirmationSent = true;
+                            long now = System.nanoTime();
+                            outcomeDeadline = now + Math.min(10_000_000_000L, originalDeadline + 10_000_000_000L - now);
+                        }
+                    }
+                    if (result.isDone()) network.cancel(true);
+                    HttpResponse<byte[]> incoming = network.get(Math.max(1, deadline - System.nanoTime()), java.util.concurrent.TimeUnit.NANOSECONDS);
+                    responseBytes = incoming.body();
+                    check(this);
+                    if (!endpoint.equals(incoming.uri()) || incoming.statusCode() != 200 || responseBytes == null || responseBytes.length > 16_384
+                            || !incoming.headers().firstValue("Content-Type").orElse("").split(";", 2)[0].trim().equalsIgnoreCase("application/json"))
+                        throw new IOException("Incident service response rejected");
+                    String decision;
+                    try (com.google.gson.stream.JsonReader reader = new com.google.gson.stream.JsonReader(new java.io.StringReader(
+                            StandardCharsets.UTF_8.newDecoder().decode(ByteBuffer.wrap(responseBytes)).toString()))) {
+                        reader.setStrictness(com.google.gson.Strictness.STRICT);
+                        reader.beginObject();
+                        if (!reader.hasNext() || !reader.nextName().equals("decision")
+                                || reader.peek() != com.google.gson.stream.JsonToken.STRING)
+                            throw new GeneralSecurityException("Malformed incident response");
+                        decision = reader.nextString();
+                        if (reader.hasNext()) throw new GeneralSecurityException("Unexpected incident response field");
+                        reader.endObject();
+                        if (reader.peek() != com.google.gson.stream.JsonToken.END_DOCUMENT)
+                            throw new GeneralSecurityException("Trailing incident response content");
+                    }
+                    if (decision.length() > 8192) throw new GeneralSecurityException("Oversized incident decision");
+                    check(this); result.complete(decision);
+                } catch (Exception failure) { result.completeExceptionally(failure); }
+                finally {
+                    if (body != null) Arrays.fill(body, (byte) 0);
+                    if (signature != null) Arrays.fill(signature, (byte) 0);
+                    if (message != null) Arrays.fill(message, (byte) 0);
+                    if (responseBytes != null) Arrays.fill(responseBytes, (byte) 0);
+                    Thread.interrupted();
+                }
+            }
+        }
     }
 
     Enrollment enroll(String licenseKey, HardwareFingerprint hardware) throws Exception {
@@ -815,10 +1114,20 @@ final class AuthServiceClient implements AutoCloseable {
         }
     }
 
-    @Override public synchronized void close() {
-        closed = true;
-        if (proofSigner != null) proofSigner.close();
-        proofSigner = null; boundCredential = null;
+    @Override public void close() {
+        final DpopProofSigner retiredSigner;
+        final IncidentTransport[] reporters;
+        synchronized (this) {
+            if (closed) return;
+            closed = true;
+            reporters = incidentTransports.toArray(IncidentTransport[]::new);
+            retiredSigner = proofSigner;
+            proofSigner = null; boundCredential = null;
+        }
+        // Cancellation can run controller continuations inline. Never invoke those
+        // while holding the service monitor used by session/context lookups.
+        for (IncidentTransport reporter : reporters) reporter.close();
+        if (retiredSigner != null) retiredSigner.close();
         if (transportOwner != null) transportOwner.close();
     }
 

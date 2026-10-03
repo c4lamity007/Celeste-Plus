@@ -16,6 +16,14 @@ def main():
  sources=[delivery/name for name in ['ModuleEntrypoint.java','ModulePayloadLease.java','ModulePayloadProvider.java','ModulePayloadRuntime.java','ModuleScope.java','ModuleServices.java','ModuleHookRegistry.java','ModuleHookAbi.java','ModuleResourceAssets.java']]
  sources += list((ROOT/'beta-lab/delivery-client/src/dev/c4lam/celeste/beta/delivery').glob('*.java'))
  sources += [ROOT/'beta-lab/shared-auth/src/main/java/dev/c4lam/celeste/auth/DpopProofSigner.java',ROOT/'beta-lab/memory-runtime/src/main/java/dev/c4lam/celeste/beta/memory/ModuleMemoryClassLoader.java',ROOT/'runtime-overlay/src/main/java/dev/c4lam/celeste/auth/AuthenticatedModulePayloadProvider.java',ROOT/'beta-lab/delivery-client/test/dev/c4lam/celeste/beta/delivery/BetaDeliveryClientCheck.java',ROOT/'tools/qa/module-delivery/ProviderFixture.java',ROOT/'tools/qa/module-delivery/ProviderIntegrationCheck.java']
+ sources += [ROOT/'runtime-overlay/src/main/java/dev/c4lam/celeste/auth/SecurityIncidentProtocol.java',ROOT/'beta-lab/memory-runtime/src/main/java/dev/c4lam/celeste/beta/memory/RetainedIntegrityException.java']
+ # The production protocol delegates to the native-selected verifier. Use its exact body,
+ # without constructing the real network transport in this offline provider fixture.
+ auth_text=(ROOT/'runtime-overlay/src/main/java/dev/c4lam/celeste/auth/AuthServiceClient.java').read_text(encoding='utf-8')
+ start=auth_text.index('    static Decision verifyIncidentDecision(');end=auth_text.index('    /** Punitive reporting is absent',start)
+ verifier=out/'AuthServiceClient.java'
+ verifier.write_text('package dev.c4lam.celeste.auth;\nimport java.io.IOException;\nimport java.security.*;\nimport java.nio.charset.StandardCharsets;\nimport java.util.Map;\nimport static dev.c4lam.celeste.auth.SecurityIncidentProtocol.*;\nfinal class AuthServiceClient {\n'+auth_text[start:end]+'}\n',encoding='utf-8',newline='\n')
+ sources.append(verifier)
  def run_args(exe,args,name):
   argfile=out/(name+'.args');argfile.write_text('\n'.join(json.dumps(str(v).replace('\\','/')) for v in args),encoding='utf-8')
   r=subprocess.run([str(a.java_home/'bin'/exe),'@'+str(argfile)],cwd=ROOT,capture_output=True,text=True,timeout=90)

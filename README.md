@@ -14,6 +14,21 @@ The [Windows download](https://github.com/c4lamity007/Celeste-Plus/releases/tag/
 
 The current deployed [September 28 authentication payload](docs/native-auth-20260928.md), `celeste-plus-20260928-native-auth-02`, virtualizes 16 selected methods across three authentication classes. All 41 final native checks and 15 Java continuation stages passed. These are artifact and fixture checks, not Minecraft gameplay QA.
 
+## Current authentication development
+
+The [security incident protocol](auth-service/SECURITY_INCIDENTS.md) adds signed,
+request-bound warning and confirmation messages for direct current-process
+debugger signals and verified mutations of retained approved bytes. Enforcement
+is disabled until the operator explicitly selects its product scope. Network
+errors and unavailable probes do not count as detections. This source change is
+not a statement that an owner or public release has been deployed.
+
+The [Code Virtualizer Control MCP](tools/codevirtualizer-control/README.md)
+provides five local tools for the pinned demo installation. Its source and
+synthetic tests are included; the vendor executable, local configuration and
+licenses are not. Compilation remains blocked until a real saved project has
+been reviewed. No combined Code Virtualizer/VMProtect artifact is approved yet.
+
 ## Build and test
 
 Use Java 21 (with `JAVA_HOME` set), Python 3.11+, and the included Gradle wrapper. The Windows launcher requires stable Rust with the MSVC toolchain and Visual Studio C++ build tools. Dependency resolution needs network access on the first build; add `--offline` only when the caches are populated.

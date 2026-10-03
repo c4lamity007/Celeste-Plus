@@ -79,6 +79,7 @@ public final class AuthBootstrapLifecycleTest {
         } finally {
             worker().shutdownNow();
             supervisor().shutdownNow();
+            ((ScheduledExecutorService)field("SECURITY_WORKER")).shutdownNow();
         }
     }
 

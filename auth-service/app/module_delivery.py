@@ -26,7 +26,7 @@ from fastapi.responses import Response
 from starlette.concurrency import run_in_threadpool
 
 from .artifact_envelope import encrypt, encrypt_chunks, recipient, OVERHEAD_BYTES
-from .artifact_transfer import ArtifactResponse
+from .artifact_transfer import ArtifactResponse, run_authorization_guard
 from .auth_lifecycle import require_artifact_hardware
 from .beta_delivery import beta_runtime_catalog
 from .products import PLUS, require_entitlement
@@ -570,7 +570,7 @@ def create_module_router(settings, database, signer, dpop, apply_limit):
                     raise HTTPException(401, "expired module capability")
 
             async def guard():
-                await run_in_threadpool(live_transfer)
+                await run_authorization_guard(live_transfer)
 
             return ArtifactResponse(chunks, len(ciphertext) + OVERHEAD_BYTES, transfer_slots, authorization_guard=guard)
         except BaseException:

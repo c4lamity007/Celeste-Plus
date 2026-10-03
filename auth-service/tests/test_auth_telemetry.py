@@ -142,8 +142,15 @@ def test_denied_heartbeat_does_not_replace_trusted_telemetry(env, monkeypatch, p
     for field in ("last_seen_at", "last_game_uuid", "last_game_name", "last_call_at", "last_call_endpoint",
                   "last_ip", "last_integrity_sha256", "last_integrity_at"):
         assert updated[field] == trusted[field], field
-    if failure == "tamper":
+    if failure == "tamper" and product == "celeste":
         assert updated["status"] == "revoked" and updated["tamper_count"] == trusted["tamper_count"] + 1
         with env.app.state.database.connect() as connection:
             assert connection.execute("SELECT status FROM licenses WHERE uid=?", (env.uid,)).fetchone()[0] == "revoked"
             assert connection.execute("SELECT COUNT(*) FROM security_events WHERE device_id=?", (env.enrolled["device_id"],)).fetchone()[0] > 0
+    elif failure == "tamper":
+        # Plus denies this legacy report. Punishment requires a fresh second
+        # observation under the signed incident policy and warning deadline.
+        assert updated["status"] == trusted["status"] == "active"
+        assert updated["tamper_count"] == trusted["tamper_count"]
+        with env.app.state.database.connect() as connection:
+            assert connection.execute("SELECT status FROM licenses WHERE uid=?", (env.uid,)).fetchone()[0] == "active"

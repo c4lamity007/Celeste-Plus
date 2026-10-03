@@ -68,6 +68,7 @@ class Settings:
     native_release_public_key: bytes | None = None
     runtime_kill_switch: bool = False
     plus_auth_protocol: int = 2
+    plus_security_incident_scope: str = ""
     tls_leaf_sha256: tuple[str, ...] = ()
     public_native_dir: str = ""
     plus_download_sha256: str = ""
@@ -142,6 +143,9 @@ class Settings:
         module_required = os.getenv("CELESTE_PLUS_REQUIRE_MODULE_DELIVERY", "false").strip().lower()
         if module_required not in {"true", "false", "1", "0"}:
             raise RuntimeError("CELESTE_PLUS_REQUIRE_MODULE_DELIVERY must be true or false")
+        incident_scope = os.getenv("CELESTE_PLUS_SECURITY_INCIDENT_SCOPE", "").strip()
+        if incident_scope not in {"", "celeste_plus", "license"}:
+            raise RuntimeError("CELESTE_PLUS_SECURITY_INCIDENT_SCOPE must be unset, celeste_plus, or license")
         protocol = os.getenv("CELESTE_PLUS_AUTH_PROTOCOL", "2").strip()
         if protocol not in {"1", "2"}:
             raise RuntimeError("CELESTE_PLUS_AUTH_PROTOCOL must be 1 or 2")
@@ -197,6 +201,7 @@ class Settings:
             plus_enabled=plus_enabled in {"true", "1"},
             runtime_kill_switch=runtime_kill_switch in {"true", "1"},
             plus_auth_protocol=int(protocol),
+            plus_security_incident_scope=incident_scope,
             tls_leaf_sha256=pins,
             public_native_dir=public_native_dir,
             plus_download_sha256=plus_download_sha256,

@@ -12,7 +12,15 @@ final class AuthenticatedModulePayloadProvider implements AutoCloseable {
  }
  private AuthenticatedModulePayloadProvider(){failingExpiry=new ModuleDeliveryClient();}
  static AuthenticatedModulePayloadProvider failingExpiry(){return new AuthenticatedModulePayloadProvider();}
- void verifyRetainedModules(){throw new AssertionError("Unexpected module provider");}
+ boolean quarantined;
+ void quarantine(){quarantined=true;}
+ void verifyRetainedModules() throws java.security.GeneralSecurityException {throw new AssertionError("Unexpected module provider");}
+ static final class RetainedModuleMismatch extends java.security.GeneralSecurityException {
+  private static final long serialVersionUID=1L;
+  SecurityIncidentProtocol.Observation observation(){return new SecurityIncidentProtocol.Observation(SecurityIncidentProtocol.Kind.MODULE_MUTATION,"a".repeat(32),"a".repeat(64),"b".repeat(64));}
+  SecurityIncidentProtocol.Observation sample(){return observation();}
+  public void close(){ }
+ }
  CompletionStage<Void> prefetchCatalog(){throw new AssertionError("Unexpected module catalog prefetch");}
  ModuleDeliveryClient delivery(){return failingExpiry;}
  CompletionStage<Void> stopped(){return CompletableFuture.completedFuture(null);}

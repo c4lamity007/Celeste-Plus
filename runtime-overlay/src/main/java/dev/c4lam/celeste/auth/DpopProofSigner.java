@@ -101,6 +101,16 @@ public final class DpopProofSigner implements AutoCloseable {
         return proof(method, uri, accessToken, deliveryKey, deliveryNonce, hardwareDigest);
     }
 
+    /** Incident proofs bind the canonical diagnostic body without module recipient fields. */
+    public String proofForIncident(String method, URI uri, String accessToken, String hardwareDigest, byte[] body)
+            throws GeneralSecurityException {
+        if (hardwareDigest == null || !hardwareDigest.matches("[0-9a-f]{64}")
+                || body == null || body.length == 0 || body.length > 8192)
+            throw new GeneralSecurityException("Invalid incident request proof binding");
+        return proof(method, uri, accessToken, null, null, hardwareDigest,
+            BASE64.encodeToString(MessageDigest.getInstance("SHA-256").digest(body)));
+    }
+
     /** Module proofs bind the exact request body, including empty GET requests. */
     public String proofForModule(String method, URI uri, String accessToken, String deliveryKey,
                                  String deliveryNonce, String hardwareDigest, byte[] body) throws GeneralSecurityException {
