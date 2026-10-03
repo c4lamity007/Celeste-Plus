@@ -428,11 +428,8 @@ def create_router(service: IncidentService, apply_limit=None):
 
 def create_incident_router(settings, database, signer, dpop, apply_limit):
     """Unset policy denies mutations; existing outcomes remain narrowly readable."""
+    settings.validate_incident_policy()
     scope = settings.plus_security_incident_scope
-    if scope not in {"", "celeste_plus", "license"}:
-        raise RuntimeError("Invalid Celeste+ security incident scope")
-    if scope and (not settings.plus_enabled or settings.plus_auth_protocol != 2):
-        raise RuntimeError("Security incident policy requires enabled Celeste+ protocol 2")
     policy = Policy(Scope(scope), SecondSignalPolicy.SAME_SIGNAL_ARTIFACT) if scope else None
 
     def approved_release(uid, device):
@@ -442,6 +439,11 @@ def create_incident_router(settings, database, signer, dpop, apply_limit):
         if settings.runtime_kill_switch:
             _deny("runtime temporarily disabled", 403)
         runtime = beta_runtime_catalog(settings, uid, device)
+        # Invoked inside _live for EACH begin/confirm after its transaction wait
+        # and authenticated installation checks. Old signed claims cannot bypass
+        # a removed installation/release. Outcomes use stored bindings separately.
+        if settings.incident_scope_for(device, runtime["release_id"]) != scope or not scope:
+            _deny("installation or release is not eligible for security incidents", 403)
         artifacts = {"resident": ("resident_mutation", runtime["runtime_sha256"])}
         selected = selected_settings(settings, device)
         if selected.module_release_dir:

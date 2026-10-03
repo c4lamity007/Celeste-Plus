@@ -1443,6 +1443,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                             (now, body.game_uuid, body.game_name, now, "/v1/session/check", client_ip(request),
                              body.observed_sha256, now, body.device_id),
                         )
+                        incident_scope = settings.incident_scope_for(row["device_id"], runtime["release_id"]) if runtime is not None else ""
                         response_token = signer.sign(
                             {
                                 "aud": "celeste-session",
@@ -1456,8 +1457,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                                 "nonce": body.nonce,
                                 "status": "active",
                                 "sub": str(row["license_uid"]),
-                                **({"security_incident_scope": settings.plus_security_incident_scope}
-                                   if runtime is not None and settings.plus_security_incident_scope else {}),
+                                **({"security_incident_scope": incident_scope} if incident_scope else {}),
                                 **({"release": runtime["release_id"], "client_version": runtime["client_version"],
                                     "beta_catalog_sha256": runtime["catalog_sha256"]} if runtime is not None else {}),
                                 **({"hardware_sha256": body.hardware_sha256, "process_id": body.process_id,

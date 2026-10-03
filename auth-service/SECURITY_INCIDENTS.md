@@ -13,11 +13,26 @@ this source must not select a punitive policy.
 | `celeste_plus` | Block this account's Plus access across its installations |
 | `license` | Revoke the shared license, including Standard if it owns Standard |
 
-Enabled policies require enabled Plus protocol 2. Other values fail startup.
-Only configured Plus heartbeats include the signed `security_incident_scope`
+Enabled policies require enabled Plus protocol 2 and both explicit allowlists:
+
+- `CELESTE_PLUS_SECURITY_INCIDENT_INSTALLATIONS`: comma-separated installation IDs.
+- `CELESTE_PLUS_SECURITY_INCIDENT_RELEASES`: comma-separated approved release IDs.
+
+Both the authenticated installation and its server-selected release must match.
+Empty lists never mean all installations or releases. An enabled scope with
+either list missing fails startup. Wildcards and malformed IDs are rejected;
+limits are 256 installation IDs and 64 release IDs. Enrollment on an allowed
+account alone does not make another installation eligible.
+
+Only eligible Plus heartbeats include the signed `security_incident_scope`
 claim. A new client must not invent a default scope when that claim is absent.
 Server mutation requests require an exact match between the signed lease scope,
 request scope, and current server policy. Standard leases never carry the claim.
+Every begin/confirm operation also rechecks installation and release eligibility
+after acquiring its transaction, so a previously issued claim cannot bypass
+removal from either list. Settings are loaded at process startup: changes require
+a configuration reload/redeployment. Stored outcome retrieval remains available
+under its original narrow proof requirements after eligibility is removed.
 
 Plus-only blocks preserve licenses, device records and entitlement membership;
 `products.require_entitlement` enforces a persistent `security_product_blocks`
@@ -152,7 +167,7 @@ new warning flow to immediately revoke a license.
 Focused tests:
 
 ```text
-python -m pytest tests/test_security_incidents.py tests/test_security_incident_routes.py tests/test_live_guard_retirement.py
+python -m pytest tests/test_security_incidents.py tests/test_security_incident_routes.py tests/test_security_incident_eligibility.py tests/test_live_guard_retirement.py
 ```
 
 Run existing protocol, product, DPoP, module delivery and artifact streaming

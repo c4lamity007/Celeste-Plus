@@ -26,12 +26,17 @@ def configured(modules,monkeypatch):
     monkeypatch.setattr(time,'time',lambda:clock.ms/1000)
     monkeypatch.setattr(time,'time_ns',lambda:clock.ms*1_000_000)
     @contextmanager
-    def build(scope='celeste_plus'):
-        config=replace(modules.config,plus_security_incident_scope=scope)
+    def build(scope='celeste_plus', *, base=None, overrides=None):
+        base=base or modules
+        changes=dict(plus_security_incident_scope=scope,
+            plus_security_incident_installations=frozenset({base.enrolled['device_id']}) if scope else frozenset(),
+            plus_security_incident_releases=frozenset({base.catalog['release_id']}) if scope else frozenset())
+        changes.update(overrides or {})
+        config=replace(base.config,**changes)
         app=create_app(config)
         with TestClient(app,base_url='https://testserver') as client:
-            delivery=SimpleNamespace(**{**vars(modules),'config':config,'app':app,'client':client})
-            body=session(delivery,identity=modules.session_body['session_id'])
+            delivery=SimpleNamespace(**{**vars(base),'config':config,'app':app,'client':client})
+            body=session(delivery,identity=base.session_body['session_id'])
             result=post_session(delivery,body)
             assert result.status_code==200,result.text
             delivery.session_token=result.json()['session_token']
@@ -147,13 +152,29 @@ def test_environment_policy_validation(monkeypatch):
         'CELESTE_BOOTSTRAP_SHA256':'e'*64,'CELESTE_LOADER_THREE_SHA256':'f'*64,'CELESTE_LOADER_FOUR_SHA256':'0'*64,
         'CELESTE_SIGNING_PRIVATE_KEY':b64e(bytes(32)),'CELESTE_KEY_PEPPER':b64e(bytes(32)),
         'CELESTE_SESSION_SECRET':b64e(bytes(32)),'CELESTE_ADMIN_PASSWORD_HASH':'synthetic',
+        'CELESTE_PLUS_ENABLED':'true','CELESTE_PLUS_AUTH_PROTOCOL':'2',
         'CELESTE_BOOTSTRAP_ID':'boot','CELESTE_LOADER_ID':'two','CELESTE_LOADER_THREE_ID':'three','CELESTE_LOADER_FOUR_ID':'four'}
     for key,value in values.items():monkeypatch.setenv(key,value)
     monkeypatch.delenv('CELESTE_PLUS_SECURITY_INCIDENT_SCOPE',raising=False)
-    assert Settings.from_env().plus_security_incident_scope==''
+    for suffix in ('INSTALLATIONS','RELEASES'):
+        monkeypatch.delenv('CELESTE_PLUS_SECURITY_INCIDENT_'+suffix,raising=False)
+    default=Settings.from_env()
+    assert default.plus_security_incident_scope==''
+    assert not default.plus_security_incident_installations and not default.plus_security_incident_releases
     for value in ('celeste_plus','license'):
         monkeypatch.setenv('CELESTE_PLUS_SECURITY_INCIDENT_SCOPE',value)
-        assert Settings.from_env().plus_security_incident_scope==value
+        for suffix in ('INSTALLATIONS','RELEASES'):
+            monkeypatch.delenv('CELESTE_PLUS_SECURITY_INCIDENT_'+suffix,raising=False)
+        with pytest.raises(RuntimeError,match='explicit eligible'):Settings.from_env()
+        monkeypatch.setenv('CELESTE_PLUS_SECURITY_INCIDENT_INSTALLATIONS','d'*32)
+        with pytest.raises(RuntimeError,match='explicit eligible'):Settings.from_env()
+        monkeypatch.setenv('CELESTE_PLUS_SECURITY_INCIDENT_RELEASES','owner-release')
+        parsed=Settings.from_env()
+        assert parsed.plus_security_incident_scope==value
+        assert parsed.plus_security_incident_installations==frozenset({'d'*32})
+        assert parsed.plus_security_incident_releases==frozenset({'owner-release'})
+        monkeypatch.delenv('CELESTE_PLUS_SECURITY_INCIDENT_INSTALLATIONS')
+        with pytest.raises(RuntimeError,match='explicit eligible'):Settings.from_env()
     monkeypatch.setenv('CELESTE_PLUS_SECURITY_INCIDENT_SCOPE','both')
     with pytest.raises(RuntimeError,match='SECURITY_INCIDENT_SCOPE'):Settings.from_env()
 
