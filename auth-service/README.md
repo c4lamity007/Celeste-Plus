@@ -12,6 +12,10 @@ The client recomputes its canonical protected-code digest during heartbeats. A s
 
 The admin site uses Argon2 password verification with persistent attempt admission and one expensive verifier per worker, one active server-side session bound to the login IP and browser, prepared SQL, CSRF tokens, strict cookies, Trusted Host filtering, request body limits, security headers, and audit events. It supports day, month, three-month, year, and lifetime licenses whose duration begins on first successful activation. Per-license pages expose activation and latest-call metadata, hardware and monitor hashes, key fingerprints, tamper flags, and audit history. Resetting a license deletes its device keys and challenges while preserving the license key and numeric UID.
 
+Request-body reads have an absolute 15-second deadline and nonblocking per-worker admission: 32 ordinary bodies (16 KiB each) and a separate four configuration uploads (1,500,000 bytes each). Busy readers return `503` with `Retry-After: 1`; timed-out reads return `408`. Permits are released before route processing or artifact streaming. These limits apply to both products and do not replace authorization or rate limits.
+
+Successful challenge/grant issuance and signed session processing prune at most 128 expired rows per operation using expiry indexes. Replay markers remain through their final accepted second; rotated and revoked grant records remain until their signed expiry. Cleanup runs inside the caller's transaction and does not remove live credentials.
+
 ## Release order
 
 Authentication metadata must be applied **after obfuscation**:

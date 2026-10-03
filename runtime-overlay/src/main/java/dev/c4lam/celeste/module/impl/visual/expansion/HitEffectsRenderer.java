@@ -26,7 +26,7 @@ public final class HitEffectsRenderer {
     public record Frame(Object token,Object world,HitEffectsState.Frame effects,Vec3d right,Vec3d up) {
         public static final Frame EMPTY=new Frame(null,null,HitEffectsState.Frame.EMPTY,Vec3d.ZERO,Vec3d.ZERO);
     }
-    private static final RenderStateDataKey<Frame> FRAME_KEY=RenderStateDataKey.create(() -> "celeste_hit_effects");
+    private static final dev.c4lam.celeste.module.delivery.ModuleFrame<Frame> FRAME_KEY = dev.c4lam.celeste.module.delivery.ModuleFrame.create();
     private static final RenderLayer LAYER=RenderLayer.of("celeste_hit_effects",
         RenderSetup.builder(dev.c4lam.celeste.compat.BetaRenderPipelines.register(
             RenderPipeline.builder(RenderPipelines.TRANSFORMS_PROJECTION_FOG_SNIPPET)
@@ -48,7 +48,7 @@ public final class HitEffectsRenderer {
                 if(context.worldState()==null) return;
                 Frame frame=AuthBootstrap.authorized() && !dev.c4lam.celeste.compat.RenderCompatibility.isShadowPass()
                     ? feature.extract(context) : Frame.EMPTY;
-                context.worldState().setData(FRAME_KEY,frame);
+                FRAME_KEY.set(context.worldState(), frame);
             },WorldRenderEvents.END_EXTRACTION::register);
         WorldOverlayPass.register("celeste:hit_effects/draw",context -> draw(context,feature));
     }
@@ -57,7 +57,7 @@ public final class HitEffectsRenderer {
         if(!AuthBootstrap.authorized() || dev.c4lam.celeste.compat.RenderCompatibility.isShadowPass()
             || context.worldState()==null || context.worldState().cameraRenderState==null
             || context.matrices()==null || context.consumers()==null) return;
-        Frame frame=context.worldState().getData(FRAME_KEY);
+        Frame frame=FRAME_KEY.get(context.worldState());
         if(frame==null || frame==Frame.EMPTY || frame.effects.isEmpty() || !feature.current(frame)) return;
         Vec3d camera=context.worldState().cameraRenderState.pos;
         if(camera==null) return;

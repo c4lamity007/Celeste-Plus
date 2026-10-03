@@ -67,8 +67,8 @@ public final class AmbientEffectsRenderer {
     private static RenderLayer strandLayer() {
         RenderPipeline pipeline = dev.c4lam.celeste.compat.BetaRenderPipelines.register(RenderPipeline.builder(RenderPipelines.TRANSFORMS_AND_PROJECTION_SNIPPET)
             .withLocation(Identifier.of(CelesteClient.MOD_ID, "pipeline/ambient_strands"))
-            .withVertexShader(Identifier.of(CelesteClient.MOD_ID, "core/world_vfx"))
-            .withFragmentShader(Identifier.of(CelesteClient.MOD_ID, "core/world_bloom"))
+            .withVertexShader(dev.c4lam.celeste.module.delivery.ModuleResourceNames.asset(Identifier.of(CelesteClient.MOD_ID, "core/world_vfx")))
+            .withFragmentShader(dev.c4lam.celeste.module.delivery.ModuleResourceNames.asset(Identifier.of(CelesteClient.MOD_ID, "core/world_bloom")))
             .withShaderDefine("ECHO_MESH", 0)
             .withVertexFormat(VertexFormats.POSITION_TEXTURE_COLOR, VertexFormat.DrawMode.QUADS)
             .withBlend(BlendFunction.LIGHTNING).withCull(false)
@@ -78,24 +78,24 @@ public final class AmbientEffectsRenderer {
 
     private static void drawStrands(WorldRenderContext context, Frame frame, Vec3d camera) {
         if (frame.strands().isEmpty()) return;
-        List<WorldGlowRenderer.Quad> quads = new ArrayList<>(AmbientLightStrands.MAX_QUADS);
+        List<AmbientEffectsWorldGlowRenderer.Quad> quads = new ArrayList<>(AmbientLightStrands.MAX_QUADS);
         for (LightStrand strand : frame.strands()) {
             if (quads.size() + AmbientLightStrands.SPRITES_PER_STRAND > AmbientLightStrands.MAX_QUADS) break;
-            GlowTrail.append(quads, strand.points(), camera, AmbientLightStrands.SPRITES_PER_STRAND - 1,
+            AmbientEffectsGlowTrail.append(quads, strand.points(), camera, AmbientLightStrands.SPRITES_PER_STRAND - 1,
                 1, strand.opacity() * .75, false, progress -> strand.color(),
                 progress -> Math.pow(AmbientField.smooth(progress), .75), .52 * strand.size());
             Vec3d head = strand.points().getLast();
             double radius = .18 * strand.size();
             Vec3d right = frame.right().multiply(radius), up = frame.up().multiply(radius);
-            int color = VisualExpansionRenderer.argb(strand.opacity() * .55F, strand.color());
-            quads.add(new WorldGlowRenderer.Quad(WorldGlowRenderer.Texture.BLOOM,
+            int color = dev.c4lam.celeste.render.geometry.WorldBox.argb(strand.opacity() * .55F, strand.color());
+            quads.add(new AmbientEffectsWorldGlowRenderer.Quad(AmbientEffectsWorldGlowRenderer.Texture.BLOOM,
                 head.subtract(right).subtract(up),head.add(right).subtract(up),
                 head.add(right).add(up),head.subtract(right).add(up),color));
         }
         if (quads.isEmpty()) return;
         MatrixStack.Entry matrix = context.matrices().peek();
         VertexConsumer consumer = context.consumers().getBuffer(STRANDS);
-        for (WorldGlowRenderer.Quad quad : quads) {
+        for (AmbientEffectsWorldGlowRenderer.Quad quad : quads) {
             strandVertex(consumer,matrix,quad.a(),camera,0,0,quad.color());
             strandVertex(consumer,matrix,quad.b(),camera,1,0,quad.color());
             strandVertex(consumer,matrix,quad.c(),camera,1,1,quad.color());
@@ -120,7 +120,7 @@ public final class AmbientEffectsRenderer {
             VertexConsumer glow = context.consumers().getBuffer(GLOW);
             for (TronSegment trail : frame.trails()) {
                 AmbientTronGeometry.beam(trail.line(), camera.x, camera.y, camera.z, (x,y,z,u,v,alpha) ->
-                    vertex(glow, matrix, x,y,z,camera,u,v,0,0,0,VisualExpansionRenderer.argb(alpha,trail.color())));
+                    vertex(glow, matrix, x,y,z,camera,u,v,0,0,0,dev.c4lam.celeste.render.geometry.WorldBox.argb(alpha,trail.color())));
             }
             if (context.consumers() instanceof VertexConsumerProvider.Immediate immediate) immediate.draw(GLOW);
         }
@@ -129,14 +129,14 @@ public final class AmbientEffectsRenderer {
         VertexConsumer mesh = context.consumers().getBuffer(MESH);
         double[] geometry = new double[AmbientEffectsGeometry.SCRATCH_SIZE];
         AmbientEffectsGeometry.Sink meshSink = (x,y,z,u,v,nx,ny,nz,alpha,color) ->
-            vertex(mesh,matrix,x,y,z,camera,u,v,nx,ny,nz,VisualExpansionRenderer.argb(alpha,color));
+            vertex(mesh,matrix,x,y,z,camera,u,v,nx,ny,nz,dev.c4lam.celeste.render.geometry.WorldBox.argb(alpha,color));
         for (Particle p : frame.particles()) {
             AmbientEffectsGeometry.mesh(p,p.style()==null?frame.style():p.style(),geometry,meshSink);
         }
         if (context.consumers() instanceof VertexConsumerProvider.Immediate immediate) immediate.draw(MESH);
         VertexConsumer glow = context.consumers().getBuffer(GLOW);
         AmbientEffectsGeometry.Sink glowSink = (x,y,z,u,v,nx,ny,nz,alpha,color) ->
-            vertex(glow,matrix,x,y,z,camera,u,v,nx,ny,nz,VisualExpansionRenderer.argb(alpha,color));
+            vertex(glow,matrix,x,y,z,camera,u,v,nx,ny,nz,dev.c4lam.celeste.render.geometry.WorldBox.argb(alpha,color));
         for (Particle p : frame.particles()) {
             AmbientEffectsGeometry.glow(p,p.style()==null?frame.style():p.style(),geometry,camera.x,camera.y,camera.z,
                 frame.right().x,frame.right().y,frame.right().z,frame.up().x,frame.up().y,frame.up().z,glowSink);

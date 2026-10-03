@@ -54,7 +54,7 @@ public final class GroundShadersRenderer {
             .withCull(false)
             .withDepthTestFunction(DepthTestFunction.NO_DEPTH_TEST)
             .withDepthWrite(false).withColorWrite(true, false).build());
-    private static final RenderStateDataKey<Frame> FRAME = RenderStateDataKey.create(() -> "celeste_ground_shaders");
+    private static final dev.c4lam.celeste.module.delivery.ModuleFrame<Frame> FRAME = dev.c4lam.celeste.module.delivery.ModuleFrame.create();
     private static GpuTexture depth;
     private static GpuTextureView depthView;
     private static volatile long generation;
@@ -80,12 +80,12 @@ public final class GroundShadersRenderer {
             ClientPlayConnectionEvents.Disconnect.class, (handler, client) -> reset(), ClientPlayConnectionEvents.DISCONNECT::register);
         ResourceLoader resources = ResourceLoader.get(ResourceType.CLIENT_RESOURCES);
         BetaSubscriptions.register(resources, "celeste:ground_shaders/reload", SynchronousResourceReloader.class,
-            manager -> reset(), proxy -> resources.registerReloader(id("ground_shaders"), proxy));
+            manager -> reset(), proxy -> resources.registerReloader(dev.c4lam.celeste.module.delivery.ModuleResourceNames.reloader(id("ground_shaders")), proxy));
     }
 
     private static void extract(WorldExtractionContext context) {
         if (context == null || context.worldState() == null) return;
-        context.worldState().setData(FRAME, null);
+        FRAME.set(context.worldState(), null);
         GroundShadersFeature.Options active = GroundShadersFeature.options(context.world());
         if (active == null || active.settings().intensity() <= 0 || RenderCompatibility.isShaderPackActive()
             || !allowed(context.camera(), context.world()) || context.viewMatrix() == null) return;
@@ -100,7 +100,7 @@ public final class GroundShadersRenderer {
         inverseView.invert();
         if (!inverseView.isFinite()) return;
         GroundShadersMath.Settings options = active.settings();
-        context.worldState().setData(FRAME, new Frame(active.worldToken(), generation, options, inverseView));
+        FRAME.set(context.worldState(), new Frame(active.worldToken(), generation, options, inverseView));
     }
 
     private static boolean isCurrent(Frame frame) {
@@ -130,7 +130,7 @@ public final class GroundShadersRenderer {
     private static void draw(WorldRenderContext context) {
         if (context == null || context.worldState() == null || RenderCompatibility.isShadowPass()
             || RenderCompatibility.isShaderPackActive() || !AuthBootstrap.authorized()) return;
-        Frame frame = context.worldState().getData(FRAME);
+        Frame frame = FRAME.get(context.worldState());
         if (!isCurrent(frame) || RenderSystem.getProjectionMatrixBuffer() == null) return;
         RenderSystem.assertOnRenderThread();
         var main = MinecraftClient.getInstance().getFramebuffer();
@@ -195,7 +195,7 @@ public final class GroundShadersRenderer {
     public static void reset() {
         generation++;
         if (RenderSystem.isOnRenderThread()) releaseResources();
-        else MinecraftClient.getInstance().execute(GroundShadersRenderer::releaseResources);
+        else dev.c4lam.celeste.module.delivery.ModuleScope.executeCurrent(MinecraftClient.getInstance()::execute, GroundShadersRenderer::releaseResources);
     }
 
     public static void releaseResources() {

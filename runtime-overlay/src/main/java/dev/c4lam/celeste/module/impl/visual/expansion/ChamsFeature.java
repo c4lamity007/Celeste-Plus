@@ -16,7 +16,7 @@ import java.util.List;
 public final class ChamsFeature implements ModuleFeature {
     private static final int MAX_PLAYERS = 12;
     private static volatile boolean active;
-    private final PlayerEchoRenderer snapshots = new PlayerEchoRenderer();
+    private final ChamsPlayerEchoRenderer snapshots = new ChamsPlayerEchoRenderer();
     private volatile boolean enabled;
     private volatile double range = 64.0;
     private volatile float opacity = 0.68F;
@@ -55,17 +55,17 @@ public final class ChamsFeature implements ModuleFeature {
     @Override public void onWorldChanged(ModuleContext context) { active = false; clear(); }
 
     /** Call once during END_EXTRACTION; store the returned immutable frame for drawing. */
-    public PlayerEchoRenderer.Frame extract(WorldExtractionContext context) {
+    public ChamsPlayerEchoRenderer.Frame extract(WorldExtractionContext context) {
         MinecraftClient client = MinecraftClient.getInstance();
         if (!enabled || context == null || context.world() == null || context.camera() == null
             || client.player == null || !client.player.isAlive() || client.player.isRemoved()
-            || client.player.getEntityWorld() != context.world()) return PlayerEchoRenderer.Frame.EMPTY;
+            || client.player.getEntityWorld() != context.world()) return ChamsPlayerEchoRenderer.Frame.EMPTY;
         if (observedWorld != context.world()) {
             snapshots.clear();
             observedWorld = context.world();
         }
         Vec3d camera = context.camera().getCameraPos();
-        if (!finite(camera)) return PlayerEchoRenderer.Frame.EMPTY;
+        if (!finite(camera)) return ChamsPlayerEchoRenderer.Frame.EMPTY;
         double frameRange = range, rangeSquared = frameRange * frameRange;
         double fadeWidth = Math.max(3.0, frameRange * 0.16);
         int fps = client.getCurrentFps();
@@ -79,13 +79,13 @@ public final class ChamsFeature implements ModuleFeature {
             .sorted(Comparator.comparingDouble((AbstractClientPlayerEntity player) -> player.squaredDistanceTo(camera))
                 .thenComparingInt(AbstractClientPlayerEntity::getId))
             .limit(budget).toList();
-        if (candidates.isEmpty()) return PlayerEchoRenderer.Frame.EMPTY;
-        List<PlayerEchoRenderer.Echo> echoes = new ArrayList<>(candidates.size());
+        if (candidates.isEmpty()) return ChamsPlayerEchoRenderer.Frame.EMPTY;
+        List<ChamsPlayerEchoRenderer.Echo> echoes = new ArrayList<>(candidates.size());
         // The shader supplies the animated material; a stable input color keeps CPU capture independent of time.
-        int color = VisualEffects.color(colorMode, customColor, 0.0, 0.0);
+        int color = ChamsVisualEffects.color(colorMode, customColor, 0.0, 0.0);
         for (AbstractClientPlayerEntity player : candidates) {
             float tickDelta = context.tickCounter().getTickProgress(!context.world().getTickManager().shouldSkipTick(player));
-            PlayerModelSnapshot mesh = snapshots.snapshot(player, tickDelta, includeArmor);
+            ChamsPlayerModelSnapshot mesh = snapshots.snapshot(player, tickDelta, includeArmor);
             if (mesh == null || !finite(mesh.position())) continue;
             double distance = Math.sqrt(camera.squaredDistanceTo(mesh.position()));
             double edge = MathHelper.clamp((frameRange - distance) / fadeWidth, 0.0, 1.0);
@@ -93,11 +93,11 @@ public final class ChamsFeature implements ModuleFeature {
             double near = MathHelper.clamp((camera.distanceTo(mesh.position().add(0, .9, 0)) - .50) / .55, 0.0, 1.0);
             float alpha = (float) (opacity * edge * near);
             if (alpha <= .003F) continue;
-            PlayerEchoRenderer.Echo echo = new PlayerEchoRenderer.Echo(mesh, mesh.position(), mesh.playerYaw(),
+            ChamsPlayerEchoRenderer.Echo echo = new ChamsPlayerEchoRenderer.Echo(mesh, mesh.position(), mesh.playerYaw(),
                 color, color, alpha, 0.0F);
-            if (PlayerEchoRenderer.visible(context.frustum(), camera, echo)) echoes.add(echo);
+            if (ChamsPlayerEchoRenderer.visible(context.frustum(), camera, echo)) echoes.add(echo);
         }
-        return echoes.isEmpty() ? PlayerEchoRenderer.Frame.EMPTY : new PlayerEchoRenderer.Frame(echoes);
+        return echoes.isEmpty() ? ChamsPlayerEchoRenderer.Frame.EMPTY : new ChamsPlayerEchoRenderer.Frame(echoes);
     }
 
     private void update(ModuleContext context) {

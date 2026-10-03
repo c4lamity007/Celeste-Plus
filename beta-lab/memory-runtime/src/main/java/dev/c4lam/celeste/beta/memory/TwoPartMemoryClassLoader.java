@@ -97,7 +97,8 @@ public final class TwoPartMemoryClassLoader extends ClassLoader implements AutoC
     private final String resourceId = UUID.randomUUID().toString();
     private final ResourceAccess resourceAccess = new ResourceAccess(this);
     private boolean closed;
-    private boolean visitingParts;
+    private boolean closing;
+    private Thread visitingThread;
     private long retainedBytes;
 
     private TwoPartMemoryClassLoader(ClassLoader parent, Namespaces namespaces, Map<String, byte[]> entries,
@@ -405,7 +406,7 @@ public final class TwoPartMemoryClassLoader extends ClassLoader implements AutoC
 
     @Override
     protected synchronized Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
-        if (closed) throw new ClassNotFoundException("Memory loader is closed: " + name);
+        if (closed || closing) throw new ClassNotFoundException("Memory loader is closed: " + name);
         Class<?> result = findLoadedClass(name);
         if (result == null) {
             result = namespaces.ownsClass(name) ? findClass(name) : super.loadClass(name, false);
@@ -416,7 +417,7 @@ public final class TwoPartMemoryClassLoader extends ClassLoader implements AutoC
 
     @Override
     protected synchronized Class<?> findClass(String name) throws ClassNotFoundException {
-        if (closed || !namespaces.ownsClass(name) || !isClassBinaryName(name)) throw new ClassNotFoundException(name);
+        if (closed || closing || !namespaces.ownsClass(name) || !isClassBinaryName(name)) throw new ClassNotFoundException(name);
         byte[] bytes = entries.get(name.replace('.', '/') + ".class");
         if (bytes == null) throw new ClassNotFoundException(name);
         return defineClass(name, bytes, 0, bytes.length);
@@ -424,13 +425,13 @@ public final class TwoPartMemoryClassLoader extends ClassLoader implements AutoC
 
     @Override
     public synchronized URL getResource(String name) {
-        if (closed || !isCanonicalPath(name, false)) return null;
+        if (closed || closing || !isCanonicalPath(name, false)) return null;
         return namespaces.ownsResource(name) ? findResource(name) : super.getResource(name);
     }
 
     @Override
     public synchronized Enumeration<URL> getResources(String name) throws IOException {
-        if (closed || !isCanonicalPath(name, false)) return Collections.emptyEnumeration();
+        if (closed || closing || !isCanonicalPath(name, false)) return Collections.emptyEnumeration();
         if (!namespaces.ownsResource(name)) return super.getResources(name);
         URL resource = findResource(name);
         return resource == null ? Collections.emptyEnumeration() : Collections.enumeration(Set.of(resource));
@@ -438,7 +439,7 @@ public final class TwoPartMemoryClassLoader extends ClassLoader implements AutoC
 
     @Override
     protected synchronized URL findResource(String name) {
-        if (closed || !isCanonicalPath(name, false) || !namespaces.ownsResource(name) || !entries.containsKey(name)) return null;
+        if (closed || closing || !isCanonicalPath(name, false) || !namespaces.ownsResource(name) || !entries.containsKey(name)) return null;
         try {
             String path = new URI(null, null, "/" + resourceId + "/" + name, null).toASCIIString();
             return URL.of(new URI("memoryjar:" + path), new ResourceUrlHandler(resourceAccess));
@@ -474,41 +475,55 @@ public final class TwoPartMemoryClassLoader extends ClassLoader implements AutoC
 
     @Override
     public synchronized InputStream getResourceAsStream(String name) {
-        if (closed || !isCanonicalPath(name, false)) return null;
+        if (closed || closing || !isCanonicalPath(name, false)) return null;
         if (!namespaces.ownsResource(name)) return super.getResourceAsStream(name);
         return entries.containsKey(name) ? new RevocableResourceStream(resourceAccess, name) : null;
     }
 
-    public synchronized boolean isClosed() { return closed; }
+    public synchronized boolean isClosed() { return closed || closing; }
     public synchronized int retainedEntryCount() { return entries.size(); }
     public synchronized long retainedByteCount() { return retainedBytes; }
 
     /**
-     * Visits the two ORIGINAL parts in open() argument order under the same
-     * lifetime monitor used for loading, resource reads, and close. Views are
+     * Visits the two ORIGINAL parts in open() argument order under a lifetime
+     * borrow that prevents close from wiping bytes. Callbacks do not hold the
+     * loading/resource monitor: immutable class and resource reads can continue
+     * during a complete fresh hash. Visits serialize with each other. Views are
      * structurally unmodifiable and share the exact arrays used by this loader;
      * nothing is reparsed or copied. Original directory entries are included
      * with their trailing slash and empty content; map iteration order is unspecified.
      *
      * This is a trusted in-process capability, not a sandbox: callbacks must not
-     * mutate/retain borrowed arrays or maps, start asynchronous reads, or wait on
-     * another thread that needs this loader. A consumer needing bytes after the
-     * callback must copy them during the visit and own that copy's lifecycle.
+     * mutate borrowed arrays or maps, start asynchronous reads, or wait on another
+     * thread that needs this loader. Temporary borrowing across the two callbacks
+     * is valid only during this synchronous visit; release those references before
+     * the final callback returns. A consumer needing bytes after the complete visit
+     * must copy them during the visit and own that copy's lifecycle.
      *
-     * Throws IOException after close or for a nested visit. A callback failure
+     * Throws IOException after retirement begins, for a nested visit, or if
+     * interrupted while waiting for a previous visit. A callback failure
      * stops the visit and propagates, with the lifetime guard released in finally.
      * Concurrent close waits for the complete visit; reentrant close from inside
      * a callback throws IllegalStateException rather than invalidating borrowed bytes.
      */
-    public synchronized void visitRetainedParts(RetainedPartVisitor visitor) throws IOException {
-        if (closed) throw new IOException("Memory loader is closed");
+    public void visitRetainedParts(RetainedPartVisitor visitor) throws IOException {
         Objects.requireNonNull(visitor, "visitor");
-        if (visitingParts) throw new IOException("A retained-part visit is already active");
-        visitingParts = true;
+        synchronized (this) {
+            if (visitingThread == Thread.currentThread()) throw new IOException("A retained-part visit is already active");
+            while (!closed && !closing && visitingThread != null) {
+                try { wait(); }
+                catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new IOException("Interrupted while awaiting retained artifact access", interrupted);
+                }
+            }
+            if (closed || closing) throw new IOException("Memory loader is closed");
+            visitingThread = Thread.currentThread();
+        }
         try {
             for (Map<String, byte[]> part : partViews) visitor.accept(part);
         } finally {
-            visitingParts = false;
+            synchronized (this) { visitingThread = null; notifyAll(); }
         }
     }
 
@@ -519,13 +534,25 @@ public final class TwoPartMemoryClassLoader extends ClassLoader implements AutoC
      */
     @Override
     public synchronized void close() {
+        if (visitingThread == Thread.currentThread()) throw new IllegalStateException("Cannot close during a retained-part callback");
         if (closed) return;
-        if (visitingParts) throw new IllegalStateException("Cannot close during a retained-part callback");
-        closed = true;
-        resourceAccess.owner = null;
-        wipeEntries(entries);
-        partEntries.forEach(Map::clear);
-        retainedBytes = 0;
+        closing = true;
+        notifyAll(); // Queued integrity passes fail closed instead of extending retirement.
+        boolean interrupted = false;
+        try {
+            while (visitingThread != null) {
+                try { wait(); } // Release the read monitor until borrowed immutable bytes are returned.
+                catch (InterruptedException requested) { interrupted = true; }
+            }
+            if (closed) return;
+            closed = true;
+            resourceAccess.owner = null;
+            wipeEntries(entries);
+            partEntries.forEach(Map::clear);
+            retainedBytes = 0;
+        } finally {
+            if (interrupted) Thread.currentThread().interrupt();
+        }
     }
 
     private static void wipeEntries(Map<String, byte[]> entries) {
@@ -534,7 +561,7 @@ public final class TwoPartMemoryClassLoader extends ClassLoader implements AutoC
     }
 
     private byte[] requireResource(String name) throws IOException {
-        if (closed) throw new IOException("Memory loader is closed");
+        if (closed || closing) throw new IOException("Memory loader is closed");
         byte[] bytes = entries.get(name);
         if (bytes == null) throw new IOException("Resource is unavailable: " + name);
         return bytes;
@@ -562,7 +589,7 @@ public final class TwoPartMemoryClassLoader extends ClassLoader implements AutoC
         protected URLConnection openConnection(URL url) throws IOException {
             TwoPartMemoryClassLoader owner = access.requireOwner();
             synchronized (owner) {
-                if (owner.closed) throw new IOException("Memory loader is closed");
+                if (owner.closed || owner.closing) throw new IOException("Memory loader is closed");
                 return new ResourceConnection(url, access, owner.resourceNameFromUrl(url));
             }
         }

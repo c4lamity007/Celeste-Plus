@@ -1,10 +1,9 @@
 package dev.c4lam.celeste.compat;
 
 import dev.c4lam.celeste.gui.CelesteScreen;
+import dev.c4lam.celeste.module.delivery.ModuleHooks;
 import dev.c4lam.celeste.hud.HudEditorScreen;
 import dev.c4lam.celeste.hud.HudManager;
-import dev.c4lam.celeste.module.impl.expansion.SeeRotationsFeature;
-import dev.c4lam.celeste.module.impl.visual.PlayerModelsFeature;
 import dev.c4lam.celeste.render.GuiRenderer;
 import dev.c4lam.celeste.rotation.ElytraSilentAim;
 import net.minecraft.client.MinecraftClient;
@@ -43,23 +42,13 @@ public final class PresentationHooks {
 
     /** At LivingEntityRenderer.updateRenderState TAIL, after vanilla calculates the pose. */
     public static void applyServerRotation(LivingEntity entity, LivingEntityRenderState state) {
-        PlayerModelsFeature.capture(entity, state);
-        MinecraftClient client = MinecraftClient.getInstance();
-        if (entity != client.player || !SeeRotationsFeature.shouldApply(client)) {
-            return;
-        }
-        // PlayerEntityRenderer computes its glide bank after this superclass hook.
-        // Defer the complete gliding projection until render, instead of mixing silent
-        // body yaw/pitch with the subclass's camera-derived banking angle.
-        if (entity.isGliding()) return;
-        state.bodyYaw = SeeRotationsFeature.getRenderYaw(entity);
-        state.relativeHeadYaw = 0.0F;
-        state.pitch = SeeRotationsFeature.getRenderPitch(entity);
+        ModuleHooks.invoke("player_models", "model.capture", null, entity, state);
+        ModuleHooks.invoke("sword_aura", "rotation.apply", null, entity, state);
     }
 
     /** At LivingEntityRenderer.render HEAD; an unavailable replacement must retain vanilla. */
     public static boolean replacePlayerModel(LivingEntityRenderState state) {
         ElytraSilentAim.finishRender(state);
-        return PlayerModelsFeature.replaceVanilla(state);
+        return (boolean) ModuleHooks.invoke("player_models", "model.replace", false, state);
     }
 }

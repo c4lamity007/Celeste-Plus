@@ -3,7 +3,7 @@ package dev.c4lam.celeste.hud;
 import dev.c4lam.celeste.beta.lifecycle.BetaSubscriptions;
 
 import dev.c4lam.celeste.CelesteClient;
-import dev.c4lam.celeste.module.expansion.inventory.SilentInventoryScreen;
+import dev.c4lam.celeste.gui.HudTransparentScreen;
 import dev.c4lam.celeste.config.InterfaceConfig;
 import dev.c4lam.celeste.gui.model.GuiCatalog;
 import dev.c4lam.celeste.gui.model.GuiModule;
@@ -178,7 +178,7 @@ public final class HudManager {
                 networkClock.setEnabled(false);
                 return;
             }
-            if (client.currentScreen == null || client.currentScreen instanceof SilentInventoryScreen) {
+            if (client.currentScreen == null || client.currentScreen instanceof HudTransparentScreen) {
                 render(context, -1, -1, false, null, false);
             } else if (client.currentScreen instanceof ChatScreen) {
                 int mouseX = Math.round((float) (client.mouse.getX()

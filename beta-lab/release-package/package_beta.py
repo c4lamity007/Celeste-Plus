@@ -100,6 +100,67 @@ def zip_bytes(entries: dict[str, bytes]) -> bytes:
     return output.getvalue()
 
 
+def descriptor_classes(value: str) -> set[str]:
+    """Read JVM descriptors/generic signatures without mistaking type variables for classes."""
+    refs: set[str] = set()
+    length = len(value)
+
+    def field_type(index: int) -> int:
+        require(index < length, "Truncated type signature")
+        token = value[index]
+        if token in "+-[":
+            return field_type(index + 1)
+        if token in "BCDFIJSZV*":
+            return index + 1
+        if token == "T":
+            end = value.find(";", index + 1)
+            require(end > index + 1, "Invalid type-variable signature")
+            return end + 1
+        require(token == "L", "Invalid class signature token")
+        index += 1
+        name = ""
+        while index < length:
+            start = index
+            while index < length and value[index] not in "<.;":
+                index += 1
+            require(index > start, "Empty class signature segment")
+            name += value[start:index]
+            refs.add(name)
+            if index < length and value[index] == "<":
+                index += 1
+                while index < length and value[index] != ">":
+                    index = field_type(index)
+                require(index < length, "Unclosed generic type arguments")
+                index += 1
+            require(index < length, "Unclosed class signature")
+            if value[index] == ";":
+                return index + 1
+            require(value[index] == ".", "Invalid nested class signature")
+            name += "$"
+            index += 1
+        raise ValueError("Truncated class signature")
+
+    index = 0
+    if value.startswith("<"):
+        index = 1
+        while index < length and value[index] != ">":
+            colon = value.find(":", index)
+            require(colon > index, "Invalid formal type parameter")
+            index = colon + 1
+            if index < length and value[index] != ":":
+                index = field_type(index)
+            while index < length and value[index] == ":":
+                index = field_type(index + 1)
+        require(index < length, "Unclosed formal type parameters")
+        index += 1
+    while index < length:
+        if value[index] in "()^":
+            index += 1
+        else:
+            index = field_type(index)
+    return refs
+
+
 def class_info(data: bytes) -> tuple[str, set[str]]:
     """Constant-pool class/member descriptor dependencies, without initializing code."""
     stream = io.BytesIO(data)
@@ -153,15 +214,24 @@ def class_info(data: bytes) -> tuple[str, set[str]]:
                 if attribute_name == "Signature":
                     require(length == 2, "Invalid generic signature attribute")
                     descriptors.append(struct.unpack(">H", value)[0])
+    # Class-level generic inheritance bounds are attributes after the members.
+    for _ in range(u2()):
+        attribute_name = pool[u2()]
+        length = struct.unpack(">I", stream.read(4))[0]
+        value = stream.read(length)
+        require(len(value) == length, "Truncated class attribute")
+        if attribute_name == "Signature":
+            require(length == 2, "Invalid generic signature attribute")
+            descriptors.append(struct.unpack(">H", value)[0])
     refs: set[str] = set()
     for index in class_indices:
         value = pool[pool[index]]
         if value.startswith("["):
-            refs.update(re.findall(r"L([^;]+);", value))
+            refs.update(descriptor_classes(value))
         else:
             refs.add(value)
     for index in descriptors:
-        refs.update(re.findall(r"L([^;<:]+)", pool[index]))
+        refs.update(descriptor_classes(pool[index]))
     return own_name, refs
 
 

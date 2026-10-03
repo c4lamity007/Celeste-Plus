@@ -1,0 +1,62 @@
+{
+  "schema": "celeste-auth-native-selector-source-update-1",
+  "date": "2026-10-02",
+  "scope": "Source selector maintenance only; historical tool bundle and VMP approvals remain unchanged",
+  "reasons": {
+    "signer": "Six-argument proof is now a forwarding method. Select the eight-argument body that constructs the body-hash and identity-evidence-hash claims.",
+    "bootstrap": "The owner-thread authorization continuation moved from synthetic lambda$authorize$6 to lambda$authorize$7 and now captures the authenticated module provider and verified module session."
+  },
+  "changes": {
+    "signer": {
+      "before_source_sha256": "7d170734ee25387bd9b26bcdfcc29fe2179f4182f431f758d6963dac8a765994",
+      "after_source_sha256": "75bcf910c9e4baad99edbaa4472efccdef867521d917e71c27d7155def753f7d",
+      "before": [
+        "dev/c4lam/celeste/auth/DpopProofSigner#requireBinding(Lcom/google/gson/JsonObject;)V",
+        "dev/c4lam/celeste/auth/DpopProofSigner#proof(Ljava/lang/String;Ljava/net/URI;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;",
+        "dev/c4lam/celeste/auth/DpopProofSigner#sign([B)[B"
+      ],
+      "after": [
+        "dev/c4lam/celeste/auth/DpopProofSigner#requireBinding(Lcom/google/gson/JsonObject;)V",
+        "dev/c4lam/celeste/auth/DpopProofSigner#proof(Ljava/lang/String;Ljava/net/URI;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;",
+        "dev/c4lam/celeste/auth/DpopProofSigner#sign([B)[B"
+      ]
+    },
+    "bootstrap": {
+      "before_source_sha256": "946cda56a473495bd4047dd275b8bdd84393d70fe20b4acd7b2c7fbf2aac406a",
+      "after_source_sha256": "451f650df076557f4a73c67595096390d5b67d265e736c87a0725f16cdbf23d3",
+      "before": [
+        "dev/c4lam/celeste/auth/AuthBootstrap#authorize(Lnet/minecraft/class_310;Ldev/c4lam/celeste/auth/AuthServiceClient$Authenticated;Ldev/c4lam/celeste/auth/InstallCredential;)V",
+        "dev/c4lam/celeste/auth/AuthBootstrap#lambda$authorize$6(Ldev/c4lam/celeste/auth/InstallCredential;JLnet/minecraft/class_310;Ljava/lang/String;Ldev/c4lam/celeste/auth/AuthServiceClient$Authenticated;)V",
+        "dev/c4lam/celeste/auth/AuthBootstrap#heartbeat()V",
+        "dev/c4lam/celeste/auth/AuthBootstrap#superviseHeartbeat()V",
+        "dev/c4lam/celeste/auth/AuthBootstrap#lockSession(Ljava/lang/String;Ljava/lang/Throwable;)V"
+      ],
+      "after": [
+        "dev/c4lam/celeste/auth/AuthBootstrap#authorize(Lnet/minecraft/class_310;Ldev/c4lam/celeste/auth/AuthServiceClient$Authenticated;Ldev/c4lam/celeste/auth/InstallCredential;)V",
+        "dev/c4lam/celeste/auth/AuthBootstrap#lambda$authorize$7(Ldev/c4lam/celeste/auth/InstallCredential;Ldev/c4lam/celeste/auth/AuthenticatedModulePayloadProvider;JLnet/minecraft/class_310;Ljava/lang/String;Ldev/c4lam/celeste/beta/delivery/ModuleDeliveryClient$Session;Ldev/c4lam/celeste/auth/AuthServiceClient$Authenticated;)V",
+        "dev/c4lam/celeste/auth/AuthBootstrap#heartbeat()V",
+        "dev/c4lam/celeste/auth/AuthBootstrap#superviseHeartbeat()V",
+        "dev/c4lam/celeste/auth/AuthBootstrap#lockSession(Ljava/lang/String;Ljava/lang/Throwable;)V"
+      ]
+    }
+  },
+  "current_source_sha256": {
+    "AuthBootstrap.java": "577eea8d5975cc3e90e785d8ebb62bc7e93d6355404193a165cfd7e457ab0af0",
+    "AuthServiceClient.java": "35215bb151cb2dfebc763c9070cdf1d4ba4e57eb303bb8d0e7b9c3e1e2260e88",
+    "DpopProofSigner.java": "49362526e201fe4cb56b46df8f64b448f0ce946fc727caec08b6f63b8b0b6378"
+  },
+  "selected_bodies": 16,
+  "counts": {
+    "auth": 8,
+    "signer": 3,
+    "bootstrap": 5
+  },
+  "producer_implementation_changed": false,
+  "production_approved": false,
+  "required_checks": [
+    "Exact selectors and semantic body preflight against final post-Java-protection input",
+    "Fresh producer bundle pin and source-policy review",
+    "Native transformation, unselected-method parity, protected protocol/lifecycle fixtures",
+    "Fresh independently reviewed VMP DLL inventory and resource approval"
+  ]
+}

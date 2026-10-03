@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 
 from fastapi.responses import StreamingResponse
 
@@ -16,13 +17,30 @@ def plain_chunks(content: bytes):
 
 
 class ArtifactResponse(StreamingResponse):
-    def __init__(self, chunks, length: int, slots):
+    def __init__(self, chunks, length: int, slots, *, authorization_guard=None):
         self._chunks = chunks
         self._slots = slots
 
         async def stream():
+            if authorization_guard is None:
+                for chunk in chunks:
+                    yield chunk
+                return
+            # Hold the final chunk (the envelope tag) until the final live check.
+            # The supplied guard performs its blocking checks in a worker thread.
+            await authorization_guard()
+            checked_at = time.monotonic()
+            pending = None
             for chunk in chunks:
-                yield chunk
+                if pending is not None:
+                    if time.monotonic() - checked_at >= 1:
+                        await authorization_guard()
+                        checked_at = time.monotonic()
+                    yield pending
+                pending = chunk
+            if pending is not None:
+                await authorization_guard()
+                yield pending
 
         super().__init__(stream(), media_type="application/octet-stream", headers={
             "Content-Length": str(length), "Cache-Control": "no-store",

@@ -33,6 +33,26 @@ public final class FreecamLifecycleFixture {
                 check(!FreecamFeature.isDetached(r.client), "detached marker must be cleared");
             }
         });
+        run("flight bind can stop and restart camera while feature remains enabled", () -> {
+            try (Rig r = new Rig(true)) {
+                FreecamFeature residentFeature = r.feature;
+                r.enable();
+                check(FreecamFeature.isDetached(r.client), "enable must start detached flight");
+                check(!r.feature.toggleFlight(r.client), "first bind toggle must stop flight");
+                on(r.client, "stopping flight must restore chunk culling");
+                same(r.body, r.client.getCameraEntity(), "stopping flight must restore the body camera");
+                check(!FreecamFeature.blocksPlayerInput(r.body.input), "stopped flight must release body input");
+                r.tick(); r.frame();
+                same(residentFeature, r.feature, "flight toggle must keep the feature instance resident");
+                same(r.body, r.client.getCameraEntity(), "idle callbacks must not restart flight");
+                on(r.client, "idle callbacks must leave restored culling alone");
+                check(r.feature.toggleFlight(r.client), "second bind toggle must restart flight");
+                check(FreecamFeature.isDetached(r.client), "restarted flight must detach the camera");
+                off(r.client, "restarted flight must disable chunk culling");
+                r.disable();
+                on(r.client, "module disable must still clean up the resident feature");
+            }
+        });
         run("tick and render frame reassert culling after external writes", () -> {
             try (Rig r = new Rig(true)) {
                 r.enable();

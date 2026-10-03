@@ -38,6 +38,8 @@ public final class AuthBootstrap {
     private static volatile InstallCredential pendingCredential;
     private static volatile String sessionGrant;
     private static volatile long sessionDeadlineNanos;
+    private static volatile dev.c4lam.celeste.beta.delivery.ModuleDeliveryClient.Session moduleSession;
+    private static volatile AuthenticatedModulePayloadProvider modulePayloads;
     private static Runnable authorizedInitializer;
     private static Runnable authorizedShutdown;
     private static volatile Consumer<Throwable> lateFailureObserver;
@@ -140,6 +142,24 @@ public final class AuthBootstrap {
     public static boolean busy() {
         return BUSY.get();
     }
+
+    public static void configureModules(dev.c4lam.celeste.module.ModuleManager modules) {
+        AuthenticatedModulePayloadProvider provider=modulePayloads;
+        if(provider!=null) {
+            if(!authorized())throw new SecurityException("Module installation requires authorization");
+            modules.configurePayloads(provider);
+        }
+    }
+    private static dev.c4lam.celeste.beta.delivery.ModuleDeliveryClient.Session moduleSessionSnapshot()
+            throws GeneralSecurityException {
+        if(!authorized() || moduleSession==null)throw new GeneralSecurityException("Runtime module lease expired");
+        return moduleSession;
+    }
+    public static CompletionStage<Void> moduleDeliveryStopped() {
+        AuthenticatedModulePayloadProvider provider=modulePayloads;
+        return provider==null?CompletableFuture.completedFuture(null):provider.stopped();
+    }
+    private static void closeModules(AuthenticatedModulePayloadProvider provider) { if(provider!=null)provider.close(); }
 
     public static boolean locked() {
         return LOCKED.get();
@@ -315,36 +335,46 @@ public final class AuthBootstrap {
         // activation. Replaying a captured startup grant cannot satisfy this.
         String verifiedSession = service.checkSession(credential, config.releaseDigest(), false);
         long deadline = System.nanoTime() + service.sessionValidityNanos(verifiedSession);
+        var delivery=service.moduleDelivery(AuthBootstrap::moduleSessionSnapshot);
+        var candidateSession=delivery==null?null:dev.c4lam.celeste.beta.delivery.ModuleDeliveryClient.verifiedSession(
+            verifiedSession,deadline,config.serverKey());
+        AuthenticatedModulePayloadProvider candidate=delivery==null?null:new AuthenticatedModulePayloadProvider(delivery,
+            failure->lockSession("Module authorization failed; reconnect to verify this session",failure));
         synchronized (AuthBootstrap.class) {
-            if (STOPPED.get() || LOCKED.get()) { discardCredential(credential); return; }
+            if (STOPPED.get() || LOCKED.get()) { discardCredential(credential); closeModules(candidate); return; }
             if (pendingCredential != null) discardCredential(pendingCredential);
             pendingCredential = credential;
         }
         try { client.execute(() -> {
             // A response queued before shutdown/revocation must never reactivate the client.
             synchronized (AuthBootstrap.class) {
-            if (pendingCredential != credential) { discardCredential(credential); return; }
+            if (pendingCredential != credential) { discardCredential(credential); closeModules(candidate); return; }
             pendingCredential = null;
             if (STOPPED.get() || LOCKED.get() || AUTHORIZED.get()) {
                 discardCredential(credential);
+                closeModules(candidate);
                 return;
             }
             if (System.nanoTime() - deadline >= 0) {
                 discardCredential(credential);
+                closeModules(candidate);
                 fail(client, "Authorization expired before initialization");
                 return;
             }
             sessionCredential = credential;
             sessionGrant = verifiedSession;
             sessionDeadlineNanos = deadline;
+            moduleSession=candidateSession;
+            modulePayloads=candidate;
             // Publish the complete session before the worker can observe it.
-            if (!AUTHORIZED.compareAndSet(false, true)) { discardCredential(credential); return; }
+            if (!AUTHORIZED.compareAndSet(false, true)) { discardCredential(credential); closeModules(candidate); return; }
             if (STOPPED.get() || LOCKED.get()) {
                 AUTHORIZED.set(false);
                 sessionCredential = null;
                 discardCredential(credential);
                 sessionGrant = null;
                 sessionDeadlineNanos = 0;
+                moduleSession=null;closeModules(candidate);
                 return;
             }
             }
@@ -352,6 +382,7 @@ public final class AuthBootstrap {
                 LicenseIdentity.accept(authenticated.uid());
                 authorizedInitializer.run();
                 if (authorized()) {
+                    if(candidate!=null)candidate.prefetchCatalog();
                     status = "Authorized";
                 }
             } catch (RuntimeException | LinkageError exception) {
@@ -360,6 +391,7 @@ public final class AuthBootstrap {
         }); } catch (RuntimeException | Error failure) {
             synchronized (AuthBootstrap.class) { if (pendingCredential == credential) pendingCredential = null; }
             discardCredential(credential);
+            closeModules(candidate);
             throw failure;
         }
     }
@@ -385,15 +417,22 @@ public final class AuthBootstrap {
                 }
                 return;
             }
+            AuthenticatedModulePayloadProvider retainedModules=modulePayloads;
+            if(retainedModules!=null)retainedModules.verifyRetainedModules();
             String refreshedGrant = currentService.checkSession(credential, observedDigest, false);
             long deadline = System.nanoTime() + currentService.sessionValidityNanos(refreshedGrant);
+            AuthenticatedModulePayloadProvider modules=modulePayloads;
+            var renewedModuleSession=modules==null?null:dev.c4lam.celeste.beta.delivery.ModuleDeliveryClient.verifiedSession(
+                refreshedGrant,deadline,currentConfig.serverKey());
             synchronized (AuthBootstrap.class) {
                 if (authorized()) {
                     sessionDeadlineNanos = deadline;
                     sessionGrant = refreshedGrant;
+                    moduleSession=renewedModuleSession;
                     workerRecoveries = 0;
                 }
             }
+            if(modules!=null && authorized())modules.delivery().renewActive();
         } catch (AuthServiceClient.AuthRejectedException exception) {
             if (exception.statusCode() == 401 || exception.statusCode() == 403 || exception.statusCode() == 409) {
                 lockSession(exception.getMessage(), exception);
@@ -411,6 +450,8 @@ public final class AuthBootstrap {
 
     private static synchronized void superviseHeartbeat() {
         try {
+            AuthenticatedModulePayloadProvider modules=modulePayloads;
+            if(modules!=null)modules.delivery().expire();
             if (!authorized()) return;
             if (heartbeatTask != null && !heartbeatTask.isDone() && !WORKER.isShutdown()) return;
             // A cancelled future can still own a running network request. Never
@@ -446,6 +487,8 @@ public final class AuthBootstrap {
     }
 
     private static void closeSessionMaterial() {
+        moduleSession=null;
+        closeModules(modulePayloads);
         InstallCredential active = sessionCredential, pending = pendingCredential;
         sessionCredential = null; pendingCredential = null;
         discardCredential(active);

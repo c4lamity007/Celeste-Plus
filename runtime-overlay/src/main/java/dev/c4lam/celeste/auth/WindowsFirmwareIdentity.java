@@ -21,12 +21,21 @@ final class WindowsFirmwareIdentity {
     }
 
     static Identity read() {
+        byte[] raw=readTable();
+        try { return parse(raw); }
+        finally { java.util.Arrays.fill(raw,(byte)0); }
+    }
+
+    /** Fresh request-owned SMBIOS bytes; the caller must wipe them after deriving its hashes. */
+    static byte[] readTable() {
         int size = FirmwareApi.INSTANCE.GetSystemFirmwareTable(0x52534d42, 0, null, 0);
         if (size < 8 || size > 4 * 1024 * 1024) throw unavailable();
         try (Memory bytes = new Memory(size)) {
-            if (FirmwareApi.INSTANCE.GetSystemFirmwareTable(0x52534d42, 0, bytes, size) != size)
-                throw unavailable();
-            return parse(bytes.getByteArray(0, size));
+            try {
+                if (FirmwareApi.INSTANCE.GetSystemFirmwareTable(0x52534d42, 0, bytes, size) != size)
+                    throw unavailable();
+                return bytes.getByteArray(0, size);
+            } finally { bytes.clear(); }
         }
     }
 

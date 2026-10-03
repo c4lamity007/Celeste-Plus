@@ -1,6 +1,6 @@
 package dev.c4lam.celeste.mixin;
 
-import dev.c4lam.celeste.module.impl.visual.expansion.ItemEspFeature;
+import dev.c4lam.celeste.module.delivery.ModuleHooks;
 import net.minecraft.client.render.entity.ItemEntityRenderer;
 import net.minecraft.client.render.entity.state.ItemEntityRenderState;
 import net.minecraft.entity.ItemEntity;
@@ -16,6 +16,7 @@ public abstract class ItemEntityRendererMixin {
         at = @At("TAIL"))
     private void celeste$itemHighlight(ItemEntity entity, ItemEntityRenderState state,
                                        float tickProgress, CallbackInfo callback) {
-        ItemEspFeature.applyModelHighlight(entity, state);
+        applyModelHighlight(entity, state);
     }
+ private static void applyModelHighlight(net.minecraft.entity.ItemEntity entity, net.minecraft.client.render.entity.state.ItemEntityRenderState state) { ModuleHooks.invoke("item_esp", "item.highlight", null, entity, state); }
 }

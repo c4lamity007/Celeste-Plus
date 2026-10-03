@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import time
 from dataclasses import replace
 from types import SimpleNamespace
@@ -411,11 +412,50 @@ def test_download_returns_verified_snapshot_not_a_later_file_read(beta, monkeypa
 
     def change_file_after_read(*args, **kwargs):
         result = original(*args, **kwargs)
-        (beta.root / "payload-a.bin").write_bytes(b"unchecked replacement")
+        if len(args) > 1:  # Replace only after the selected snapshot is verified.
+            (beta.root / "payload-a.bin").write_bytes(b"unchecked replacement")
         return result
 
     monkeypatch.setattr(beta_delivery, "_read_release", change_file_after_read)
     response = beta.client.get(artifact_url(beta), headers=headers)
     assert response.status_code == 200
     assert response.content == expected
+    assert beta.client.get(artifact_url(beta), headers=headers).status_code == 503
+
+
+def test_downloads_reuse_release_metadata_and_hash_selected_snapshot(beta, monkeypatch):
+    import app.release_cache as cache
+    cache._ENTRIES.clear()
+    original = beta_delivery._read_release
+    full_scans = []
+
+    def counted(settings, selected=None):
+        if selected is None:
+            full_scans.append(1)
+        return original(settings, selected)
+
+    monkeypatch.setattr(beta_delivery, "_read_release", counted)
+    headers = manifest_headers(beta)
+    for artifact in ARTIFACT_ROLES:
+        response = beta.client.get(artifact_url(beta, artifact), headers=headers)
+        assert response.status_code == 200
+        assert response.content == (beta.root / ARTIFACT_FILENAMES[artifact]).read_bytes()
+    # One manifest validation and one cache fill; later downloads validate only
+    # their selected bytes plus fresh stamps of every file in the release.
+    assert len(full_scans) == 2
+    monkeypatch.setattr(cache, "MAX_AGE_SECONDS", 0)
+    # A verification expiring before the final stamp fails closed.
+    assert beta.client.get(artifact_url(beta), headers=headers).status_code == 503
+
+
+@pytest.mark.parametrize("artifact", ["payload-a", "payload-b"])
+def test_download_cache_rejects_changed_selected_or_other_artifact(beta, artifact):
+    headers = manifest_headers(beta)
+    assert beta.client.get(artifact_url(beta), headers=headers).status_code == 200
+    path = beta.root / ARTIFACT_FILENAMES[artifact]
+    stamp = path.stat()
+    path.write_bytes(b"X" * stamp.st_size)
+    os.utime(path, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
+    # Both ordinary selected corruption and a non-selected same-size overwrite
+    # with restored mtime invalidate the verified release.
     assert beta.client.get(artifact_url(beta), headers=headers).status_code == 503

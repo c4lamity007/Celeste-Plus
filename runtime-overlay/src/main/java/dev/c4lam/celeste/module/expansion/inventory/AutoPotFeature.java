@@ -10,7 +10,7 @@ import net.minecraft.client.world.ClientWorld;
 import net.minecraft.util.Hand;
 
 /** Cyemer AutoPot concept rebuilt as a bounded silent-rotation state machine. */
-final class AutoPotFeature implements ModuleFeature {
+public final class AutoPotFeature implements ModuleFeature {
     private static final int PRIORITY = 180;
     private int lastActionAge = Integer.MIN_VALUE / 2;
     private ClientWorld intentWorld;
@@ -25,42 +25,42 @@ final class AutoPotFeature implements ModuleFeature {
     public void onStartTick(ModuleContext context) {
         clearIntent();
         MinecraftClient client = context.client();
-        if (!InventorySupport.playable(client) || client.player.getHealth() + client.player.getAbsorptionAmount()
+        if (!AutoPotInventorySupport.playable(client) || client.player.getHealth() + client.player.getAbsorptionAmount()
             > context.slider("Health", 10.0D) || !delayElapsed(context)) {
             GameplayFoundation.releaseOwner(this);
             return;
         }
-        int slot = InventorySupport.hotbarSlot(client, InventorySupport::isSplashHealing);
+        int slot = AutoPotInventorySupport.hotbarSlot(client, AutoPotInventorySupport::isSplashHealing);
         if (slot < 0) {
             GameplayFoundation.releaseOwner(this);
             return;
         }
         intentWorld = client.world;
         intentSlot = slot;
-        InventorySupport.requestDown(this, client.player, PRIORITY);
+        AutoPotInventorySupport.requestDown(this, client.player, PRIORITY);
     }
 
     @Override
     public void onActionTick(ModuleContext context) {
         ClientWorld world = intentWorld;
         int slot = intentSlot;
-        if (world == null || slot < 0 || !InventorySupport.downReady(this)) {
+        if (world == null || slot < 0 || !AutoPotInventorySupport.downReady(this)) {
             return;
         }
         ActionScheduler.getInstance().submit(this, PRIORITY, client -> execute(client, context, world, slot));
     }
 
     private void execute(MinecraftClient client, ModuleContext context, ClientWorld world, int slot) {
-        if (!InventorySupport.playable(client) || client.world != world || !context.module().enabled()
+        if (!AutoPotInventorySupport.playable(client) || client.world != world || !context.module().enabled()
             || client.player.getHealth() + client.player.getAbsorptionAmount() > context.slider("Health", 10.0D)
-            || !delayElapsed(new ModuleContext(client, context.module())) || !InventorySupport.downReady(this)
-            || slot > 8 || !InventorySupport.isSplashHealing(client.player.getInventory().getStack(slot))) {
+            || !delayElapsed(new ModuleContext(client, context.module())) || !AutoPotInventorySupport.downReady(this)
+            || slot > 8 || !AutoPotInventorySupport.isSplashHealing(client.player.getInventory().getStack(slot))) {
             return;
         }
         SilentSlotManager.getInstance().runWithSlot(this, slot, PRIORITY,
             context.toggle("Silent swap", true), () -> {
-            if (InventorySupport.isSplashHealing(client.player.getMainHandStack())
-                && InventorySupport.useItem(client, Hand.MAIN_HAND)) {
+            if (AutoPotInventorySupport.isSplashHealing(client.player.getMainHandStack())
+                && AutoPotInventorySupport.useItem(client, Hand.MAIN_HAND)) {
                 lastActionAge = client.player.age;
             }
         });

@@ -25,6 +25,7 @@ public final class HardwareFingerprintFallbackCheck {
         byte[] bad = raw.clone(); bad[12] = 40; reject(() -> WindowsFirmwareIdentity.parse(bad));
         byte[] zero = raw.clone(); Arrays.fill(zero, 16, 32, (byte)0); reject(() -> WindowsFirmwareIdentity.parse(zero));
         byte[] missing = raw.clone(); missing[8] = 3; reject(() -> WindowsFirmwareIdentity.parse(missing));
+        requestLocalEvidence();
         if (args.length == 1 && args[0].equals("--local-parity")) {
             var wmi = HardwareFingerprint.collectWindowsUsingWmi();
             var firmware = HardwareFingerprint.collectWindowsUsingFirmware();
@@ -46,6 +47,36 @@ public final class HardwareFingerprintFallbackCheck {
         ByteBuffer result = ByteBuffer.allocate(body.size()+8).order(ByteOrder.LITTLE_ENDIAN);
         result.put(new byte[]{0,3,0,0}).putInt(body.size()).put(body.toByteArray()); return result.array();
     }
+    private static void requestLocalEvidence() {
+        byte[] one=fixture(),multiple=Arrays.copyOf(one,one.length+36);
+        ByteBuffer buffer=ByteBuffer.wrap(multiple).order(ByteOrder.LITTLE_ENDIAN);
+        // A second, distinct CPU and a duplicate exercise the v2 all-CPU set.
+        for(int offset:new int[]{one.length,one.length+18}){
+            buffer.put(offset,(byte)4).put(offset+1,(byte)16).putLong(offset+8,1L);
+        }
+        buffer.putInt(4,multiple.length-8);
+        var legacy=WindowsFirmwareIdentity.parse(multiple);
+        check(legacy.processorId().equals("efcdab9078563412"),"legacy fingerprint keeps original first CPU semantics");
+        check(HardwareIdentityV2.firmwareIds(multiple).equals(List.of("0000000000000001","efcdab9078563412")),"v2 sorts and deduplicates every CPU");
+        var expected=new HardwareFingerprint("1".repeat(64),"2".repeat(64),"3".repeat(64),List.of("4".repeat(64)));
+        String expectedHwid=HardwareIdentityV2.digest(String.join("+",HardwareIdentityV2.firmwareIds(multiple)),"Disk","Guid");
+        int[] reads=new int[4];java.util.List<byte[]> captured=new java.util.ArrayList<>();
+        for(int request=0;request<2;request++){
+            var evidence=HardwareIdentityV2.freshWindowsEvidence(()->{
+                reads[0]++;byte[] owned=multiple.clone();captured.add(owned);return owned;
+            },identity->{reads[1]++;check(identity.equals(legacy),"shared legacy firmware is byte-compatible");return expected;},
+                ()->{reads[2]++;return "Disk";},()->{reads[3]++;return "Guid";});
+            check(evidence.fingerprint().equals(expected)&&evidence.hwid().equals(expectedHwid),"one snapshot preserves exact component and v2 hashes");
+        }
+        check(Arrays.equals(reads,new int[]{2,2,2,2}),"every request rereads firmware, registry fingerprint, disk and machine identity once");
+        check(captured.stream().allMatch(HardwareFingerprintFallbackCheck::zeroed),"request-owned raw SMBIOS buffers wiped after success");
+        byte[] failed=multiple.clone();
+        reject(()->HardwareIdentityV2.freshWindowsEvidence(()->failed,identity->{throw new IllegalStateException("registry unavailable");},()->"Disk",()->"Guid"));
+        check(zeroed(failed),"raw SMBIOS wiped when later hardware evidence fails");
+        var changed=HardwareIdentityV2.freshWindowsEvidence(one::clone,identity->expected,()->"Disk",()->"Guid");
+        check(!changed.hwid().equals(expectedHwid),"later request sees a changed CPU population instead of a cached snapshot");
+    }
+    private static boolean zeroed(byte[] bytes){for(byte value:bytes)if(value!=0)return false;return true;}
     private static void reject(Runnable action) {
         try { action.run(); } catch (IllegalStateException expected) { checks++; return; }
         throw new AssertionError("Malformed firmware accepted");

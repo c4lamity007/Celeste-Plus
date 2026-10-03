@@ -18,7 +18,7 @@ def _required(name: str) -> str:
 def _decode_32(name: str) -> bytes:
     try:
         value = base64.urlsafe_b64decode((read_secret(name) if name in {
-            "CELESTE_SIGNING_PRIVATE_KEY", "CELESTE_KEY_PEPPER", "CELESTE_SESSION_SECRET"
+            "CELESTE_SIGNING_PRIVATE_KEY", "CELESTE_KEY_PEPPER", "CELESTE_SESSION_SECRET", "CELESTE_MODULE_KEY_ENCRYPTION_KEY"
         } else _required(name)) + "===")
     except ValueError as exc:
         raise RuntimeError(f"Invalid base64 setting: {name}") from exc
@@ -72,6 +72,12 @@ class Settings:
     public_native_dir: str = ""
     plus_download_sha256: str = ""
     public_native_max_bytes: int = 128 * 1024 * 1024
+    module_delivery_required: bool = False
+    module_release_dir: str = ""
+    plus_qa_beta_release_dir: str = ""
+    plus_qa_module_release_dir: str = ""
+    plus_qa_installations: frozenset[str] = frozenset()
+    module_key_encryption_key: bytes | None = field(default=None, repr=False)
 
     def accepts_installer_identity(self, release_id: object, digest: object) -> bool:
         if not isinstance(release_id, str) or not isinstance(digest, str):
@@ -133,6 +139,9 @@ class Settings:
         ):
             if len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
                 raise RuntimeError(f"{name} must be a lowercase SHA-256 hex digest")
+        module_required = os.getenv("CELESTE_PLUS_REQUIRE_MODULE_DELIVERY", "false").strip().lower()
+        if module_required not in {"true", "false", "1", "0"}:
+            raise RuntimeError("CELESTE_PLUS_REQUIRE_MODULE_DELIVERY must be true or false")
         protocol = os.getenv("CELESTE_PLUS_AUTH_PROTOCOL", "2").strip()
         if protocol not in {"1", "2"}:
             raise RuntimeError("CELESTE_PLUS_AUTH_PROTOCOL must be 1 or 2")
@@ -192,6 +201,14 @@ class Settings:
             public_native_dir=public_native_dir,
             plus_download_sha256=plus_download_sha256,
             public_native_max_bytes=public_native_max_bytes,
+            module_delivery_required=module_required in {"true", "1"},
+            module_release_dir=os.getenv("CELESTE_MODULE_RELEASE_DIR", "").strip(),
+            plus_qa_beta_release_dir=os.getenv("CELESTE_PLUS_QA_BETA_RELEASE_DIR", "").strip(),
+            plus_qa_module_release_dir=os.getenv("CELESTE_PLUS_QA_MODULE_RELEASE_DIR", "").strip(),
+            plus_qa_installations=frozenset(value.strip() for value in os.getenv("CELESTE_PLUS_QA_INSTALLATIONS", "").split(",") if value.strip()),
+            module_key_encryption_key=(_decode_32("CELESTE_MODULE_KEY_ENCRYPTION_KEY")
+                if os.getenv("CELESTE_MODULE_KEY_ENCRYPTION_KEY", "").strip()
+                    or os.getenv("CELESTE_MODULE_KEY_ENCRYPTION_KEY_FILE", "").strip() else None),
             beta_release_dir=os.getenv("CELESTE_BETA_RELEASE_DIR", "").strip(),
             public_origin=os.getenv("CELESTE_PUBLIC_ORIGIN", "").strip(),
             native_release_public_key=(

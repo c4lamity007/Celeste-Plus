@@ -1,7 +1,8 @@
 package dev.c4lam.celeste.rotation;
 
 import dev.c4lam.celeste.action.VanillaInputGuard;
-import dev.c4lam.celeste.module.impl.expansion.SeeRotationsFeature;
+import dev.c4lam.celeste.module.delivery.ModuleHooks;
+import dev.c4lam.celeste.module.delivery.ScopedActionOwners;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.client.world.ClientWorld;
@@ -19,6 +20,7 @@ public final class RotationManager {
     private static final RotationManager INSTANCE = new RotationManager();
 
     private final Map<Object, ActiveTask> tasks = new HashMap<>();
+    private final ScopedActionOwners owners = new ScopedActionOwners();
     private long tick;
     private long sequence;
     private ClientWorld world;
@@ -52,11 +54,13 @@ public final class RotationManager {
         // concrete mounted action explicitly.
         if (client.player != null && client.player.hasVehicle()) {
             tasks.remove(task.owner());
+            owners.release(task.owner());
             if (Objects.equals(activeOwner, task.owner())) {
                 deactivateToCamera(client.player);
             }
             return false;
         }
+        if(!owners.track(task.owner(), () -> retireOwner(task.owner()))) return false;
         long now = System.nanoTime();
         long deadline;
         try {
@@ -80,9 +84,18 @@ public final class RotationManager {
         }
 
         tasks.remove(owner);
+        owners.release(owner);
         if (Objects.equals(activeOwner, owner)) {
             deactivateToCamera(MinecraftClient.getInstance().player);
         }
+    }
+
+    private void retireOwner(Object owner) {
+        if(Objects.equals(releaseAfterActionOwner,owner)) {
+            tasks.remove(owner);
+            Object retired=new Object();
+            releaseAfterActionOwner=retired;activeOwner=retired;
+        } else release(owner);
     }
 
     /** Retains an emitted interaction's look through the following vanilla movement packet. */
@@ -113,7 +126,7 @@ public final class RotationManager {
             return;
         }
         if (player.hasVehicle()) {
-            tasks.clear();
+            tasks.clear(); owners.clear();
             deactivateToCamera(player);
             return;
         }
@@ -122,14 +135,18 @@ public final class RotationManager {
         // relinquish it. ActionScheduler still excludes duplicate automated
         // interactions when a physical click is being processed this tick.
         if (VanillaInputGuard.hasRotationConflict(client)) {
-            tasks.clear();
+            tasks.clear(); owners.clear();
             deactivateToCamera(player);
             return;
         }
 
         Rotation camera = new Rotation(player.getYaw(), player.getPitch());
         long now = System.nanoTime();
-        tasks.values().removeIf(task -> task.expired(tick, now));
+        tasks.values().removeIf(task -> {
+            if(task.expired(tick,now) || !owners.allowed(task.task.owner())) {
+                owners.release(task.task.owner());return true;
+            }return false;
+        });
         ActiveTask winner = selectWinner(now);
         if (winner == null) {
             active = false;
@@ -147,7 +164,7 @@ public final class RotationManager {
             task.maximumYawStep(),
             task.maximumPitchStep()
         );
-        if (task.sensitivityQuantized() && SeeRotationsFeature.shouldQuantizeSensitivity()) {
+        if (task.sensitivityQuantized() && (boolean) ModuleHooks.invoke("sword_aura", "rotation.quantize", true)) {
             double sensitivity = client.options.getMouseSensitivity().getValue();
             stepped = RotationQuantizer.quantize(base, stepped, sensitivity);
         }
@@ -185,11 +202,11 @@ public final class RotationManager {
     }
 
     public boolean isActive() {
-        return active;
+        return active && owners.allowed(activeOwner);
     }
 
     public boolean isOwnedBy(Object owner) {
-        return active && Objects.equals(activeOwner, owner);
+        return isActive() && Objects.equals(activeOwner, owner);
     }
 
     public Object activeOwner() {
@@ -249,16 +266,16 @@ public final class RotationManager {
     }
 
     public MoveFixMode moveFixMode() {
-        return active ? moveFixMode : MoveFixMode.OFF;
+        return isActive() ? moveFixMode : MoveFixMode.OFF;
     }
 
     /** Owned by the selected lease; release, expiration and preemption also release flight alignment. */
     public boolean glidingPhysics() {
-        return active && glidingPhysics;
+        return isActive() && glidingPhysics;
     }
 
     public float serverYawOr(float fallback) {
-        return active ? serverRotation.yaw() : fallback;
+        return isActive() ? serverRotation.yaw() : fallback;
     }
 
     /**
@@ -269,7 +286,7 @@ public final class RotationManager {
      * back to the camera and is reset only with the player/world connection.
      */
     public float outgoingYawOr(float fallback) {
-        float desired = active ? serverRotation.yaw() : fallback;
+        float desired = isActive() ? serverRotation.yaw() : fallback;
         if (!Float.isFinite(desired)) {
             return fallback;
         }
@@ -283,11 +300,11 @@ public final class RotationManager {
     }
 
     public float serverPitchOr(float fallback) {
-        return active ? serverRotation.pitch() : fallback;
+        return isActive() ? serverRotation.pitch() : fallback;
     }
 
     public void clear() {
-        tasks.clear();
+        tasks.clear(); owners.clear();
         releaseAfterActionOwner = null;
         tickEnded = true;
         active = false;
@@ -316,7 +333,7 @@ public final class RotationManager {
     private ActiveTask selectWinner(long now) {
         ActiveTask winner = null;
         for (ActiveTask candidate : tasks.values()) {
-            if (candidate.expired(tick, now)) {
+            if (candidate.expired(tick, now) || !owners.allowed(candidate.task.owner())) {
                 continue;
             }
             if (winner == null

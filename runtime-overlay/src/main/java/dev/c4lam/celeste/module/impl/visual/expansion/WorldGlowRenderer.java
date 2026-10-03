@@ -25,7 +25,7 @@ public final class WorldGlowRenderer {
     private static final int MAX_QUADS = 768;
     private static final RenderPipeline PIPELINE = dev.c4lam.celeste.compat.BetaRenderPipelines.register(
         RenderPipeline.builder(RenderPipelines.TRANSFORMS_AND_PROJECTION_SNIPPET)
-            .withLocation(Identifier.of(CelesteClient.MOD_ID, "pipeline/fake_lag_glow"))
+            .withLocation(dev.c4lam.celeste.module.delivery.ModuleResourceNames.asset(Identifier.of(CelesteClient.MOD_ID, "pipeline/fake_lag_glow")))
             .withVertexShader(Identifier.ofVanilla("core/position_tex_color"))
             .withFragmentShader(Identifier.ofVanilla("core/position_tex_color"))
             .withSampler("Sampler0")
@@ -37,14 +37,22 @@ public final class WorldGlowRenderer {
             .withCull(false)
             .build()
     );
-    private static final RenderLayer[] LAYERS = {
-        layer("halo"), layer("soft"), layer("streak"),
-        WorldVfxRenderer.ribbonLayer(), WorldVfxRenderer.pulseLayer(),
-        WorldVfxRenderer.jumpLayer(), WorldVfxRenderer.splashLayer(), WorldVfxRenderer.dropletLayer(),
-        WorldVfxRenderer.prismLayer(), WorldVfxRenderer.waterLayer(),
-        WorldVfxRenderer.trajectoryLayer(), WorldVfxRenderer.trajectoryImpactLayer(), WorldVfxRenderer.jumpLeanLayer(),
-        WorldVfxRenderer.bloomLayer(), WorldVfxRenderer.jumpClassicLayer()
-    };
+    private static final RenderLayer[] LAYERS = new RenderLayer[15];
+    private static RenderLayer textureLayer(int texture) {
+        RenderLayer found=LAYERS[texture];
+        if(found!=null)return found;
+        found=switch(texture) {
+            case 0 -> layer("halo"); case 1 -> layer("soft"); case 2 -> layer("streak");
+            case 3 -> WorldVfxRenderer.ribbonLayer(); case 4 -> WorldVfxRenderer.pulseLayer();
+            case 5 -> WorldVfxRenderer.jumpLayer(); case 6 -> WorldVfxRenderer.splashLayer();
+            case 7 -> WorldVfxRenderer.dropletLayer(); case 8 -> WorldVfxRenderer.prismLayer();
+            case 9 -> WorldVfxRenderer.waterLayer(); case 10 -> WorldVfxRenderer.trajectoryLayer();
+            case 11 -> WorldVfxRenderer.trajectoryImpactLayer(); case 12 -> WorldVfxRenderer.jumpLeanLayer();
+            case 13 -> WorldVfxRenderer.bloomLayer(); case 14 -> WorldVfxRenderer.jumpClassicLayer();
+            default -> throw new IllegalArgumentException("Unknown visual texture");
+        };
+        LAYERS[texture]=found;return found;
+    }
 
     public enum Texture { HALO, SOFT, STREAK, RIBBON, PULSE, JUMP, SPLASH, DROPLET, PRISM, WATER, TRAJECTORY, TRAJECTORY_IMPACT, JUMP_LEAN, BLOOM, JUMP_CLASSIC, VOLUME }
 
@@ -67,8 +75,8 @@ public final class WorldGlowRenderer {
     private static RenderLayer layer(String texture) {
         return RenderLayer.of("celeste_fake_lag_glow_" + texture,
             RenderSetup.builder(PIPELINE)
-                .texture("Sampler0", Identifier.of(CelesteClient.MOD_ID,
-                    "textures/visual/fake_lag/" + texture + ".png"),
+                .texture("Sampler0", dev.c4lam.celeste.module.delivery.ModuleResourceNames.asset(Identifier.of(CelesteClient.MOD_ID,
+                    "textures/visual/fake_lag/" + texture + ".png")),
                     () -> RenderSystem.getSamplerCache().get(FilterMode.LINEAR, true))
                 .translucent().build());
     }
@@ -91,7 +99,7 @@ public final class WorldGlowRenderer {
                 Quad quad = quads.get(index);
                 if (quad.texture().ordinal() != texture || ((quad.color() | quad.endColor()) >>> 24) == 0) continue;
                 if (consumer == null) {
-                    lastLayer = LAYERS[texture];
+                    lastLayer = textureLayer(texture);
                     consumer = context.consumers().getBuffer(lastLayer);
                 }
                 vertex(consumer, entry, quad.a(), camera, quad.uStart(), 0F, quad.color());

@@ -163,6 +163,75 @@ def test_cache_returns_copies_and_revalidates_expired_snapshot(runtime, monkeypa
     assert calls == [1]
 
 
+def test_current_release_check_stays_nonblocking_for_database_callers(runtime):
+    catalog = delivery.beta_runtime_catalog(runtime.beta.config, 7)
+    snapshot = {key: value for key, value in catalog.items() if key != "catalog_sha256"}
+    assert cache._LOCK.acquire(blocking=False)
+    try:
+        started = time.monotonic()
+        with pytest.raises(HTTPException) as rejected:
+            cache.require_current(runtime.beta.config, delivery.ARTIFACT_FILENAMES.values(), delivery._safe_file, snapshot)
+        assert rejected.value.status_code == 503
+        assert time.monotonic() - started < 0.5
+    finally:
+        cache._LOCK.release()
+
+
+@pytest.mark.parametrize("changed", [False, True])
+def test_download_release_check_waits_then_revalidates_current_files(runtime, monkeypatch, changed):
+    catalog = delivery.beta_runtime_catalog(runtime.beta.config, 7)
+    snapshot = {key: value for key, value in catalog.items() if key != "catalog_sha256"}
+    actual = cache._LOCK
+    waiting = threading.Event()
+
+    class ObservedLock:
+        def acquire(self, *args, **kwargs):
+            waiting.set()
+            return actual.acquire(*args, **kwargs)
+
+        def release(self):
+            actual.release()
+
+    assert actual.acquire(blocking=False)
+    monkeypatch.setattr(cache, "_LOCK", ObservedLock())
+    with ThreadPoolExecutor(max_workers=1) as worker:
+        pending = worker.submit(cache.require_current, runtime.beta.config,
+            delivery.ARTIFACT_FILENAMES.values(), delivery._safe_file, snapshot, wait=True)
+        try:
+            assert waiting.wait(timeout=5)
+            assert not pending.done()
+            if changed:
+                path = runtime.beta.root / "payload-a.bin"
+                path.write_bytes(b"X" * path.stat().st_size)
+        finally:
+            actual.release()
+        if changed:
+            with pytest.raises(HTTPException) as rejected:
+                pending.result(timeout=5)
+            assert rejected.value.status_code == 503
+        else:
+            assert pending.result(timeout=5) is None
+    assert actual.acquire(blocking=False)
+    actual.release()
+
+
+def test_download_release_check_has_bounded_wait_and_preserves_lock_owner(runtime):
+    catalog = delivery.beta_runtime_catalog(runtime.beta.config, 7)
+    snapshot = {key: value for key, value in catalog.items() if key != "catalog_sha256"}
+    assert cache._LOCK.acquire(blocking=False)
+    try:
+        started = time.monotonic()
+        with pytest.raises(HTTPException) as rejected:
+            cache.require_current(runtime.beta.config, delivery.ARTIFACT_FILENAMES.values(),
+                                  delivery._safe_file, snapshot, wait=True)
+        assert rejected.value.status_code == 503
+        assert rejected.value.headers["Retry-After"] == "1"
+        assert 1.8 <= time.monotonic() - started < 3.5
+        assert cache._LOCK.locked()
+    finally:
+        cache._LOCK.release()
+
+
 def test_completion_rejects_file_change_after_prefetch(runtime, monkeypatch):
     start = begin(runtime)
     original = main.beta_runtime_catalog

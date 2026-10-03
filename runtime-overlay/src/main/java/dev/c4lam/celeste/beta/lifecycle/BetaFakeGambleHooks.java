@@ -2,7 +2,6 @@ package dev.c4lam.celeste.beta.lifecycle;
 
 import dev.c4lam.celeste.compat.FakeGambleAccess;
 import dev.c4lam.celeste.compat.FakeGambleHooks;
-import dev.c4lam.celeste.module.impl.visual.expansion.FakeGambleFeature;
 import dev.celestebeta.host.FakeGambleHookBridge;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.block.BlockState;
@@ -34,26 +33,26 @@ public final class BetaFakeGambleHooks implements FakeGambleHookBridge.Handler, 
         return new BetaFakeGambleHooks();
     }
     public boolean click(int syncId, int slotId, int button, Object actionType, Object player) {
-        return FakeGambleFeature.handleClick(syncId, slotId, button, (SlotActionType) actionType, (PlayerEntity) player);
+        return FakeGambleHooks.handleClick(syncId, slotId, button, (SlotActionType) actionType, (PlayerEntity) player);
     }
     public boolean worldEvent(Object value, int eventId, Object pos, int data) {
         if (eventId != WorldEvents.DISPENSER_FAILS) return false;
         WorldEventHandler handler = (WorldEventHandler) value;
         return FakeGambleHooks.worldEvent(handler, FakeGambleAccess.world(handler), eventId, (BlockPos) pos, data);
     }
-    public boolean pickup(Object item, Object player) { return FakeGambleFeature.tryPickup((ItemEntity) item, (PlayerEntity) player); }
+    public boolean pickup(Object item, Object player) { return FakeGambleHooks.tryPickup((ItemEntity) item, (PlayerEntity) player); }
     public void itemTick(Object value) {
         ItemEntity item = (ItemEntity) value;
         int action = FakeGambleHooks.itemTickAction(item);
         if (action == FakeGambleHooks.SKIP) return;
         if (action == FakeGambleHooks.MERGE_AND_TICK) FakeGambleAccess.tryMerge(item);
-        FakeGambleFeature.clientItemTick(item);
+        FakeGambleHooks.clientItemTick(item);
     }
-    public void afterSync() { FakeGambleFeature.reapplyAfterSync(); }
-    public void screenClosed(Object handler, Object player) { FakeGambleFeature.stashCursor((ScreenHandler) handler, (PlayerEntity) player); }
-    public void noteDispenser(Object hit) { FakeGambleFeature.noteUsedDispenser((BlockHitResult) hit); }
-    public boolean pick(Object client) { return FakeGambleFeature.onPickBlock((MinecraftClient) client); }
-    public void screenRender(Object screen) { FakeGambleFeature.ensureScreenPrizes((Generic3x3ContainerScreen) screen); }
+    public void afterSync() { FakeGambleHooks.reapplyAfterSync(); }
+    public void screenClosed(Object handler, Object player) { FakeGambleHooks.stashCursor((ScreenHandler) handler, (PlayerEntity) player); }
+    public void noteDispenser(Object hit) { FakeGambleHooks.noteUsedDispenser((BlockHitResult) hit); }
+    public boolean pick(Object client) { return FakeGambleHooks.onPickBlock((MinecraftClient) client); }
+    public void screenRender(Object screen) { FakeGambleHooks.ensureScreenPrizes((Generic3x3ContainerScreen) screen); }
     public Object interactBlock(Object player, Object hand, Object hit) {
         return FakeGambleHooks.interactBlock((ClientPlayerEntity) player, (Hand) hand, (BlockHitResult) hit);
     }

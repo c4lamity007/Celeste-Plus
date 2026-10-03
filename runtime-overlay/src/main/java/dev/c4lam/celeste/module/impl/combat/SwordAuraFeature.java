@@ -40,7 +40,7 @@ public final class SwordAuraFeature implements ModuleFeature {
 
     private final FriendManager friends = FriendManager.getInstance();
     private final HumanAim aim = new HumanAim();
-    private final ShieldBreakSupport shieldBreak = new ShieldBreakSupport();
+    private final SwordAuraShieldBreakSupport shieldBreak = new SwordAuraShieldBreakSupport();
     private Rotation silentLook;
     private int tickCounter;
     private int nextTick;
@@ -143,7 +143,7 @@ public final class SwordAuraFeature implements ModuleFeature {
             }
             return;
         }
-        if (ShieldBreakSupport.blockingFrom(client, target)) {
+        if (SwordAuraShieldBreakSupport.blockingFrom(client, target)) {
             submitShieldBreak(context, target);
             return;
         }
@@ -324,7 +324,7 @@ public final class SwordAuraFeature implements ModuleFeature {
         if (halfFovDegrees >= 179.5D) {
             return true;
         }
-        return Targeting.inFov(observer, target, halfFovDegrees);
+        return SwordAuraSharedTargeting.inFov(observer, target, halfFovDegrees);
     }
 
     private static Vec3d aimPoint(PlayerEntity target) {
@@ -485,14 +485,14 @@ public final class SwordAuraFeature implements ModuleFeature {
             || client.interactionManager == null || client.currentScreen != null
             || target.getId() != targetId || !isValidPlayerTarget(client.player, target)
             || !client.player.getMainHandStack().isIn(ItemTags.SWORDS)
-            || !ShieldBreakSupport.blockingFrom(client, target) || !shieldCooldownReady(context)) {
+            || !SwordAuraShieldBreakSupport.blockingFrom(client, target) || !shieldCooldownReady(context)) {
             return false;
         }
         double range = context.slider("Range", 6.0D);
-        int axeSlot = ShieldBreakSupport.axeSlot(client);
+        int axeSlot = SwordAuraShieldBreakSupport.axeSlot(client);
         return client.player.squaredDistanceTo(target) <= range * range
             && isSameAttackTarget(silentPlayerHit(client), target)
-            && axeSlot >= 0 && VanillaCombatReach.canAttack(client, target, axeSlot, range, true);
+            && axeSlot >= 0 && SwordAuraVanillaCombatReach.canAttack(client, target, axeSlot, range, true);
     }
 
     private boolean isValidPlayerTarget(ClientPlayerEntity self, PlayerEntity target) {

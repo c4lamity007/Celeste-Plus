@@ -6,6 +6,9 @@ from contextlib import contextmanager
 from pathlib import Path
 
 
+AUTH_EXPIRY_PRUNE_BATCH = 128
+
+
 SCHEMA = """
 PRAGMA journal_mode=WAL;
 PRAGMA foreign_keys=ON;
@@ -76,6 +79,8 @@ CREATE TABLE IF NOT EXISTS challenges (
     consumed_at INTEGER
 );
 
+CREATE INDEX IF NOT EXISTS idx_challenges_expiry ON challenges(expires_at);
+
 CREATE TABLE IF NOT EXISTS admin_sessions (
     session_id TEXT PRIMARY KEY,
     created_at INTEGER NOT NULL,
@@ -90,6 +95,8 @@ CREATE TABLE IF NOT EXISTS session_nonces (
     expires_at INTEGER NOT NULL,
     PRIMARY KEY(device_id, nonce)
 );
+
+CREATE INDEX IF NOT EXISTS idx_session_nonces_expiry ON session_nonces(expires_at);
 
 CREATE TABLE IF NOT EXISTS installer_ticket_uses (
     jti TEXT PRIMARY KEY,
@@ -193,6 +200,18 @@ CREATE TABLE IF NOT EXISTS active_tokens (
     changed_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_active_tokens_device ON active_tokens(device_id, status, expires_at);
+CREATE INDEX IF NOT EXISTS idx_active_tokens_expiry ON active_tokens(expires_at);
+CREATE TABLE IF NOT EXISTS runtime_sessions (
+    device_id TEXT NOT NULL REFERENCES devices(device_id) ON DELETE CASCADE,
+    process_id INTEGER NOT NULL,
+    session_id TEXT NOT NULL,
+    hardware_sha256 TEXT NOT NULL,
+    last_seen_at INTEGER NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('active','retired')),
+    PRIMARY KEY(device_id,process_id,session_id)
+);
+CREATE INDEX IF NOT EXISTS idx_runtime_sessions_expiry ON runtime_sessions(last_seen_at);
+
 CREATE TABLE IF NOT EXISTS runtime_bindings (
     device_id TEXT PRIMARY KEY REFERENCES devices(device_id) ON DELETE CASCADE,
     hardware_sha256 TEXT NOT NULL,
@@ -223,6 +242,22 @@ class Database:
         with self.connect() as connection:
             connection.executescript(SCHEMA)
             self._migrate(connection)
+
+    @staticmethod
+    def prune_expired_auth(connection: sqlite3.Connection, table: str, now: int) -> int:
+        """Caller owns the transaction; indexed cleanup has a fixed row budget.
+
+        Keep the final accepted second: signed session timestamps have an
+        inclusive freshness boundary. Never remove a replay marker early.
+        Table identifiers come only from this explicit internal allowlist.
+        """
+        if table not in {"challenges", "session_nonces", "active_tokens"}:
+            raise ValueError("unsupported auth expiry table")
+        return connection.execute(
+            f"DELETE FROM {table} WHERE rowid IN ("
+            f"SELECT rowid FROM {table} WHERE expires_at < ? ORDER BY expires_at LIMIT ?)",
+            (now, AUTH_EXPIRY_PRUNE_BATCH),
+        ).rowcount
 
     @staticmethod
     def _migrate(connection: sqlite3.Connection) -> None:

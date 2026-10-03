@@ -4,7 +4,7 @@ import dev.c4lam.celeste.CelesteClient;
 import dev.c4lam.celeste.auth.AuthBootstrap;
 import dev.c4lam.celeste.beta.lifecycle.BetaSubscriptions;
 import dev.c4lam.celeste.config.InterfaceConfig;
-import dev.c4lam.celeste.module.expansion.inventory.SilentInventoryScreen;
+import dev.c4lam.celeste.gui.HudTransparentScreen;
 import dev.c4lam.celeste.render.GuiRenderer;
 import dev.c4lam.celeste.render.RenderUtil;
 import dev.c4lam.celeste.render.font.Fonts;
@@ -49,6 +49,10 @@ public final class CombatOverlayRenderer {
             CombatOverlayRenderer::render, proxy -> HudElementRegistry.addLast(LAYER_ID, proxy));
     }
 
+    public static void clear() {
+        smashGuide=null;lastSmash=null;shownWorld=null;smashVisibility=0;lastFrameNanos=0;
+    }
+
     private static void render(DrawContext context, RenderTickCounter tickCounter) {
         if (!AuthBootstrap.authorized()) {
             return;
@@ -60,7 +64,7 @@ public final class CombatOverlayRenderer {
             smashVisibility = 0;
             lastFrameNanos = 0;
         }
-        if ((client.currentScreen != null && !(client.currentScreen instanceof SilentInventoryScreen))
+        if ((client.currentScreen != null && !(client.currentScreen instanceof HudTransparentScreen))
             || client.options.hudHidden || client.player == null
             || !client.player.isAlive() || client.world == null) {
             lastSmash = null;

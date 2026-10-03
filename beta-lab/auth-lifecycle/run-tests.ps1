@@ -36,7 +36,8 @@ $scenarios = @(
     'heartbeat-response-after-stop', 'heartbeat-security-rejection',
     'startup-needs-online-proof', 'queued-session-expired', 'expiry-without-worker', 'late-response-after-expiry',
     'heartbeat-worker-recovery', 'heartbeat-task-recovery', 'heartbeat-recovery-exhausted',
-    'heartbeat-recovery-stop-race', 'heartbeat-recovery-expired', 'heartbeat-recovery-waits-for-termination'
+    'heartbeat-recovery-stop-race', 'heartbeat-recovery-expired', 'heartbeat-recovery-waits-for-termination',
+    'supervisor-module-expiry-failure'
 )
 if (-not $SkipTimedHeartbeat) { $scenarios += 'heartbeat-scheduled' }
 foreach ($scenario in $scenarios) {

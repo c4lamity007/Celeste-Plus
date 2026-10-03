@@ -22,6 +22,7 @@ final class AuthServiceClient implements AutoCloseable {
     static volatile String receivedBetaCatalog;
     static volatile long validityNanos = java.util.concurrent.TimeUnit.SECONDS.toNanos(90);
 
+    dev.c4lam.celeste.beta.delivery.ModuleDeliveryClient moduleDelivery(dev.c4lam.celeste.beta.delivery.ModuleDeliveryClient.SessionSource source) { return null; }
     long sessionValidityNanos(String sessionToken) { return validityNanos; }
 
     record Authenticated(long uid, String grant) { }

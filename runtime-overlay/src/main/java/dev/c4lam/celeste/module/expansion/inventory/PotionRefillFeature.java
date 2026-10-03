@@ -17,13 +17,13 @@ import net.minecraft.screen.slot.SlotActionType;
 import java.util.concurrent.ThreadLocalRandom;
 
 /** Splash-potion hotbar refill: inventory SWAP, one action per tick. */
-final class PotionRefillFeature implements ModuleFeature {
+public final class PotionRefillFeature implements ModuleFeature {
     private static final int PRIORITY = 120;
     private int lastActionAge = Integer.MIN_VALUE / 2;
     private int hoverSlotId = -1;
     private boolean hoverClicked;
     private long nextHoverAtMs;
-    private InventorySupport.ClickIntent intent;
+    private PotionRefillInventorySupport.ClickIntent intent;
     private int destHotbar = -1;
     private PotionKind expectedKind;
     private InventoryScreen intentScreen;
@@ -45,7 +45,7 @@ final class PotionRefillFeature implements ModuleFeature {
         expectedKind = null;
         intentScreen = null;
         MinecraftClient client = context.client();
-        if (!InventorySupport.visibleInventoryAvailable(client)
+        if (!PotionRefillInventorySupport.visibleInventoryAvailable(client)
             || !client.player.currentScreenHandler.getCursorStack().isEmpty()) {
             resetHover();
             return;
@@ -62,7 +62,7 @@ final class PotionRefillFeature implements ModuleFeature {
 
     @Override
     public void onActionTick(ModuleContext context) {
-        InventorySupport.ClickIntent selected = intent;
+        PotionRefillInventorySupport.ClickIntent selected = intent;
         int selectedDest = destHotbar;
         PotionKind selectedKind = expectedKind;
         InventoryScreen selectedScreen = intentScreen;
@@ -70,14 +70,14 @@ final class PotionRefillFeature implements ModuleFeature {
         boolean hover = intentHover;
         ActionScheduler.getInstance().submit(this, PRIORITY, client -> {
             if (!context.module().enabled()
-                || client.currentScreen != selectedScreen || !InventorySupport.visibleInventoryAvailable(client)
+                || client.currentScreen != selectedScreen || !PotionRefillInventorySupport.visibleInventoryAvailable(client)
                 || context.mode("Mode", "Automatic").equalsIgnoreCase("Hover") != hover
                 || expectedPotion(context, selectedDest) != selectedKind
-                || hover && (InventorySupport.focusedSlot(client) == null
-                    || InventorySupport.focusedSlot(client).id != selected.slotId())
+                || hover && (PotionRefillInventorySupport.focusedSlot(client) == null
+                    || PotionRefillInventorySupport.focusedSlot(client).id != selected.slotId())
                 || !delayReady(context, client, hover)
                 || !validSwap(client, selected.slotId(), selectedDest, selectedKind)) return;
-            if (InventorySupport.executeInventoryClick(client, selected, selectedDest, SlotActionType.SWAP)) {
+            if (PotionRefillInventorySupport.executeInventoryClick(client, selected, selectedDest, SlotActionType.SWAP)) {
                 lastActionAge = client.player.age;
                 if (hover) {
                     hoverClicked = true;
@@ -100,7 +100,7 @@ final class PotionRefillFeature implements ModuleFeature {
     }
 
     private void planHover(ModuleContext context, MinecraftClient client) {
-        Slot focused = InventorySupport.focusedSlot(client);
+        Slot focused = PotionRefillInventorySupport.focusedSlot(client);
         PotionKind kind = focused == null ? null : potionKind(focused.getStack());
         if (focused == null || kind == null || !playerInventorySlot(client, focused)
             || sourceAlreadyAssigned(context, focused.getIndex(), kind)) {
@@ -120,7 +120,7 @@ final class PotionRefillFeature implements ModuleFeature {
 
     private void capture(MinecraftClient client, Slot source, int dest, PotionKind kind, boolean hover) {
         PotionKind expected = kind;
-        intent = InventorySupport.captureClick(client, source.id,
+        intent = PotionRefillInventorySupport.captureClick(client, source.id,
             stack -> potionKind(stack) == expected);
         destHotbar = dest;
         expectedKind = kind;
@@ -170,7 +170,7 @@ final class PotionRefillFeature implements ModuleFeature {
     }
 
     private static boolean validSwap(MinecraftClient client, int sourceSlotId, int destHotbar, PotionKind kind) {
-        if (!InventorySupport.playerInventoryAvailable(client) || destHotbar < 0 || destHotbar > 8
+        if (!PotionRefillInventorySupport.playerInventoryAvailable(client) || destHotbar < 0 || destHotbar > 8
             || sourceSlotId < 0 || sourceSlotId >= client.player.playerScreenHandler.slots.size()) {
             return false;
         }

@@ -58,6 +58,7 @@ public final class ArtifactIntegrityTest {
             case "disk-failure" -> failedDiskPinning();
             case "memory-failure" -> failedMemoryPinning();
             case "source-race" -> sourceSelectionRace();
+            case "allocation" -> allocationBudget();
             default -> throw new IllegalArgumentException("Unknown isolated test mode: " + mode);
         }
         System.out.println("PASS: ArtifactIntegrity " + mode + " (" + assertions + " assertions)");
@@ -180,7 +181,7 @@ public final class ArtifactIntegrityTest {
     private static void releaseSizedInputs() throws Exception {
         // Synthetic inputs reproduce measured release counts/expanded byte totals
         // without opening or expanding the real release archives. Shared source
-        // arrays keep fixture allocation small; adapter snapshots are still real.
+        // arrays keep fixture allocation small; the full fresh hash is still real.
         Map<String, byte[]> first = sizedPart("first/", 22_336, 42_793_344);
         Map<String, byte[]> second = sizedPart("second/", 22_435, 34_694_388);
         check(first.size() + second.size() == 44_771, "Release-sized synthetic entry count");
@@ -214,8 +215,42 @@ public final class ArtifactIntegrityTest {
             // The lifecycle can release after completing its snapshot visit.
             Arrays.fill(retained, (byte) 0);
         });
-        check(copied.equals(expected), "Adapter owns stable copies for sorted hashing after source release");
+        check(copied.equals(expected), "Sorted hashing finishes inside the final callback before source release");
         check(!memoryDigest(first, second).equals(expected), "Next digest recomputes current retained bytes, with no cached digest");
+        check(ArtifactIntegrity.digestVerifiedMemory(visitor -> {
+            visitor.accept(first); visitor.accept(second); first.clear(); second.clear();
+        }).length() == 64, "Source may discard both maps immediately after final callback");
+        expect(IOException.class, () -> ArtifactIntegrity.digestVerifiedMemory(visitor -> {
+            visitor.accept(Map.of()); visitor.accept(Map.of());
+            throw new IOException("source revoked after final callback");
+        }), "Source failure after a completed hash still fails closed");
+        expect(IOException.class, () -> ArtifactIntegrity.digestVerifiedMemory(visitor -> {
+            Thread other = new Thread(() -> {
+                try { visitor.accept(Map.of()); } catch (IOException deliberatelySwallowed) { }
+            });
+            other.start();
+            try { other.join(); }
+            catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); throw new IOException(interrupted); }
+        }), "Cross-thread callback cannot escape the synchronous source lifetime");
+    }
+
+    /** Fresh full-content hashing should allocate metadata, never another resident-sized copy. */
+    private static void allocationBudget() throws Exception {
+        Map<String, byte[]> first = sizedPart("first/", 256, 16 * 1024 * 1024);
+        Map<String, byte[]> second = sizedPart("second/", 256, 16 * 1024 * 1024);
+        String expected = memoryDigest(first, second);
+        var bean = java.lang.management.ManagementFactory.getThreadMXBean();
+        if (!(bean instanceof com.sun.management.ThreadMXBean allocated) || !allocated.isThreadAllocatedMemorySupported())
+            throw new AssertionError("Fixture requires allocation accounting");
+        allocated.setThreadAllocatedMemoryEnabled(true);
+        for (int round = 0; round < 3; round++) memoryDigest(first, second);
+        long before = allocated.getCurrentThreadAllocatedBytes(), started = System.nanoTime();
+        for (int round = 0; round < 8; round++)
+            check(memoryDigest(first, second).equals(expected), "Each measured digest recomputes identical bytes");
+        long bytes = (allocated.getCurrentThreadAllocatedBytes() - before) / 8;
+        long micros = (System.nanoTime() - started) / 8_000;
+        System.out.println("Fresh 32 MiB integrity hash: allocated=" + bytes + " bytes, mean=" + micros + " us");
+        check(bytes < 4 * 1024 * 1024, "Per-request integrity allocation must stay below one eighth of resident bytes");
     }
 
     private static void oneShotLifecycle() throws Exception {

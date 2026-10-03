@@ -1,5 +1,6 @@
 package dev.c4lam.celeste.module.impl.visual.expansion;
 
+import dev.c4lam.celeste.render.geometry.WorldLineStrip;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Vec3d;
 
@@ -47,23 +48,23 @@ final class VisualEffects {
         return List.copyOf(points);
     }
 
-    static void line(List<VisualExpansionRenderer.WorldLineStrip> output, List<Vec3d> points,
+    static void line(List<WorldLineStrip> output, List<Vec3d> points,
                      int color, double opacity, float width, double glow) {
         if (points.size() < 2 || opacity <= 0.002D) return;
         float alpha = (float) MathHelper.clamp(opacity, 0.0D, 1.0D);
         List<Vec3d> frozen = List.copyOf(points);
         if (glow > 0.01D) {
-            output.add(new VisualExpansionRenderer.WorldLineStrip(frozen,
-                VisualExpansionRenderer.argb((float) (alpha * glow * 0.10D), color), width + 5.5F));
-            output.add(new VisualExpansionRenderer.WorldLineStrip(frozen,
-                VisualExpansionRenderer.argb((float) (alpha * glow * 0.22D), color), width + 2.4F));
+            output.add(new WorldLineStrip(frozen,
+                dev.c4lam.celeste.render.geometry.WorldBox.argb((float) (alpha * glow * 0.10D), color), width + 5.5F));
+            output.add(new WorldLineStrip(frozen,
+                dev.c4lam.celeste.render.geometry.WorldBox.argb((float) (alpha * glow * 0.22D), color), width + 2.4F));
         }
-        output.add(new VisualExpansionRenderer.WorldLineStrip(frozen,
-            VisualExpansionRenderer.argb(alpha, color), width));
+        output.add(new WorldLineStrip(frozen,
+            dev.c4lam.celeste.render.geometry.WorldBox.argb(alpha, color), width));
     }
 
     /** Color/alpha vary across short strips so tails fade without renderer state changes. */
-    static void trail(List<VisualExpansionRenderer.WorldLineStrip> output, List<Vec3d> points,
+    static void trail(List<WorldLineStrip> output, List<Vec3d> points,
                       String theme, int custom, double time, double opacity,
                       double startAlpha, double endAlpha, float width, double glow, int bands) {
         if (points.size() < 2) return;

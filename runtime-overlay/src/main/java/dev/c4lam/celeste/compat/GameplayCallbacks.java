@@ -1,8 +1,9 @@
 package dev.c4lam.celeste.compat;
 
 import dev.c4lam.celeste.hud.ServerTickRateTracker;
-import dev.c4lam.celeste.module.expansion.sword.SwordAttackCoordinator;
-import dev.c4lam.celeste.module.impl.combat.AuraServerState;
+import dev.c4lam.celeste.action.SwordAttackCoordinator;
+import dev.c4lam.celeste.module.delivery.ModuleHooks;
+import dev.c4lam.celeste.action.ServerWorldFacts;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.entity.Entity;
 import net.minecraft.item.ItemStack;
@@ -17,26 +18,26 @@ public final class GameplayCallbacks {
         ServerTickRateTracker.getInstance().onTimeUpdate(MinecraftClient.getInstance().world, packet.time());
     }
     public static void block(BlockUpdateS2CPacket packet) {
-        AuraServerState.observeBlock(MinecraftClient.getInstance().world, packet.getPos(), packet.getState());
-        dev.c4lam.celeste.module.impl.visual.SelectedBlockEspFeature.blockChanged(
-            MinecraftClient.getInstance().world, packet.getPos());
-        dev.c4lam.celeste.module.impl.visual.SuspiciousChunkFinderFeature.blockChanged(
-            MinecraftClient.getInstance().world, packet.getPos());
+        ServerWorldFacts.observeBlock(MinecraftClient.getInstance().world, packet.getPos(), packet.getState());
+        changed(packet.getPos());
     }
     public static void blocks(ChunkDeltaUpdateS2CPacket packet) {
         packet.visitUpdates((pos, state) -> {
-            AuraServerState.observeBlock(MinecraftClient.getInstance().world, pos, state);
-            dev.c4lam.celeste.module.impl.visual.SelectedBlockEspFeature.blockChanged(
-                MinecraftClient.getInstance().world, pos);
-            dev.c4lam.celeste.module.impl.visual.SuspiciousChunkFinderFeature.blockChanged(
-                MinecraftClient.getInstance().world, pos);
+            ServerWorldFacts.observeBlock(MinecraftClient.getInstance().world, pos, state);
+            changed(pos);
         });
     }
+    private static void changed(net.minecraft.util.math.BlockPos pos) {
+        var world = MinecraftClient.getInstance().world;
+        ModuleHooks.invoke("block_esp", "world.block_changed", null, world, pos);
+        ModuleHooks.invoke("storage_esp", "world.block_changed", null, world, pos);
+        ModuleHooks.invoke("suspicious_chunk_finder", "world.block_changed", null, world, pos);
+    }
     public static void spawn(EntitySpawnS2CPacket packet) {
-        AuraServerState.observeEntity(MinecraftClient.getInstance().world, packet.getEntityId(), true);
+        ServerWorldFacts.observeEntity(MinecraftClient.getInstance().world, packet.getEntityId(), true);
     }
     public static void destroy(EntitiesDestroyS2CPacket packet) {
-        for (int id : packet.getEntityIds()) AuraServerState.observeEntity(MinecraftClient.getInstance().world, id, false);
+        for (int id : packet.getEntityIds()) ServerWorldFacts.observeEntity(MinecraftClient.getInstance().world, id, false);
     }
     public static void entityStatus(EntityStatusS2CPacket packet) {
         TotemPopTracker.observe(packet);
@@ -63,5 +64,6 @@ public final class GameplayCallbacks {
     }
     public static void entityAttack(Entity target) {
         SwordAttackCoordinator.onVanillaEntityAttack(MinecraftClient.getInstance(), target);
+        ModuleHooks.invoke("player_models", "model.attack", null, MinecraftClient.getInstance(), target);
     }
 }

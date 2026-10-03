@@ -2,8 +2,6 @@ package dev.c4lam.celeste.auth;
 
 import dev.c4lam.celeste.CelesteClient;
 import dev.c4lam.celeste.beta.memory.NativeResourceBudget;
-import java.io.ByteArrayOutputStream;
-import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URISyntaxException;
@@ -12,7 +10,6 @@ import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
@@ -24,7 +21,9 @@ import java.util.jar.JarFile;
 
 public final class ArtifactIntegrity {
     private static final String MUTABLE_AUTH_RESOURCE = "META-INF/.r/4d7a9c2e";
-    private static final int MEMORY_PARTS = 2;
+    // Resident host transport still uses two signed shards. Independent module identities
+    // are pinned by its protected catalog and verified separately by the module loader.
+    private static final int RESIDENT_PARTS = 2;
     // Release-sized bounds, deliberately larger than the small feasibility-loader defaults.
     private static final int MAX_MEMORY_ENTRIES = 65_536;
     private static final int MAX_MEMORY_ENTRY_BYTES = 8 * 1024 * 1024;
@@ -35,12 +34,13 @@ public final class ArtifactIntegrity {
 
     /**
      * A trusted lifecycle-owned source of the EXACT retained bytes used to load
-     * the two payload parts. The lifecycle must verify both parts against trusted
+     * the fixed resident runtime shards. The lifecycle must verify both against trusted
      * release metadata before installation. This interface does not authenticate
      * a download, authorize a session, or accept a precomputed artifact digest.
      *
      * Visit both complete per-part maps synchronously under the source's lifetime
-     * lock. Names must be original JAR entry names, including protected metadata;
+     * protection: close/wipe must wait until the complete visit returns. Names
+     * must be original JAR entry names, including protected metadata;
      * arrays are borrowed and must remain unchanged for the entire visit. The
      * source must throw IOException after close/revocation, even if its maps were
      * cleared. Do not retain the visitor or expose an independently mutable copy
@@ -113,15 +113,13 @@ public final class ArtifactIntegrity {
     /** Recomputes the existing protected-entry digest from verified retained bytes. */
     public static String digestVerifiedMemory(VerifiedMemorySource source) throws IOException {
         Objects.requireNonNull(source, "source");
-        try (MemorySnapshot snapshot = new MemorySnapshot()) {
+        try (MemorySnapshot snapshot = new MemorySnapshot(MessageDigest.getInstance("SHA-256"))) {
             try {
                 source.visitParts(snapshot::accept);
             } finally {
                 snapshot.finishVisit();
             }
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            snapshot.updateDigest(digest);
-            return Crypto.hex(digest.digest());
+            return snapshot.result();
         } catch (NoSuchAlgorithmException exception) {
             throw new IOException("Could not verify the client artifact", exception);
         }
@@ -130,10 +128,13 @@ public final class ArtifactIntegrity {
     private record MemoryEntry(String name, byte[] content) {
     }
 
-    /** Private bounded snapshots prevent sorting from racing source release. */
+    /** Hash borrowed bytes before the final synchronous callback returns its lifetime borrow. */
     private static final class MemorySnapshot implements AutoCloseable {
         private final List<MemoryEntry> entries = new ArrayList<>();
         private final Set<String> names = new HashSet<>();
+        private final MessageDigest digest;
+        private final byte[] framing = new byte[8];
+        private final Thread owner = Thread.currentThread();
         private int parts;
         private int entryCount;
         private long totalBytes;
@@ -141,24 +142,36 @@ public final class ArtifactIntegrity {
         private NativeResourceBudget nativeBudget = NativeResourceBudget.empty();
         private boolean indexSeen;
         private IOException failure;
+        private String result;
+
+        private MemorySnapshot(MessageDigest digest) { this.digest = digest; }
 
         private synchronized void accept(Map<String, byte[]> part) throws IOException {
             if (!visiting) throw new IOException("Retained artifact visit is already finished");
             if (failure != null) throw failure;
             try {
+                if (Thread.currentThread() != owner) throw new IOException("Retained artifact visit must be synchronous");
                 collectPart(part);
+                if (parts == RESIDENT_PARTS) {
+                    updateDigest(digest);
+                    result = Crypto.hex(digest.digest());
+                }
             } catch (IOException exception) {
                 failure = exception;
                 throw exception;
             } catch (RuntimeException exception) {
                 failure = new IOException("Could not snapshot the retained artifact", exception);
                 throw failure;
+            } finally {
+                // Only metadata survives a successful complete visit. Neither
+                // hashing nor raw byte references escape the source lifetime.
+                if (parts >= RESIDENT_PARTS || failure != null) entries.clear();
             }
         }
 
         private void collectPart(Map<String, byte[]> part) throws IOException {
-            if (part == null || ++parts > MEMORY_PARTS) {
-                throw new IOException("Expected exactly two retained artifact parts");
+            if (part == null || ++parts > RESIDENT_PARTS) {
+                throw new IOException("Expected exactly two retained resident parts");
             }
             // Packaging pins this declaration to part A. Inspect it before native
             // snapshots are allocated, while retaining the original one-visit ABI.
@@ -195,29 +208,35 @@ public final class ArtifactIntegrity {
                 if (!names.add(name)) {
                     throw new IOException("Duplicate protected payload entry: " + name);
                 }
-                entries.add(new MemoryEntry(name, content.clone()));
+                entries.add(new MemoryEntry(name, content));
             }
         }
 
         private synchronized void finishVisit() {
             visiting = false;
+            entries.clear();
+        }
+
+        private synchronized String result() throws IOException {
+            if (failure != null) throw failure;
+            if (parts != RESIDENT_PARTS || result == null) throw new IOException("Expected exactly two retained resident parts");
+            return result;
         }
 
         private synchronized void updateDigest(MessageDigest digest) throws IOException {
             if (failure != null) throw failure;
-            if (parts != MEMORY_PARTS) throw new IOException("Expected exactly two retained artifact parts");
+            if (parts != RESIDENT_PARTS) throw new IOException("Expected exactly two retained resident parts");
             if (!indexSeen) nativeBudget.verifyIndex(null);
             nativeBudget.requireComplete(names);
             entries.sort(Comparator.comparing(MemoryEntry::name));
             for (MemoryEntry entry : entries) {
-                update(digest, entry.name(), entry.content());
+                update(digest, entry.name(), entry.content(), framing);
             }
         }
 
         @Override
         public synchronized void close() {
             visiting = false;
-            for (MemoryEntry entry : entries) Arrays.fill(entry.content(), (byte) 0);
             entries.clear();
             names.clear();
         }
@@ -285,14 +304,18 @@ public final class ArtifactIntegrity {
     }
 
     private static void update(MessageDigest digest, String name, byte[] content) throws IOException {
-        ByteArrayOutputStream framing = new ByteArrayOutputStream(name.length() + 16);
-        try (DataOutputStream output = new DataOutputStream(framing)) {
-            byte[] encodedName = name.getBytes(java.nio.charset.StandardCharsets.UTF_8);
-            output.writeInt(encodedName.length);
-            output.write(encodedName);
-            output.writeLong(content.length);
-        }
-        digest.update(framing.toByteArray());
+        update(digest, name, content, new byte[8]);
+    }
+
+    private static void update(MessageDigest digest, String name, byte[] content, byte[] framing) {
+        byte[] encodedName = name.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        long length = encodedName.length;
+        for (int index = 3; index >= 0; index--, length >>>= 8) framing[index] = (byte) length;
+        digest.update(framing, 0, 4);
+        digest.update(encodedName);
+        length = content.length;
+        for (int index = 7; index >= 0; index--, length >>>= 8) framing[index] = (byte) length;
+        digest.update(framing, 0, 8);
         digest.update(content);
     }
 }

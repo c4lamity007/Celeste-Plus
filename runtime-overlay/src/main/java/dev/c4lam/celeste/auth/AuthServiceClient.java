@@ -57,12 +57,13 @@ final class AuthServiceClient implements AutoCloseable {
     private static final int ARTIFACT_RESPONSE_LIMIT = 128 * 1_048_576;
     private final AuthConfig config;
     private final HttpClient http;
+    private final PinnedTls.Owner transportOwner;
     private final PublicKey serverKey;
     private final GameIdentity identity;
     private final String expectedBetaCatalog;
     private volatile DpopProofSigner proofSigner;
     private InstallCredential boundCredential;
-    private boolean closed;
+    private volatile boolean closed;
     private volatile SessionBinding sessionBinding;
     record SessionBinding(String hardware, String hwid, long pid, String session) {
         SessionBinding {
@@ -116,11 +117,51 @@ final class AuthServiceClient implements AutoCloseable {
         this.expectedBetaCatalog = expectedBetaCatalog;
         this.serverKey = Crypto.ed25519Public(config.serverKey());
         this.http = http;
+        this.transportOwner = http == null ? PinnedTls.acquire(config.baseUri(), config.serverKey(), product()) : null;
+    }
+
+    /** The catalog pin is an integrity-covered resident resource, never a server-selected fallback. */
+    dev.c4lam.celeste.beta.delivery.ModuleDeliveryClient moduleDelivery(
+            dev.c4lam.celeste.beta.delivery.ModuleDeliveryClient.SessionSource sessions) throws Exception {
+        byte[] pin;
+        try (java.io.InputStream input=AuthServiceClient.class.getResourceAsStream("/META-INF/celeste-beta/module-executables.json")) {
+            if(input==null)return null; // Legacy release artifact; modular packaging requires the resource.
+            pin=input.readNBytes(512*1024+1);
+        }
+        if(expectedBetaCatalog==null || !"celeste_plus".equals(product()) || pin.length>512*1024)
+            throw new GeneralSecurityException("Invalid modular runtime trust context");
+        DpopProofSigner signer=proofSigner;
+        if(signer==null || signer.isDestroyed())throw new GeneralSecurityException("Installation proof unavailable");
+        try {
+            return new dev.c4lam.celeste.beta.delivery.ModuleDeliveryClient(config.baseUri(),config.serverKey(),signer,sessions,
+                config.releaseDigest(),expectedBetaCatalog,pin,
+                java.nio.file.Path.of(System.getProperty("user.home"), ".celeste-plus", "module-cache"),this::moduleRequestEvidence);
+        } finally { Arrays.fill(pin,(byte)0); }
+    }
+
+    /** Every module request measures the current identity and binds both enrolled keys. */
+    private dev.c4lam.celeste.beta.delivery.ModuleDeliveryClient.RequestEvidence moduleRequestEvidence()
+            throws GeneralSecurityException, IOException {
+        InstallCredential credential=boundCredential;
+        if(closed || credential==null || credential.isDestroyed())
+            throw new GeneralSecurityException("Installation credentials are unavailable");
+        if(!System.getProperty("os.name","").toLowerCase(java.util.Locale.ROOT).contains("windows"))
+            throw new GeneralSecurityException("Independent modules require the reviewed Windows hardware identity");
+        try {
+            HardwareIdentityV2.ModuleHardware measured=HardwareIdentityV2.freshWindowsEvidence();
+            HardwareFingerprint hardware=measured.fingerprint();
+            return dev.c4lam.celeste.beta.delivery.ModuleDeliveryClient.evidence(hardware.system(),hardware.board(),
+                hardware.processor(),hardware.monitors(),measured.hwid(),ArtifactIntegrity.digest(),
+                credential::signToken);
+        } catch (RuntimeException invalid) {
+            throw new GeneralSecurityException("Current module hardware identity is unavailable",invalid);
+        }
     }
 
     private HttpClient transport() throws IOException, InterruptedException {
+        if (closed) throw new IOException("Authentication transport is closed");
         if (http != null) return http; // Package-local deterministic protocol fixture only.
-        return PinnedTls.client(config.baseUri(), config.serverKey(), product());
+        return transportOwner.client();
     }
 
     Enrollment enroll(String licenseKey, HardwareFingerprint hardware) throws Exception {
@@ -778,6 +819,7 @@ final class AuthServiceClient implements AutoCloseable {
         closed = true;
         if (proofSigner != null) proofSigner.close();
         proofSigner = null; boundCredential = null;
+        if (transportOwner != null) transportOwner.close();
     }
 
     private String requestProof(String method, URI endpoint, String token) throws IOException {

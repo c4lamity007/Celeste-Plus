@@ -11,12 +11,12 @@ import net.minecraft.screen.slot.Slot;
 import net.minecraft.screen.slot.SlotActionType;
 
 /** Volt/Cyemer hover-to-equip behavior with stable-hover and exact-slot revalidation. */
-final class HoverTotemFeature implements ModuleFeature {
+public final class HoverTotemFeature implements ModuleFeature {
     private static final int PRIORITY = 210;
     private int hoveredSlotId = -1;
     private int hoverTicks;
     private Screen hoveredScreen;
-    private InventorySupport.ClickIntent intent;
+    private HoverTotemInventorySupport.ClickIntent intent;
     private SlotActionType actionType;
     private int button;
 
@@ -30,11 +30,11 @@ final class HoverTotemFeature implements ModuleFeature {
         intent = null;
         var client = context.client();
         if (!context.module().enabled() || legitAutoTotemEnabled()
-            || !InventorySupport.visibleInventoryAvailable(client)) {
+            || !HoverTotemInventorySupport.visibleInventoryAvailable(client)) {
             resetHover();
             return;
         }
-        Slot focused = InventorySupport.focusedSlot(client);
+        Slot focused = HoverTotemInventorySupport.focusedSlot(client);
         if (focused == null || focused.inventory != client.player.getInventory()
             || focused.getIndex() < 0 || focused.getIndex() > 35
             || !focused.getStack().isOf(Items.TOTEM_OF_UNDYING)) {
@@ -63,12 +63,12 @@ final class HoverTotemFeature implements ModuleFeature {
         } else {
             return;
         }
-        intent = InventorySupport.captureClick(client, focused.id, stack -> stack.isOf(Items.TOTEM_OF_UNDYING));
+        intent = HoverTotemInventorySupport.captureClick(client, focused.id, stack -> stack.isOf(Items.TOTEM_OF_UNDYING));
     }
 
     @Override
     public void onActionTick(ModuleContext context) {
-        InventorySupport.ClickIntent selected = intent;
+        HoverTotemInventorySupport.ClickIntent selected = intent;
         SlotActionType selectedType = actionType;
         int selectedButton = button;
         Screen selectedScreen = hoveredScreen;
@@ -77,8 +77,8 @@ final class HoverTotemFeature implements ModuleFeature {
         ActionScheduler.getInstance().submit(this, PRIORITY, client -> {
             if (!context.module().enabled() || legitAutoTotemEnabled()
                 || client.currentScreen != selectedScreen
-                || !InventorySupport.visibleInventoryAvailable(client)) return;
-            Slot focused = InventorySupport.focusedSlot(client);
+                || !HoverTotemInventorySupport.visibleInventoryAvailable(client)) return;
+            Slot focused = HoverTotemInventorySupport.focusedSlot(client);
             if (focused == null || focused.id != selected.slotId()
                 || focused.inventory != client.player.getInventory()
                 || focused.getIndex() < 0 || focused.getIndex() > 35) return;
@@ -87,7 +87,7 @@ final class HoverTotemFeature implements ModuleFeature {
             if (selectedButton == 40 && !needsOffhand(context)) return;
             if (selectedButton != 40 && (selectedButton != reserveButton(context)
                 || needsOffhand(context) || !reserveNeeded(client, focused, selectedButton))) return;
-            if (InventorySupport.executeInventoryClick(client, selected, selectedButton, selectedType)) {
+            if (HoverTotemInventorySupport.executeInventoryClick(client, selected, selectedButton, selectedType)) {
                 resetHover();
             }
         });

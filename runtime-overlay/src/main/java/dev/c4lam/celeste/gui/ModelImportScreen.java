@@ -1,7 +1,6 @@
 package dev.c4lam.celeste.gui;
 
 import dev.c4lam.celeste.config.InterfaceConfig;
-import dev.c4lam.celeste.module.impl.visual.PlayerModelsFeature;
 import dev.c4lam.celeste.render.GuiRenderer;
 import dev.c4lam.celeste.render.RenderUtil;
 import dev.c4lam.celeste.render.font.Font;
@@ -92,7 +91,7 @@ public final class ModelImportScreen extends Screen {
 
     private void refresh() {
         if (importButton == null || pathField == null) return;
-        boolean importing = PlayerModelsFeature.importing();
+        boolean importing = PlayerModelSelection.importing();
         importButton.active = !importing && !pathField.getText().isBlank();
         importButton.setMessage(Text.literal(importing ? "Loading model..." : "Load model"));
         cancelButton.setMessage(Text.literal(submitted || importing ? "Back" : "Cancel"));
@@ -100,7 +99,7 @@ public final class ModelImportScreen extends Screen {
     }
 
     private void submit() {
-        if (pathField == null || PlayerModelsFeature.importing()) return;
+        if (pathField == null || PlayerModelSelection.importing()) return;
         String path = pathField.getText().strip();
         if (path.length() >= 2 && path.startsWith("\"") && path.endsWith("\"")) {
             path = path.substring(1, path.length() - 1).strip();
@@ -125,7 +124,7 @@ public final class ModelImportScreen extends Screen {
         validationMessage = null;
         submitted = true;
         // Background parsing and replacement/retirement remain owned by the feature.
-        PlayerModelsFeature.importModel(path);
+        PlayerModelSelection.importModel(path);
         refresh();
     }
 
@@ -148,7 +147,7 @@ public final class ModelImportScreen extends Screen {
         drawSecondaryGlass(matrices, px(372), py(20), 42 * uiScale, 18 * uiScale, 5 * uiScale, false);
         Fonts.semibold().drawCenteredText(matrices, "GLB", px(393), py(24), 7.4f * uiScale, ACCENT);
         label(matrices, "Paste a local file path", 24, 69, 7.3f, DIM, false);
-        drawStatus(matrices, validationMessage != null ? validationMessage : PlayerModelsFeature.status(),
+        drawStatus(matrices, validationMessage != null ? validationMessage : PlayerModelSelection.status(),
             validationMessage != null ? ERROR : MUTED);
         super.render(context, mouseX, mouseY, delta);
         GuiCursors.draw(matrices, mouseX, mouseY,
