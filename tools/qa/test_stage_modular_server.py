@@ -346,3 +346,10 @@ def test_rollback_dockerignore_is_not_allowed_as_base_input(tmp_path):
     with pytest.raises(ValueError, match="Hidden deployment input refused"):
         stage.files_from_inventory(tmp_path, inventory, required=())
     assert stage.files_from_inventory(tmp_path, inventory, required=(), rollback_evidence=True) == {name: data}
+
+
+def test_backend_inventory_covers_committed_incident_handler():
+    files = stage.backend(ROOT)
+    assert files["app/security_incidents.py"] == (ROOT / "auth-service/app/security_incidents.py").read_bytes()
+    assert {Path(name).name for name in files if name.endswith(".py")} == {
+        path.name for path in (ROOT / "auth-service/app").glob("*.py")}

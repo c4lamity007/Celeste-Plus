@@ -32,7 +32,7 @@ HEADER = {"alg": "EdDSA", "kid": "celeste-release-1", "typ": "CST"}
 APP_FILES = tuple("""__init__.py api_responses.py artifact_envelope.py artifact_transfer.py auth_errors.py
 auth_lifecycle.py beta_delivery.py config.py database.py dpop.py grant_routes.py license_operator.py
 license_reset.py main.py module_delivery.py native_download.py native_manifest.py products.py
-release_assignment.py release_cache.py request_limits.py secret_files.py security.py token_revocation.py
+release_assignment.py release_cache.py request_limits.py secret_files.py security.py security_incidents.py token_revocation.py
 transport_policy.py static/admin.css templates/cloud_configs.html templates/dashboard.html
 templates/flags.html templates/license_detail.html templates/login.html templates/users.html""".split())
 require, sha, parsed, read_file = legacy.require, legacy.sha, legacy.parsed, legacy.read_file
