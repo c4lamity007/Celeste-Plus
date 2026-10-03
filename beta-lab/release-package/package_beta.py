@@ -61,8 +61,13 @@ def validate_media_support(media: dict[str, bytes]) -> None:
                 f"Windows media must use x64 DLLs: {name}")
 
 
-def read_zip(data: bytes, label: str, native_approval=None, artifact="payload") -> dict[str, bytes]:
-    require(len(data) <= MAX_PART, f"{label}: compressed input exceeds 64 MiB")
+def read_zip(data: bytes, label: str, native_approval=None, artifact="payload", *,
+             combined_input: bool = False) -> dict[str, bytes]:
+    # Only the build source combines both future transport parts. All ordinary
+    # payload, bootstrap and nested-support reads retain the per-part limit.
+    compressed_limit = MAX_TOTAL if combined_input else MAX_PART
+    require(len(data) <= compressed_limit,
+            f"{label}: compressed input exceeds {compressed_limit // (1024 * 1024)} MiB")
     result: dict[str, bytes] = {}
     total = 0
     with zipfile.ZipFile(io.BytesIO(data)) as archive:
@@ -269,8 +274,9 @@ def descriptor(base: str, key: str, release: str, digest: str, version: str, cod
 def prepare(args: argparse.Namespace) -> None:
     native_approval = native_auth_resources.from_args(args, args.release_id)
     source_path = args.input.resolve(strict=True)
-    source_bytes = source_path.read_bytes()
-    source = read_zip(source_bytes, "client input", native_approval)
+    with source_path.open("rb") as stream:
+        source_bytes = stream.read(MAX_TOTAL + 1)
+    source = read_zip(source_bytes, "client input", native_approval, combined_input=True)
     require(native_auth_resources.BUDGET_RESOURCE not in source, "Input must not supply its own native budget")
     native_budget = native_auth_resources.budget_bytes(native_approval)
     native_entries = native_auth_resources.validate_entries(source, "payload", native_approval)
