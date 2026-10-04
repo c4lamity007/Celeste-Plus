@@ -114,6 +114,9 @@ public final class LegacyBuiltInFeatures {
         } catch (RuntimeException | Error failure) {
             scope.close();
             throw failure;
+        } catch (Exception failure) {
+            scope.close();
+            throw new IllegalStateException("Module factory failed: " + id, failure);
         }
     }
 }

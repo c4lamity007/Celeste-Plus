@@ -720,7 +720,7 @@
     {
       "path": "src/main/java/dev/c4lam/celeste/module/LegacyBuiltInFeatures.java",
       "baseSha256": null,
-      "sha256": "fdbafe9c294e47006cd44d01266c4be140a3b23523b6bc7a3640429b60e6e656"
+      "sha256": "8afdcd8c2c67decd099662be6345632b5193d2f84df8a44e69996b121555a5bc"
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/module/LegacyModuleHooks.java",
