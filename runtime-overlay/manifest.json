@@ -3554,12 +3554,12 @@
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/rotation/MoveFix.java",
-      "sha256": "aa43a6461a3004482e5abe0e16ba7b6ee5cc28c50d553d2321fbe7285e3fe9ac",
+      "sha256": "5643122895d8daa326e98bd4a116d1df9c3d494add7717ef7c0dfc15988741ce",
       "baseSha256": "2eb9405877142ebfefb71c87f809a6210be5b089a26d3a7137027be1d14ae5e4"
     },
     {
       "path": "src/main/java/dev/c4lam/celeste/rotation/MoveFixMode.java",
-      "sha256": "d30eca5be26c11f64ec31315da301d67318b2bd7885d2b7d9d9c782c0bc1b6e0",
+      "sha256": "10de72016f4474f99e45060976cd23002180c2fe495261119e191be6e81e43fe",
       "baseSha256": "7bff2a92002a36afbc236fa33fc6fd9a99c30be579bd289c33b2a3b76ab9e294"
     },
     {

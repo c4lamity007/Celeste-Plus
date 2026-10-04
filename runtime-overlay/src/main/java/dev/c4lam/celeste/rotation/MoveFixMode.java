@@ -13,9 +13,9 @@ public enum MoveFixMode {
     /** Counter-rotate and snap to a legal eight-way key direction. */
     STRICT,
     /**
-     * Keep the user's raw directional keys while vanilla movement physics uses
-     * the selected silent yaw. Pressing forward therefore follows the
-     * server-directed look instead of being counter-rotated back to camera yaw.
+     * Keep the user's raw directional keys and camera-space local movement.
+     * The silent yaw remains available for outgoing packets and combat actions,
+     * but does not redirect local movement into the target.
      */
     ANARCHY;
 
