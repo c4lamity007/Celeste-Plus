@@ -40,6 +40,10 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Prepare pinned runtime sources
+        shell: bash
+        run: python tools/prepare_runtime.py
+
       - name: Install pinned native toolchain
         shell: bash
         run: |
