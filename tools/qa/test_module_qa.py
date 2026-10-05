@@ -135,7 +135,7 @@ class WorkflowTest(unittest.TestCase):
         _, calls, _ = self.planned_check('crystal-visuals')
         scripts = ['run-visuals.ps1', 'run-chams-aurora.ps1', 'run-prism-material.ps1',
                    'run-unified-volume.ps1', 'check_local_damage.ps1', 'run-block-highlight.ps1', 'check_auras.ps1']
-        self.assertEqual(calls[0].args[2], [str(self.project / 'gradlew.bat'), '--no-daemon', '--console=plain', ':build'])
+        self.assertEqual(calls[0].args[2], [str((self.project / 'gradlew.bat').resolve()), '--no-daemon', '--console=plain', ':build'])
         for call, script in zip(calls[1:], scripts):
             run, name, command, cwd, env, timeout = call.args
             self.assertEqual(Path(command[command.index('-File') + 1]).name, script)

@@ -168,6 +168,7 @@ class GrantSigner:
                 return None
             lifetime = self._grant_ttl_seconds if audience in _ACCESS_AUDIENCES else {
                 "celeste-session": 90, "celeste-beta-manifest": 120, "celeste-installation": 3650 * 86400,
+                "celeste-module-catalog": 90, "celeste-module-capability": 90,
             }.get(audience)
             issued, expires = claims.get("iat"), claims.get("exp")
             if (lifetime is None or type(issued) is not int or type(expires) is not int

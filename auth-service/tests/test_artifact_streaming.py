@@ -192,6 +192,40 @@ def test_short_wait_then_download_keeps_exact_recipient_wire(v2):
         slots.release()
 
 
+def test_busy_retries_preserve_allowance_but_consume_proof(v2, monkeypatch):
+    import app.beta_delivery as delivery
+    from app.security import keyed_digest
+    token, signed, path, _, _ = request_for(v2)
+    token_bucket = keyed_digest(v2.config.key_pepper, "artifact-token", v2.app.state.signer.verify(token)["jti"])
+    slots = slots_for(v2)
+    assert slots.acquire(False) and slots.acquire(False)
+    monkeypatch.setattr(delivery, "TRANSFER_WAIT_SECONDS", 0)
+    try:
+        for _ in range(11):
+            _, headers = encrypted_request(v2, token, path, signed)
+            assert v2.client.get(path, headers=headers).status_code == 503
+        # Busy attempts still consume one-use proofs; replay cannot be retried.
+        assert v2.client.get(path, headers=headers).status_code == 401
+        with v2.app.state.database.connect() as c:
+            assert c.execute("SELECT count FROM rate_limits WHERE bucket=?", (token_bucket,)).fetchone() is None
+    finally:
+        slots.release()
+        slots.release()
+    # Successful admission keeps the existing limit and rejects before reading
+    # a snapshot once exhausted. Both quota buckets advance together.
+    for _ in range(10):
+        private, headers = encrypted_request(v2, token, path, signed)
+        response = v2.client.get(path, headers=headers)
+        assert response.status_code == 200
+        assert decrypt(response.content, private, token, path, headers)
+    monkeypatch.setattr(delivery, "_read_release", lambda *a: pytest.fail("over-quota snapshot read"))
+    _, headers = encrypted_request(v2, token, path, signed)
+    assert v2.client.get(path, headers=headers).status_code == 429
+    with v2.app.state.database.connect() as c:
+        assert c.execute("SELECT count FROM rate_limits WHERE bucket=?", (token_bucket,)).fetchone()[0] == 10
+    assert slots.acquire(False) and slots.acquire(False) and not slots.acquire(False)
+
+
 def test_snapshot_failure_releases_slot(v2, monkeypatch):
     from fastapi import HTTPException
     import app.beta_delivery as delivery
@@ -199,5 +233,134 @@ def test_snapshot_failure_releases_slot(v2, monkeypatch):
     def invalid(*args): raise HTTPException(503, "fixture corrupt catalog")
     monkeypatch.setattr(delivery, "_read_release", invalid)
     assert v2.client.get(path, headers=headers).status_code == 503
+    slots = slots_for(v2)
+    assert slots.acquire(False) and slots.acquire(False) and not slots.acquire(False)
+
+
+def test_quota_reservation_wait_rechecks_authority_before_snapshot(v2, monkeypatch):
+    import app.beta_delivery as delivery
+    from app.database import Database
+    _, _, path, _, headers = request_for(v2)
+    original = Database.consume_artifact_allowance
+
+    def waited(connection, token_bucket, ip_bucket):
+        result = original(connection, token_bucket, ip_bucket)
+        connection.execute("UPDATE devices SET status='revoked'")
+        return result
+
+    monkeypatch.setattr(Database, "consume_artifact_allowance", staticmethod(waited))
+    monkeypatch.setattr(delivery, "_read_release", lambda *a: pytest.fail("allocated after admission revocation"))
+    assert v2.client.get(path, headers=headers).status_code == 401
+    slots = slots_for(v2)
+    assert slots.acquire(False) and slots.acquire(False) and not slots.acquire(False)
+
+
+@pytest.mark.parametrize("reject_at", [0, 1, 2])
+def test_guard_withholds_final_authentication_tag_and_releases_slot(reject_at):
+    private = x25519.X25519PrivateKey.generate()
+    public = b64e(private.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw))
+    nonce = b64e(bytes(range(24)))
+    token, path = "synthetic-module-token", "/v1/modules/artifacts/fixture/module"
+    clear = b"encrypted-fixture" * 10000
+    parts = envelope.encrypt_chunks(clear, token, path, public, nonce)
+    slots = threading.BoundedSemaphore(1)
+    assert slots.acquire(False)
+    seen, checks = [], []
+    async def guard():
+        checks.append(len(seen))
+        if reject_at and len(checks) == reject_at:
+            raise PermissionError("fixture revoked")
+    response = ArtifactResponse(parts, len(clear) + envelope.OVERHEAD_BYTES, slots, authorization_guard=guard)
+    async def exercise():
+        async def receive():
+            await asyncio.Event().wait()
+        async def send(message):
+            if message["type"] == "http.response.body" and message.get("body"):
+                seen.append(bytes(message["body"]))
+        try:
+            await response({"type": "http", "asgi": {"spec_version": "2.4"}}, receive, send)
+        except (PermissionError, ClientDisconnect):
+            assert reject_at
+    asyncio.run(exercise())
+    assert parts.gi_frame is None and response.body_iterator.ag_frame is None
+    assert slots.acquire(False) and not slots.acquire(False)
+    headers = {"X-Celeste-Request-Nonce": nonce, "X-Celeste-Delivery-Key": public}
+    if reject_at == 0:
+        assert decrypt(b"".join(seen), private, token, path, headers) == clear
+        assert len(checks) == 2
+    elif reject_at == 1:
+        assert not seen
+    else:
+        assert seen and sum(map(len, seen)) == len(clear) + envelope.OVERHEAD_BYTES - 16
+        with pytest.raises(InvalidTag):
+            decrypt(b"".join(seen), private, token, path, headers)
+
+
+def test_guard_periodic_checks_are_bounded_by_elapsed_transfer_time(monkeypatch):
+    import app.artifact_transfer as transfer
+    clock = [0.0]
+    monkeypatch.setattr(transfer, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+    checks = []
+    slots = threading.BoundedSemaphore(1)
+    assert slots.acquire(False)
+    def chunks():
+        for _ in range(100): yield b"fixture"
+    async def guard(): checks.append(clock[0])
+    response = ArtifactResponse(chunks(), 700, slots, authorization_guard=guard)
+    async def exercise():
+        async def receive(): await asyncio.Event().wait()
+        async def send(message):
+            if message["type"] == "http.response.body" and message.get("body"):
+                clock[0] += 0.05
+        await response({"type": "http", "asgi": {"spec_version": "2.4"}}, receive, send)
+    asyncio.run(exercise())
+    assert 5 <= len(checks) <= 6
+    assert slots.acquire(False)
+
+
+@pytest.mark.parametrize("change", ["license", "device", "entitlement", "hwid", "token", "key", "manifest-expiry"])
+def test_beta_stream_revalidates_before_releasing_authentication_tag(v2, monkeypatch, change):
+    """A bootstrap transfer must not authenticate after its authority is lost."""
+    import app.beta_delivery as delivery
+    token, signed, path, _, headers = request_for(v2)
+    manifest_expiry = v2.app.state.signer.verify(signed)["exp"]
+    original = delivery.encrypt_chunks
+
+    def interrupted(*args):
+        parts = list(original(*args))
+        yield from parts[:-1]
+        if change == "manifest-expiry":
+            monkeypatch.setattr(delivery, "time", SimpleNamespace(time=lambda: manifest_expiry))
+        else:
+            with v2.app.state.database.connect() as connection:
+                if change == "license": connection.execute("UPDATE licenses SET status='revoked'")
+                elif change == "device": connection.execute("UPDATE devices SET status='revoked'")
+                elif change == "entitlement": connection.execute("DELETE FROM license_entitlements WHERE product='celeste_plus'")
+                elif change == "hwid": connection.execute("UPDATE devices SET hwid_sha256=?", ("8" * 64,))
+                elif change == "token": connection.execute("UPDATE active_tokens SET status='rotated'")
+                else: connection.execute("UPDATE devices SET install_signing_key=?", (bytes(32),))
+        yield parts[-1]
+
+    monkeypatch.setattr(delivery, "encrypt_chunks", interrupted)
+    with pytest.raises(RuntimeError, match="response already started"):
+        v2.client.get(path, headers=headers)
+    slots = slots_for(v2)
+    assert slots.acquire(False) and slots.acquire(False) and not slots.acquire(False)
+
+
+def test_beta_stream_rechecks_after_response_preparation_before_first_byte(v2, monkeypatch):
+    import app.beta_delivery as delivery
+    _, _, path, _, headers = request_for(v2)
+    original = delivery.ArtifactResponse
+
+    class RevokedBeforeSend(original):
+        async def __call__(self, scope, receive, send):
+            with v2.app.state.database.connect() as connection:
+                connection.execute("UPDATE licenses SET status='revoked'")
+            await super().__call__(scope, receive, send)
+
+    monkeypatch.setattr(delivery, "ArtifactResponse", RevokedBeforeSend)
+    with pytest.raises(RuntimeError, match="response already started"):
+        v2.client.get(path, headers=headers)
     slots = slots_for(v2)
     assert slots.acquire(False) and slots.acquire(False) and not slots.acquire(False)

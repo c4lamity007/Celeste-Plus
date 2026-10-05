@@ -1,8 +1,8 @@
 {
   "schema": "celeste-auth-native-producer-policy-1",
-  "scope": "Reviewed isolated source adaptation and executable producer inputs only; not a native protection or production publication approval.",
-  "native_tool_bundle_sha256": "cccc3da3a02ef3c6bd68ec675e40f86c27d121b5e64530b8fe4b11fec03f969b",
-  "adaptation_provenance_sha256": "ed4a71546d5f68accff8deb4d482070f5078dc2154668c530c8a4746c1051c25",
+  "scope": "Reviewed exact selector adaptation for signed security incidents; executable producer code unchanged. This is not native protection or publication approval.",
+  "native_tool_bundle_sha256": "e74ed128488901aa73c59f2ec42caabe64bd0f173a0041dde95f8982a001068a",
+  "adaptation_provenance_sha256": "bc5b192ee56a83c86e8a40e7dcddd6a60d0cc496396db3a2acdd2b9dbd365d78",
   "source_patch_sha256": "11010fd2e68060eabfe7b74825dd73682ba3ee98b1960031ca42ac8a1d36b620",
   "required_properties": {
     "celeste.prototype.callLocalJni": "true",
@@ -16,26 +16,31 @@
   "method_selections": {
     "auth": {
       "path": "final-native-auth/auth.methods",
-      "sha256": "b9e68332eecf67475c2d5d185085dec334da9267fd6d4d68cf6c32cd366c8135"
+      "sha256": "fb8c3b43b1e54afa3dfdf39e2bf3edc8e4083f7af850a7dc24f02a2486c91bfe"
     },
     "signer": {
       "path": "final-native-auth/signer.methods",
-      "sha256": "021a4a2304cbae0c2e159732bc09374ab32b431d16096de3c8252ca2e762d603"
+      "sha256": "75bcf910c9e4baad99edbaa4472efccdef867521d917e71c27d7155def753f7d"
     },
     "bootstrap": {
       "path": "final-native-auth/bootstrap.methods",
-      "sha256": "41a28d2d1f79f7ad9be4853b51c6df8bd9059e9126563353d6bbc3c2a9b69e5f"
+      "sha256": "788fe63d6e6c97b7ed540750ff68820ce5469a8d95422ce8000a82c80c9aadae"
     }
-  },
-  "known_checks": {
-    "unselected_method_parity": 88,
-    "selected_full_bodies": 16,
-    "actual_protocol_checks": 956,
-    "lifecycle_process_cases": 40
   },
   "limits": [
     "No foreign Obfuscator source tree is modified.",
     "Original methods use existing Java-protected input; native-only adaptation preserves unselected methods.",
     "Final DLL transformation, JNI behavior, lifecycle and exact resource approval must be checked separately for every candidate."
-  ]
+  ],
+  "previous_known_checks": {
+    "unselected_method_parity": 88,
+    "selected_full_bodies": 16,
+    "actual_protocol_checks": 956,
+    "lifecycle_process_cases": 40
+  },
+  "selector_preflight": {
+    "selected_bodies": 17,
+    "input_namespace": "intermediary",
+    "production_approved": false
+  }
 }

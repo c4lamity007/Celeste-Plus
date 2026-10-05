@@ -1,8 +1,7 @@
 package dev.c4lam.celeste.mixin.module;
 
-import dev.c4lam.celeste.module.impl.visual.expansion.HandModelsFeature;
-import dev.c4lam.celeste.module.impl.visual.expansion.HandShadersRenderer;
 import dev.celestebeta.host.VisualHookBridge;
+import dev.c4lam.celeste.compat.HandRenderingHooks;
 import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import net.minecraft.client.network.AbstractClientPlayerEntity;
@@ -27,13 +26,13 @@ public abstract class HandModelsHeldItemMixin {
     private ItemDisplayContext celeste$screenFacing(ItemDisplayContext original, LivingEntity entity, ItemStack item,
                                                    ItemDisplayContext context, MatrixStack matrices,
                                                    OrderedRenderCommandQueue queue, int light) {
-        return HandModelsFeature.displayContext(original, item);
+        return HandRenderingHooks.displayContext(original, item);
     }
 
     @WrapMethod(method = "renderItem(FLnet/minecraft/client/util/math/MatrixStack;Lnet/minecraft/client/render/command/OrderedRenderCommandQueue;Lnet/minecraft/client/network/ClientPlayerEntity;I)V")
     private void celeste$handShaders(float tickDelta, MatrixStack matrices, OrderedRenderCommandQueue queue,
                                     ClientPlayerEntity player, int light, Operation<Void> original) {
-        VisualHookBridge.HandPass capture = HandShadersRenderer.begin();
+        VisualHookBridge.HandPass capture = HandRenderingHooks.begin();
         boolean success = false;
         try {
             // Includes the deferred dispatcher and immediate-provider flushes at the method tail.
@@ -48,6 +47,6 @@ public abstract class HandModelsHeldItemMixin {
                                    Hand hand, float swingProgress, ItemStack item, float equipProgress,
                                    MatrixStack matrices, OrderedRenderCommandQueue queue, int light,
                                    CallbackInfo callback) {
-        HandModelsFeature.transform(player, hand, item, matrices);
+        HandRenderingHooks.transform(player, hand, item, matrices);
     }
 }

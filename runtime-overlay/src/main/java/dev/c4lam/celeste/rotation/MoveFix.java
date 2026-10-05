@@ -6,6 +6,8 @@ import net.minecraft.util.math.Vec2f;
 /** Pure movement-correction math shared by the input and jump mixins. */
 public final class MoveFix {
     private static final float INPUT_EPSILON = 1.0E-4F;
+    // Boundary halfway between a cardinal and diagonal direction (22.5 degrees).
+    private static final float DIAGONAL_BOUNDARY = 0.41421357F;
 
     private MoveFix() {
     }
@@ -34,14 +36,20 @@ public final class MoveFix {
         // PlayerInput transmits four directional booleans, not arbitrary analog
         // values. Always project the counter-rotated vector onto one of the eight
         // directions vanilla can reconstruct from those booleans.
-        float snappedSideways = snapAxis(sideways);
-        float snappedForward = snapAxis(forward);
-        if (snappedSideways == 0.0F && snappedForward == 0.0F) {
-            if (Math.abs(sideways) > Math.abs(forward)) {
-                snappedSideways = Math.copySign(1.0F, sideways);
-            } else {
-                snappedForward = Math.copySign(1.0F, forward);
-            }
+        float snappedSideways;
+        float snappedForward;
+        float absSideways = Math.abs(sideways);
+        float absForward = Math.abs(forward);
+        if (absSideways >= absForward * DIAGONAL_BOUNDARY
+            && absForward >= absSideways * DIAGONAL_BOUNDARY) {
+            snappedSideways = Math.copySign(1.0F, sideways);
+            snappedForward = Math.copySign(1.0F, forward);
+        } else if (absSideways > absForward) {
+            snappedSideways = Math.copySign(1.0F, sideways);
+            snappedForward = 0.0F;
+        } else {
+            snappedSideways = 0.0F;
+            snappedForward = Math.copySign(1.0F, forward);
         }
         // KeyboardInput has already applied vanilla modifiers such as sneak
         // slowdown by this point. Preserve that magnitude while changing only
@@ -55,21 +63,16 @@ public final class MoveFix {
     }
 
     public static float movementYaw(float cameraYaw, float serverYaw, MoveFixMode mode) {
-        return mode.packetRepresentable() == MoveFixMode.OFF ? cameraYaw : serverYaw;
+        return usesCameraSpaceMovement(mode) ? cameraYaw : serverYaw;
     }
 
     public static float sprintJumpYaw(float cameraYaw, float serverYaw, MoveFixMode mode) {
-        return mode.packetRepresentable() == MoveFixMode.OFF ? cameraYaw : serverYaw;
+        return usesCameraSpaceMovement(mode) ? cameraYaw : serverYaw;
     }
 
-    private static float snapAxis(float value) {
-        if (value >= 0.5F) {
-            return 1.0F;
-        }
-        if (value <= -0.5F) {
-            return -1.0F;
-        }
-        return 0.0F;
+    private static boolean usesCameraSpaceMovement(MoveFixMode mode) {
+        MoveFixMode representable = mode.packetRepresentable();
+        return representable == MoveFixMode.OFF || representable == MoveFixMode.ANARCHY;
     }
 
     private static PlayerInput remapDirectionalKeys(Vec2f movement, PlayerInput original) {

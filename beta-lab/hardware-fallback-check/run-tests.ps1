@@ -11,6 +11,7 @@ New-Item -ItemType Directory -Path $output | Out-Null
 $classpath = (Resolve-Path -LiteralPath $JnaJar).Path + [IO.Path]::PathSeparator + (Resolve-Path -LiteralPath $JnaPlatformJar).Path
 $sources = @(
     'runtime-overlay/src/main/java/dev/c4lam/celeste/auth/HardwareFingerprint.java',
+    'runtime-overlay/src/main/java/dev/c4lam/celeste/auth/HardwareIdentityV2.java',
     'runtime-overlay/src/main/java/dev/c4lam/celeste/auth/WindowsFirmwareIdentity.java',
     'build/runtime-core/src/main/java/dev/c4lam/celeste/auth/Crypto.java',
     'build/runtime-core/src/main/java/dev/c4lam/celeste/auth/PortableHardwareFingerprint.java',

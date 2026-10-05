@@ -6,3 +6,4 @@ dev/c4lam/celeste/auth/AuthServiceClient#requireBetaContext(Lcom/google/gson/Jso
 dev/c4lam/celeste/auth/AuthServiceClient#sessionValidityNanos(Ljava/lang/String;)J
 dev/c4lam/celeste/auth/AuthServiceClient#requireChallenge(Lcom/google/gson/JsonObject;Ldev/c4lam/celeste/auth/HardwareFingerprint;)V
 dev/c4lam/celeste/auth/AuthServiceClient#verifyToken(Ljava/lang/String;Ljava/lang/String;)Lcom/google/gson/JsonObject;
+dev/c4lam/celeste/auth/AuthServiceClient#verifyIncidentDecision(Ljava/security/PublicKey;Ldev/c4lam/celeste/auth/SecurityIncidentProtocol$Request;Ljava/lang/String;JJ)Ldev/c4lam/celeste/auth/SecurityIncidentProtocol$Decision;

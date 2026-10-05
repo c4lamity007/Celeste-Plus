@@ -136,7 +136,7 @@ public final class UnifiedChamsRenderer {
             ClientPlayConnectionEvents.Disconnect.class, (handler, client) -> requestRelease(), ClientPlayConnectionEvents.DISCONNECT::register);
         ResourceLoader resources = ResourceLoader.get(ResourceType.CLIENT_RESOURCES);
         BetaSubscriptions.register(resources, "celeste:unified_chams", SynchronousResourceReloader.class,
-            manager -> requestRelease(), proxy -> resources.registerReloader(id("unified_chams"), proxy));
+            manager -> requestRelease(), proxy -> resources.registerReloader(dev.c4lam.celeste.module.delivery.ModuleResourceNames.reloader(id("unified_chams")), proxy));
     }
 
     /**
@@ -355,7 +355,7 @@ public final class UnifiedChamsRenderer {
 
     private static void requestRelease() {
         if (RenderSystem.isOnRenderThread()) releaseResources();
-        else MinecraftClient.getInstance().execute(UnifiedChamsRenderer::releaseResources);
+        else dev.c4lam.celeste.module.delivery.ModuleScope.executeCurrent(MinecraftClient.getInstance()::execute, UnifiedChamsRenderer::releaseResources);
     }
 
     private static boolean finite(Vec3d position) {
@@ -381,5 +381,5 @@ public final class UnifiedChamsRenderer {
         return principal;
     }
 
-    private static Identifier id(String path) { return Identifier.of("celeste", path); }
+    private static Identifier id(String path) { return dev.c4lam.celeste.module.delivery.ModuleResourceNames.asset(Identifier.of("celeste", path)); }
 }

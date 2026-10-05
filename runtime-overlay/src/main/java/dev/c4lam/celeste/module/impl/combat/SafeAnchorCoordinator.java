@@ -40,7 +40,7 @@ import java.util.Set;
 
 /** One input/rotation/action owner shared by the visible and silent GUI entries. */
 final class SafeAnchorCoordinator {
-    static final SafeAnchorCoordinator INSTANCE = new SafeAnchorCoordinator();
+    private final String moduleName;
     private static final int PRIORITY = 195;
     private static final double REACH = 4.45D;
     private enum Step { IDLE, PLACE, CHARGE, SHIELD, EXPLODE, DONE }
@@ -71,7 +71,7 @@ final class SafeAnchorCoordinator {
     private BlockPos manualPlacement;
     private long manualPlacementTick;
 
-    private SafeAnchorCoordinator() { }
+    SafeAnchorCoordinator(String moduleName) { this.moduleName = moduleName; }
 
     void onStartTick(ModuleContext caller) {
         long tick = ActionScheduler.getInstance().tickNumber();
@@ -436,14 +436,15 @@ final class SafeAnchorCoordinator {
     private boolean activeStep() { return step != Step.IDLE && step != Step.DONE; }
     private ModuleContext context(MinecraftClient client) { return new ModuleContext(client, module); }
 
-    private static GuiModule preferredModule() {
-        GuiModule visible = null;
+    private GuiModule preferredModule() {
+        GuiModule chosen = null;
         for (GuiModule candidate : GuiCatalog.modules()) {
             if (!candidate.enabled()) continue;
-            if (candidate.name().equals("Silent Safe Anchor")) return candidate;
-            if (candidate.name().equals("Safe Anchor")) visible = candidate;
+            // Preserve the silent presentation's priority when both entries are enabled.
+            if (moduleName.equals("Safe Anchor") && candidate.name().equals("Silent Safe Anchor")) return null;
+            if (candidate.name().equals(moduleName)) chosen = candidate;
         }
-        return visible;
+        return chosen;
     }
 
     private static boolean usable(MinecraftClient client) {

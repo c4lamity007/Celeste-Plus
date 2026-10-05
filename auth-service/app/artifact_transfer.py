@@ -2,11 +2,47 @@
 from __future__ import annotations
 
 import asyncio
+import time
+
+import anyio
 
 from fastapi.responses import StreamingResponse
 
 CHUNK_BYTES = 64 * 1024
 TRANSFER_TIMEOUT_SECONDS = 30
+
+
+async def run_authorization_guard(check):
+    """Use a separate worker pool while retaining transfer ownership on cancellation.
+
+    The finite DB/live check cannot be aborted by cancelling its await. Keep its
+    response slot until the actual worker returns, so cancelled downloads cannot
+    accumulate orphan guards. Shield AnyIO cancellation during bounded cleanup;
+    raw asyncio cancellation is remembered and propagated after worker retirement.
+    """
+    cancelled = None
+    with anyio.CancelScope(shield=True):
+        worker = asyncio.create_task(asyncio.to_thread(check))
+        while not worker.done():
+            try:
+                await asyncio.shield(worker)
+            except asyncio.CancelledError as failure:
+                cancelled = failure
+            except BaseException:
+                if cancelled is not None:
+                    raise cancelled
+                raise
+        try:
+            worker.result()
+        except BaseException:
+            if cancelled is not None:
+                raise cancelled
+            raise
+    if cancelled is not None:
+        raise cancelled
+    # A level-triggered disconnect can arrive inside the shield. Re-enter its
+    # cancellation scope before the caller can emit any ciphertext or final tag.
+    await anyio.lowlevel.checkpoint()
 
 
 def plain_chunks(content: bytes):
@@ -16,13 +52,30 @@ def plain_chunks(content: bytes):
 
 
 class ArtifactResponse(StreamingResponse):
-    def __init__(self, chunks, length: int, slots):
+    def __init__(self, chunks, length: int, slots, *, authorization_guard=None):
         self._chunks = chunks
         self._slots = slots
 
         async def stream():
+            if authorization_guard is None:
+                for chunk in chunks:
+                    yield chunk
+                return
+            # Hold the final chunk (the envelope tag) until the final live check.
+            # The supplied guard performs its blocking checks in a worker thread.
+            await authorization_guard()
+            checked_at = time.monotonic()
+            pending = None
             for chunk in chunks:
-                yield chunk
+                if pending is not None:
+                    if time.monotonic() - checked_at >= 1:
+                        await authorization_guard()
+                        checked_at = time.monotonic()
+                    yield pending
+                pending = chunk
+            if pending is not None:
+                await authorization_guard()
+                yield pending
 
         super().__init__(stream(), media_type="application/octet-stream", headers={
             "Content-Length": str(length), "Cache-Control": "no-store",

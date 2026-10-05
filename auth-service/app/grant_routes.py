@@ -37,7 +37,7 @@ def create_grant_router(settings, database, signer, dpop, apply_limit):
                        and claims.get("payload_sha256") == settings.release_sha256
                        and claims.get("bootstrap_sha256") == settings.bootstrap_sha256)
         elif product == PLUS:
-            catalog = beta_runtime_catalog(settings, int(claims["sub"]))
+            catalog = beta_runtime_catalog(settings, int(claims["sub"]), claims["device"])
             current = (claims.get("release") == catalog["release_id"]
                        and claims.get("client_sha256") == catalog["runtime_sha256"]
                        and claims.get("beta_catalog_sha256") == catalog["catalog_sha256"])

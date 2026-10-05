@@ -1,6 +1,6 @@
 package dev.c4lam.celeste.compat;
 
-import dev.c4lam.celeste.module.impl.movement.FreecamFeature;
+import dev.c4lam.celeste.module.delivery.ModuleHooks;
 import dev.c4lam.celeste.rotation.Rotation;
 import dev.c4lam.celeste.rotation.RotationManager;
 import net.minecraft.client.MinecraftClient;
@@ -24,7 +24,7 @@ public final class RealActionTarget {
             return Scope.NONE;
         }
         RotationManager rotations = RotationManager.getInstance();
-        if (!rotations.isActive() && !FreecamFeature.isDetached(client)) {
+        if (!rotations.isActive() && !((boolean) ModuleHooks.invoke("freecam", "freecam.detached", false, client))) {
             return Scope.NONE;
         }
         ClientPlayerEntity player = client.player;

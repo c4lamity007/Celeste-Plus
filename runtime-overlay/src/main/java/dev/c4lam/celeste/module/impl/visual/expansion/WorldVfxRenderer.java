@@ -15,36 +15,32 @@ import net.minecraft.util.Identifier;
 
 /** Cached, frame-animated GPU materials shared by world VFX. */
 public final class WorldVfxRenderer {
-    private static final RenderLayer RIBBON = material("ribbon", false, "textures/visual/energy_ribbon.png");
-    private static final RenderLayer PULSE = material("pulse", false, "textures/visual/fake_lag/halo.png");
-    private static final RenderLayer ECHO = material("echo", true, "textures/visual/energy_ribbon.png");
-    private static final RenderLayer JUMP = material("jump", false, "textures/visual/jump/glow.png", true);
-    private static final RenderLayer JUMP_CLASSIC = material("jump_classic", false, "textures/visual/jump/glow.png", true);
-    private static final RenderLayer JUMP_LEAN = material("jump_lean", false, "textures/visual/jump/glow.png", true);
-    private static final RenderLayer SPLASH = material("splash", false, "textures/visual/jump/splash.png", true);
-    private static final RenderLayer DROPLET = material("droplet", false, "textures/visual/fake_lag/soft.png", true);
-    private static final RenderLayer PRISM = material("prism", false, "textures/visual/plasma_flow.png");
-    private static final RenderLayer WATER = material("water", false, "textures/visual/plasma_flow.png", true);
-    private static final RenderLayer TRAJECTORY = material("trajectory", false, "textures/visual/fake_lag/soft.png");
-    private static final RenderLayer TRAJECTORY_IMPACT = material("trajectory_impact", false, "textures/visual/fake_lag/soft.png");
 
-    private static final RenderLayer BLOOM = material("bloom", false, "", false);
 
+    private static final java.util.Map<String,RenderLayer> MATERIALS = new java.util.HashMap<>();
     private WorldVfxRenderer() { }
 
-    public static RenderLayer ribbonLayer() { return RIBBON; }
-    public static RenderLayer pulseLayer() { return PULSE; }
-    public static RenderLayer echoLayer() { return ECHO; }
-    public static RenderLayer jumpLayer() { return JUMP; }
-    public static RenderLayer jumpClassicLayer() { return JUMP_CLASSIC; }
-    public static RenderLayer jumpLeanLayer() { return JUMP_LEAN; }
-    public static RenderLayer bloomLayer() { return BLOOM; }
-    public static RenderLayer splashLayer() { return SPLASH; }
-    public static RenderLayer dropletLayer() { return DROPLET; }
-    public static RenderLayer prismLayer() { return PRISM; }
-    public static RenderLayer waterLayer() { return WATER; }
-    public static RenderLayer trajectoryLayer() { return TRAJECTORY; }
-    public static RenderLayer trajectoryImpactLayer() { return TRAJECTORY_IMPACT; }
+    public static RenderLayer ribbonLayer() { return cached("ribbon", false, "textures/visual/energy_ribbon.png"); }
+    public static RenderLayer pulseLayer() { return cached("pulse", false, "textures/visual/fake_lag/halo.png"); }
+    public static RenderLayer echoLayer() { return cached("echo", true, "textures/visual/energy_ribbon.png"); }
+    public static RenderLayer jumpLayer() { return cached("jump", false, "", true); }
+    public static RenderLayer jumpClassicLayer() { return cached("jump_classic", false, "textures/visual/jump/glow.png", true); }
+    public static RenderLayer jumpLeanLayer() { return cached("jump_lean", false, "", true); }
+    public static RenderLayer bloomLayer() { return cached("bloom", false, "", false); }
+    public static RenderLayer splashLayer() { return cached("splash", false, "textures/visual/jump/splash.png", true); }
+    public static RenderLayer dropletLayer() { return cached("droplet", false, "textures/visual/fake_lag/soft.png", true); }
+    public static RenderLayer prismLayer() { return cached("prism", false, "textures/visual/plasma_flow.png"); }
+    public static RenderLayer waterLayer() { return cached("water", false, "textures/visual/plasma_flow.png", true); }
+    public static RenderLayer trajectoryLayer() { return cached("trajectory", false, "textures/visual/fake_lag/soft.png"); }
+    public static RenderLayer trajectoryImpactLayer() { return cached("trajectory_impact", false, "textures/visual/fake_lag/soft.png"); }
+
+    private static RenderLayer cached(String name, boolean normals, String texture) {
+        return cached(name,normals,texture,false);
+    }
+    private static RenderLayer cached(String name, boolean normals, String texture, boolean depthTest) {
+        RenderSystem.assertOnRenderThread();
+        return MATERIALS.computeIfAbsent(name,ignored->material(name,normals,texture,depthTest));
+    }
 
     private static RenderLayer material(String name, boolean normals, String texture) {
         return material(name, normals, texture, false);
@@ -55,10 +51,10 @@ public final class WorldVfxRenderer {
         RenderPipeline.Builder builder = RenderPipeline.builder(
             analyticRing ? new RenderPipeline.Snippet[] {RenderPipelines.TRANSFORMS_AND_PROJECTION_SNIPPET}
                 : new RenderPipeline.Snippet[] {RenderPipelines.TRANSFORMS_AND_PROJECTION_SNIPPET, RenderPipelines.GLOBALS_SNIPPET});
-        builder.withLocation(Identifier.of(CelesteClient.MOD_ID, "pipeline/world_vfx_" + name))
-            .withVertexShader(Identifier.of(CelesteClient.MOD_ID,
-                "water".equals(name) ? "core/world_water" : "core/world_vfx"))
-            .withFragmentShader(Identifier.of(CelesteClient.MOD_ID, "core/world_" + name))
+        builder.withLocation(dev.c4lam.celeste.module.delivery.ModuleResourceNames.asset(Identifier.of(CelesteClient.MOD_ID, "pipeline/world_vfx_" + name)))
+            .withVertexShader(dev.c4lam.celeste.module.delivery.ModuleResourceNames.asset(Identifier.of(CelesteClient.MOD_ID,
+                "water".equals(name) ? "core/world_water" : "core/world_vfx")))
+            .withFragmentShader(dev.c4lam.celeste.module.delivery.ModuleResourceNames.asset(Identifier.of(CelesteClient.MOD_ID, "core/world_" + name)))
             .withShaderDefine("ECHO_MESH", normals ? 1 : 0)
             .withVertexFormat(normals ? VertexFormats.POSITION_TEXTURE_COLOR_NORMAL
                 : VertexFormats.POSITION_TEXTURE_COLOR, VertexFormat.DrawMode.QUADS)
@@ -68,7 +64,7 @@ public final class WorldVfxRenderer {
         if (!analyticRing) builder.withSampler("Sampler0");
         RenderPipeline pipeline = dev.c4lam.celeste.compat.BetaRenderPipelines.register(builder.build());
         RenderSetup.Builder setup = RenderSetup.builder(pipeline);
-        if (!analyticRing) setup.texture("Sampler0", Identifier.of(CelesteClient.MOD_ID, texture),
+        if (!analyticRing) setup.texture("Sampler0", dev.c4lam.celeste.module.delivery.ModuleResourceNames.asset(Identifier.of(CelesteClient.MOD_ID, texture)),
             () -> RenderSystem.getSamplerCache().get(FilterMode.LINEAR, true));
         return RenderLayer.of("celeste_world_vfx_" + name,
             setup.translucent().expectedBufferSize(normals ? 262144 : 65536).build());

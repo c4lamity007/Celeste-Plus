@@ -57,7 +57,7 @@ public final class HudTargetTracker {
         }
         // This observer also runs with Target HUD hidden and never changes the attack.
         try {
-            dev.c4lam.celeste.module.impl.visual.expansion.HitEffectsFeature.recordAttack(client, living);
+            dev.c4lam.celeste.module.delivery.ModuleHooks.invoke("hit_effects", "attack.hit", null, client, living);
         } catch (RuntimeException | LinkageError ignored) {
             // A missing optional renderer must not interrupt the attack or target HUD.
         }

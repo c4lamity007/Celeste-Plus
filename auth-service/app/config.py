@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import os
+import re
 from pathlib import Path
 from dataclasses import dataclass, field
 
@@ -18,7 +19,7 @@ def _required(name: str) -> str:
 def _decode_32(name: str) -> bytes:
     try:
         value = base64.urlsafe_b64decode((read_secret(name) if name in {
-            "CELESTE_SIGNING_PRIVATE_KEY", "CELESTE_KEY_PEPPER", "CELESTE_SESSION_SECRET"
+            "CELESTE_SIGNING_PRIVATE_KEY", "CELESTE_KEY_PEPPER", "CELESTE_SESSION_SECRET", "CELESTE_MODULE_KEY_ENCRYPTION_KEY"
         } else _required(name)) + "===")
     except ValueError as exc:
         raise RuntimeError(f"Invalid base64 setting: {name}") from exc
@@ -68,10 +69,44 @@ class Settings:
     native_release_public_key: bytes | None = None
     runtime_kill_switch: bool = False
     plus_auth_protocol: int = 2
+    plus_security_incident_scope: str = ""
+    plus_security_incident_installations: frozenset[str] = frozenset()
+    plus_security_incident_releases: frozenset[str] = frozenset()
     tls_leaf_sha256: tuple[str, ...] = ()
     public_native_dir: str = ""
     plus_download_sha256: str = ""
     public_native_max_bytes: int = 128 * 1024 * 1024
+    module_delivery_required: bool = False
+    module_release_dir: str = ""
+    plus_qa_beta_release_dir: str = ""
+    plus_qa_module_release_dir: str = ""
+    plus_qa_installations: frozenset[str] = frozenset()
+    module_key_encryption_key: bytes | None = field(default=None, repr=False)
+
+    def validate_incident_policy(self) -> None:
+        if self.plus_security_incident_scope not in {"", "celeste_plus", "license"}:
+            raise RuntimeError("Invalid Celeste+ security incident scope")
+        for values, maximum, pattern in (
+            (self.plus_security_incident_installations, 256, r"[A-Za-z0-9_-]{32,48}"),
+            (self.plus_security_incident_releases, 64, r"[A-Za-z0-9_-]{1,128}"),
+        ):
+            if (not isinstance(values, frozenset) or len(values) > maximum
+                    or any(not isinstance(value, str) or not re.fullmatch(pattern, value) for value in values)):
+                raise RuntimeError("Invalid Celeste+ security incident eligibility")
+        if self.plus_security_incident_scope:
+            if not self.plus_enabled or self.plus_auth_protocol != 2:
+                raise RuntimeError("Security incident policy requires enabled Celeste+ protocol 2")
+            if not self.plus_security_incident_installations or not self.plus_security_incident_releases:
+                raise RuntimeError("Security incident policy requires explicit eligible installations and releases")
+
+    def incident_scope_for(self, device_id: object, release_id: object) -> str:
+        # Call with the authenticated installation and its actual selected catalog.
+        # Both exact allowlists are required; an empty list never means all users.
+        if (isinstance(device_id, str) and isinstance(release_id, str)
+                and device_id in self.plus_security_incident_installations
+                and release_id in self.plus_security_incident_releases):
+            return self.plus_security_incident_scope
+        return ""
 
     def accepts_installer_identity(self, release_id: object, digest: object) -> bool:
         if not isinstance(release_id, str) or not isinstance(digest, str):
@@ -133,6 +168,12 @@ class Settings:
         ):
             if len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
                 raise RuntimeError(f"{name} must be a lowercase SHA-256 hex digest")
+        module_required = os.getenv("CELESTE_PLUS_REQUIRE_MODULE_DELIVERY", "false").strip().lower()
+        if module_required not in {"true", "false", "1", "0"}:
+            raise RuntimeError("CELESTE_PLUS_REQUIRE_MODULE_DELIVERY must be true or false")
+        incident_scope = os.getenv("CELESTE_PLUS_SECURITY_INCIDENT_SCOPE", "").strip()
+        if incident_scope not in {"", "celeste_plus", "license"}:
+            raise RuntimeError("CELESTE_PLUS_SECURITY_INCIDENT_SCOPE must be unset, celeste_plus, or license")
         protocol = os.getenv("CELESTE_PLUS_AUTH_PROTOCOL", "2").strip()
         if protocol not in {"1", "2"}:
             raise RuntimeError("CELESTE_PLUS_AUTH_PROTOCOL must be 1 or 2")
@@ -153,7 +194,7 @@ class Settings:
             raise RuntimeError("CELESTE_PUBLIC_NATIVE_MAX_BYTES must be an integer") from exc
         if not 0 < public_native_max_bytes <= 256 * 1024 * 1024:
             raise RuntimeError("CELESTE_PUBLIC_NATIVE_MAX_BYTES must be between 1 and 268435456")
-        return cls(
+        settings = cls(
             database_path=os.getenv("CELESTE_DATABASE_PATH", "/data/auth.sqlite3"),
             signing_private_key=_decode_32("CELESTE_SIGNING_PRIVATE_KEY"),
             key_pepper=_decode_32("CELESTE_KEY_PEPPER"),
@@ -188,10 +229,23 @@ class Settings:
             plus_enabled=plus_enabled in {"true", "1"},
             runtime_kill_switch=runtime_kill_switch in {"true", "1"},
             plus_auth_protocol=int(protocol),
+            plus_security_incident_scope=incident_scope,
+            plus_security_incident_installations=frozenset(value.strip() for value in
+                os.getenv("CELESTE_PLUS_SECURITY_INCIDENT_INSTALLATIONS", "").strip().split(",") if value.strip()),
+            plus_security_incident_releases=frozenset(value.strip() for value in
+                os.getenv("CELESTE_PLUS_SECURITY_INCIDENT_RELEASES", "").strip().split(",") if value.strip()),
             tls_leaf_sha256=pins,
             public_native_dir=public_native_dir,
             plus_download_sha256=plus_download_sha256,
             public_native_max_bytes=public_native_max_bytes,
+            module_delivery_required=module_required in {"true", "1"},
+            module_release_dir=os.getenv("CELESTE_MODULE_RELEASE_DIR", "").strip(),
+            plus_qa_beta_release_dir=os.getenv("CELESTE_PLUS_QA_BETA_RELEASE_DIR", "").strip(),
+            plus_qa_module_release_dir=os.getenv("CELESTE_PLUS_QA_MODULE_RELEASE_DIR", "").strip(),
+            plus_qa_installations=frozenset(value.strip() for value in os.getenv("CELESTE_PLUS_QA_INSTALLATIONS", "").split(",") if value.strip()),
+            module_key_encryption_key=(_decode_32("CELESTE_MODULE_KEY_ENCRYPTION_KEY")
+                if os.getenv("CELESTE_MODULE_KEY_ENCRYPTION_KEY", "").strip()
+                    or os.getenv("CELESTE_MODULE_KEY_ENCRYPTION_KEY_FILE", "").strip() else None),
             beta_release_dir=os.getenv("CELESTE_BETA_RELEASE_DIR", "").strip(),
             public_origin=os.getenv("CELESTE_PUBLIC_ORIGIN", "").strip(),
             native_release_public_key=(
@@ -199,3 +253,5 @@ class Settings:
                 if os.getenv("CELESTE_NATIVE_RELEASE_PUBLIC_KEY", "").strip() else None
             ),
         )
+        settings.validate_incident_policy()
+        return settings

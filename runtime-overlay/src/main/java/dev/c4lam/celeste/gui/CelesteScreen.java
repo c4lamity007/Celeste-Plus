@@ -457,7 +457,7 @@ public final class CelesteScreen extends Screen {
             int total = library.totalVisible(configTab);
             RenderUtil.TEXTURE_RECT.draw(matrices, headerX, y + 22 + headerOffset, 18, 18, 0,
                 withAlpha(TEXT, Math.round(255 * headerAnimation)), 0, 0, 1, 1, CelestePage.CONFIGS.icon());
-            bold.drawText(matrices, fitText("Configs  •  Total configs  " + total, headerTextWidth - 24, bold, 14.5f), headerX + 24, y + 23 + headerOffset, 14.5f,
+            bold.drawText(matrices, fitText("Configs  â€¢  Total configs  " + total, headerTextWidth - 24, bold, 14.5f), headerX + 24, y + 23 + headerOffset, 14.5f,
                 withAlpha(TEXT, Math.round(255 * headerAnimation)));
             regular.drawText(matrices, fitText(selectedPage.description(), headerTextWidth - 24, regular, 8.7f), headerX + 24, y + 43 + headerOffset, 8.7f,
                 withAlpha(MUTED, Math.round(255 * headerAnimation)));
@@ -524,6 +524,8 @@ public final class CelesteScreen extends Screen {
 
         for (int index = 0; index < modules.size(); index++) {
             GuiModule module = modules.get(index);
+            String deliveryStatus = dev.c4lam.celeste.module.ModuleManager.getInstance().deliveryStatus(module.name());
+            String cardDescription = deliveryStatus.isEmpty() ? module.description() : deliveryStatus;
             boolean left = index % 2 == 0;
             float x = contentX + (left ? 0 : columnWidth + gap);
             float y = left ? leftY : rightY;
@@ -543,12 +545,12 @@ public final class CelesteScreen extends Screen {
 
             Fonts.semibold().drawText(matrices, fitText(module.name(), columnWidth - 66, Fonts.semibold(), 10.2f), x + 15, drawY + 11.5f, 10.2f,
                 withAlpha(TEXT, Math.round(255 * cardAnimation)));
-            Fonts.regular().drawText(matrices, fitText(module.description(), columnWidth - 66, Fonts.regular(), 7.8f), x + 15, drawY + 30.5f, 7.8f,
+            Fonts.regular().drawText(matrices, fitText(cardDescription, columnWidth - 66, Fonts.regular(), 7.8f), x + 15, drawY + 30.5f, 7.8f,
                 withAlpha(MUTED, Math.round(255 * cardAnimation)));
             drawToggle(matrices, module, x + columnWidth - 43, drawY + 19, module.enabled(), cardAnimation);
             if (hovered && (Fonts.semibold().getWidth(module.name(), 10.2f) > columnWidth - 66
-                    || Fonts.regular().getWidth(module.description(), 7.8f) > columnWidth - 66))
-                setPendingTooltip(mouseX, mouseY, module.name() + ": " + module.description());
+                    || Fonts.regular().getWidth(cardDescription, 7.8f) > columnWidth - 66))
+                setPendingTooltip(mouseX, mouseY, module.name() + ": " + cardDescription);
 
             moduleHits.add(new ModuleHit(module, x, drawY, columnWidth, 54));
             if (expansion > 0.001f && settingsHeight > 0) {
@@ -796,7 +798,7 @@ public final class CelesteScreen extends Screen {
                 float deleteX = cardX + cardWidth - 22;
                 float deleteY = cardY + 6;
                 boolean deleteHovered = hovered(mouseX, mouseY, deleteX, deleteY, 16, 16);
-                Fonts.semibold().drawCenteredText(matrices, "×", deleteX + 8, centeredTextY(deleteY, 16, 9.0f), 9.0f,
+                Fonts.semibold().drawCenteredText(matrices, "Ã—", deleteX + 8, centeredTextY(deleteY, 16, 9.0f), 9.0f,
                     withAlpha(deleteHovered ? MUTED : color(135, 119, 135, 70), Math.round(255 * animation * entrance)));
                 if (deleteHovered) {
                     setPendingTooltip(mouseX, mouseY, "Remove this friend.");
@@ -1208,7 +1210,7 @@ public final class CelesteScreen extends Screen {
                 Fonts.semibold().drawText(matrices, "Enabled", panel.x() + 10, panel.y() + 8, 7.4f,
                     withAlpha(TEXT, Math.round(255 * animation)));
                 boolean closeHovered = close.contains(mouseX, mouseY);
-                Fonts.semibold().drawCenteredText(matrices, "×", close.x() + close.width() / 2,
+                Fonts.semibold().drawCenteredText(matrices, "Ã—", close.x() + close.width() / 2,
                     centeredTextY(close.y(), close.height(), 9), 9,
                     withAlpha(closeHovered ? TEXT : MUTED, Math.round(255 * animation)));
                 GuiRenderer.getInstance().pushScissor(list.x() * uiScale, list.y() * uiScale,
@@ -1431,7 +1433,7 @@ public final class CelesteScreen extends Screen {
         Fonts.semibold().drawCenteredText(matrices, value, x + width - valueWidth / 2 - 12,
             centeredTextY(y + 9, 19, 7.5f), 7.5f,
             withAlpha(listeningMenuKey ? ACCENT : TEXT, Math.round(255 * animation)));
-        Fonts.regular().drawText(matrices, "Click to bind · Delete to reset",
+        Fonts.regular().drawText(matrices, "Click to bind Â· Delete to reset",
             x + 14, y + 35, 6.7f, withAlpha(MUTED, Math.round(255 * animation)));
         menuKeyHit = new FieldHit(x, y, width, height);
     }
@@ -2335,7 +2337,7 @@ public final class CelesteScreen extends Screen {
         if (value == null) return "";
         int count = value.codePointCount(0, value.length());
         return count <= maximum ? value
-            : value.substring(0, value.offsetByCodePoints(0, Math.max(0, maximum - 1))) + "…";
+            : value.substring(0, value.offsetByCodePoints(0, Math.max(0, maximum - 1))) + "â€¦";
     }
 
     private boolean hovered(double mouseX, double mouseY, float x, float y, float width, float height) {

@@ -80,24 +80,24 @@
       "path": "selectors/signer.methods",
       "source_path": "final-native-auth/signer.methods",
       "original_sha256": "021a4a2304cbae0c2e159732bc09374ab32b431d16096de3c8252ca2e762d603",
-      "sha256": "7d170734ee25387bd9b26bcdfcc29fe2179f4182f431f758d6963dac8a765994",
-      "bytes": 304,
-      "normalization": "UTF-8/LF only"
+      "sha256": "75bcf910c9e4baad99edbaa4472efccdef867521d917e71c27d7155def753f7d",
+      "bytes": 340,
+      "normalization": "Exact independent-module selector update; original SHA retained; see provenance/selection-update-20261002.json"
     },
     {
       "path": "selectors/bootstrap.methods",
       "source_path": "final-native-auth/bootstrap.methods",
       "original_sha256": "428520d872ba60310ec9260ad33214f49c3d05236f85ed4996732dcc509f8814",
-      "sha256": "946cda56a473495bd4047dd275b8bdd84393d70fe20b4acd7b2c7fbf2aac406a",
-      "bytes": 574,
-      "normalization": "Exact synthetic lambda ABI update; prior original_sha256 retained; see provenance/selection-update-20260929.json"
+      "sha256": "451f650df076557f4a73c67595096390d5b67d265e736c87a0725f16cdbf23d3",
+      "bytes": 695,
+      "normalization": "Exact independent-module selector update; original SHA retained; see provenance/selection-update-20261002.json"
     },
     {
       "path": "README.md",
       "source_path": null,
       "original_sha256": null,
-      "sha256": "7842553460e6b8a50aef032e429b4ea00445299fb6d5230f46e4a59cbd37c21d",
-      "bytes": 6840,
+      "sha256": "6ce6ab2c2ac299bbe80f1970421bbc50574d3c1a373237795c3d0aef9bdcef8b",
+      "bytes": 9658,
       "normalization": "new UTF-8/LF source"
     },
     {
@@ -115,6 +115,14 @@
       "sha256": "dfc5232f9a2f892bae5069caf7e89cf8904d52e0a9610ec6bdcb97ccd3e9da1a",
       "bytes": 18614,
       "normalization": "UTF-8/LF"
+    },
+    {
+      "path": "provenance/selection-update-20261002.json",
+      "source_path": "current runtime source and exact compiled selector audit",
+      "original_sha256": null,
+      "sha256": "e943f9fa51bb3a1212b320b8873bcb2c3a687345f8ebcae28da85125d9df72ef",
+      "bytes": 4064,
+      "normalization": "new UTF-8/LF source receipt"
     }
   ],
   "scope": "Source preservation and rebuild comparison only; no VMP/JNI/publication approval."

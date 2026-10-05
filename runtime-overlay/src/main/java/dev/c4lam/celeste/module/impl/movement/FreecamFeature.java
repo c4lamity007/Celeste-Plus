@@ -37,6 +37,16 @@ public final class FreecamFeature implements ModuleFeature {
         activate(context.client());
     }
 
+    /** Toggles detached flight without changing the owning module's enabled state. */
+    public boolean toggleFlight(MinecraftClient client) {
+        if (active == this) {
+            deactivate(client);
+            return false;
+        }
+        activate(client);
+        return active == this && valid(client);
+    }
+
     @Override
     public void onStartTick(ModuleContext context) {
         MinecraftClient client = context.client();
@@ -147,6 +157,9 @@ public final class FreecamFeature implements ModuleFeature {
 
     private void activate(MinecraftClient client) {
         if (client.player == null || client.world == null) {
+            return;
+        }
+        if (active == this && valid(client)) {
             return;
         }
         if (active != null && active != this) {

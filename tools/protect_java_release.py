@@ -96,12 +96,38 @@ def source_inputs():
     paths += [ROOT / path for path in ('build.gradle', 'gradle.properties', 'settings.gradle',
         'core.lock.json', 'runtime-overlay/manifest.json',
         'tools/protect_java_release.py', 'tools/packaging/AuthNamespacePass.java', 'tools/prepare_runtime.py', 'tools/build_media_cleanup.py', 'tools/native_auth_resources.py',
-        'tools/validate_package.py',
+        'tools/validate_package.py', 'tools/module_release.py', 'tools/module_access.py', 'tools/protect_module_release.py', 'tools/sync_module_delivery_sources.py', 'tools/packaging/ModuleArtifactCheck.java',
         'beta-lab/obfuscation/check.init.gradle', 'beta-lab/obfuscation/prepare_obfuscation.py',
         'beta-lab/release-package/package_beta.py')]
+    ownership = ROOT / 'runtime-overlay/module-ownership.json'
+    if ownership.is_file() or (ROOT / 'runtime-overlay/src/main/java/dev/c4lam/celeste/beta/delivery/ModuleDeliveryClient.java').is_file():
+        import sync_module_delivery_sources
+        sync_module_delivery_sources.check(ROOT)
+    if ownership.is_file():
+        paths.append(ownership)
+    import module_release
+    paths.extend(module_release.check_source_copies(ROOT))
+    paths += [ROOT / path for path in ('tools/modular_runtime_profile.py', 'tools/packaging/ModularBuiltInFeatures.java',
+                                      'tools/generate_module_source_copies.py')]
     result = {p.relative_to(ROOT).as_posix(): digest(bounded(p)) for p in sorted(set(paths))}
     result.update({'runtime-overlay/' + name: digest(data) for name, data in overlay.items()})
     return dict(sorted(result.items()))
+
+
+def checked_module_preparation(args, runtime):
+    import module_release
+    path, pin = getattr(args, 'module_preparation', None), getattr(args, 'module_preparation_sha256', None)
+    require(bool(path) == bool(pin), 'Module preparation requires path and exact pin together')
+    with zipfile.ZipFile(io.BytesIO(runtime)) as archive:
+        anchors = archive.namelist().count(module_release.ANCHOR)
+    require(anchors <= 1 and bool(path) == (anchors == 1), 'Module resident requires its exact executable preparation')
+    if path is None:
+        return None
+    import protect_module_release
+    value = protect_module_release.preparation(Path(path), pin, args.input)
+    require(value['release_id'] == args.release_id, 'Module preparation belongs to another release')
+    return {'path': str(Path(path).resolve(strict=True)), 'sha256': pin,
+            'executable_root_sha256': value['executable_root_sha256']}
 
 
 def run(args, *, payload_mode="full", final_payload=None, final_payload_sha256=None, native_checkpoint=None):
@@ -125,6 +151,7 @@ def run(args, *, payload_mode="full", final_payload=None, final_payload_sha256=N
     parents = checked_parents(args.parent_classpath)
     parent_hashes = {str(p): digest(bounded(p)) for p in parents}
     runtime = bounded(args.input)
+    module_preparation = checked_module_preparation(args, runtime)
     descriptor = args.descriptor_module.resolve(strict=True)
     require(descriptor.is_file(), 'Pinned descriptor codec is missing')
     java_home = args.java_home.resolve(strict=True)
@@ -145,6 +172,8 @@ def run(args, *, payload_mode="full", final_payload=None, final_payload_sha256=N
               'descriptor_sha256': digest(bounded(descriptor)), 'source_inputs': source_inputs(), 'profiles': {}, 'steps': [], 'deployed': False,
               'limits': ['No Minecraft launch, live authentication, FPS measurement, or native protection claim.',
                          'Cold verification timing includes JVM startup and is not a gameplay benchmark.']}
+    if module_preparation is not None:
+        report['module_preparation'] = module_preparation
     environment = os.environ.copy()
     if native_approval is not None:
         report['native_auth'] = native_approval.summary()
@@ -224,6 +253,7 @@ def run(args, *, payload_mode="full", final_payload=None, final_payload_sha256=N
             require(all(digest(bounded(toolchain / name)) == value for name, value in producer['files'].items()), "Producer changed")
             require(source_inputs() == report['source_inputs'], "Source changed during Java checkpoint")
             require(all(digest(bounded(output / name)) == value for name, value in report['profiles'].items()), "Profile changed")
+            require(checked_module_preparation(args, runtime) == module_preparation, 'Module preparation changed during checkpoint')
             report['status'] = 'java-payload-checkpoint-not-published'
             save()
             return report
@@ -262,7 +292,14 @@ def run(args, *, payload_mode="full", final_payload=None, final_payload_sha256=N
         verify_namespace_outputs()
         require(source_inputs() == report['source_inputs'], 'Java build or release sources changed during protection')
         require(all(digest(bounded(output / name)) == value for name, value in report['profiles'].items()), 'Protection profile changed during execution')
+        require(checked_module_preparation(args, runtime) == module_preparation, 'Module preparation changed during protection')
+        if module_preparation is not None:
+            import protect_module_release
+            report['module_delivery'] = protect_module_release.finalize(module_preparation['path'],
+                module_preparation['sha256'], package, output / 'release')
         report['artifacts'] = {p.name: {'sha256': digest(bounded(p)), 'bytes': p.stat().st_size} for p in (output / 'release').iterdir() if p.is_file()}
+        if module_preparation is not None:
+            report['artifacts'].update(report['module_delivery']['artifacts'])
         report['cold_fixture_seconds'] = {'baseline': baseline, 'protected': protected,
              'baseline_median': statistics.median(baseline), 'protected_median': statistics.median(protected)}
         report['status'] = 'protected-verified-candidate-not-published'
@@ -285,6 +322,8 @@ def main():
     release.add_argument('--descriptor-module', type=Path, default=ROOT / 'build/runtime-core/tools/package_final_release.py')
     for name in ('tool-sha256', 'release-id', 'client-version', 'base-url', 'server-key'):
         release.add_argument('--' + name, required=True)
+    release.add_argument('--module-preparation', type=Path)
+    release.add_argument('--module-preparation-sha256')
     release.add_argument('--offline', action='store_true')
     native_auth_resources.add_arguments(release)
     args = parser.parse_args()

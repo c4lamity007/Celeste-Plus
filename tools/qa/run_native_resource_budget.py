@@ -25,6 +25,7 @@ def main():
         'beta-lab/bootstrap-b/fixtures/core/dev/c4lam/celeste/auth/Crypto.java',
         'beta-lab/integrity-adapter/src/test/java/dev/c4lam/celeste/CelesteClient.java',
         'beta-lab/memory-runtime/src/test/java/dev/c4lam/celeste/beta/memory/TwoPartMemoryClassLoaderTest.java',
+        'beta-lab/memory-runtime/src/test/java/dev/c4lam/celeste/beta/memory/RetainedReadConcurrencyCheck.java',
         'beta-lab/integrity-adapter/src/test/java/dev/c4lam/celeste/auth/ArtifactIntegrityTest.java')]
     integrity = ROOT / 'runtime-overlay/src/main/java/dev/c4lam/celeste/auth/ArtifactIntegrity.java'
     helper = ROOT / 'runtime-overlay/src/main/java/dev/c4lam/celeste/beta/memory/NativeResourceBudget.java'
@@ -54,8 +55,12 @@ def main():
     prefix = [java, '-ea', '-Xverify:all', '-Xmx384m', '-cp', classes]
     run('native-budget', [*prefix, 'dev.c4lam.celeste.auth.NativeResourceBudgetCheck'], 'PASS native resource budget:')
     run('memory-loader', [*prefix, 'dev.c4lam.celeste.beta.memory.TwoPartMemoryClassLoaderTest'], '16 focused memory-runtime checks')
+    run('retained-read-concurrency', [*prefix, 'dev.c4lam.celeste.beta.memory.RetainedReadConcurrencyCheck'],
+        'PASS: retained-byte lifetime concurrency')
     run('retained-integrity', [*prefix, 'dev.c4lam.celeste.auth.ArtifactIntegrityTest', output / 'integrity', 'full'],
-        'PASS: ArtifactIntegrity full (54 assertions)')
+        'PASS: ArtifactIntegrity full (57 assertions)')
+    run('integrity-allocation', [*prefix, 'dev.c4lam.celeste.auth.ArtifactIntegrityTest', output / 'allocation', 'allocation'],
+        'PASS: ArtifactIntegrity allocation (9 assertions)')
     if any(sha(ROOT / name) != digest for name, digest in pins.items()):
         raise ValueError('Tested input changed during verification')
     (output / 'result.json').write_text(json.dumps({'schema': 'celeste-native-budget-check-1', 'status': 'passed',

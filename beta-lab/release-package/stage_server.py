@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import stat
 import tomllib
@@ -42,6 +43,26 @@ def require(condition: bool, message: str) -> None:
         raise ValueError(message)
 
 
+def relative_under(path: Path, root: Path) -> Path:
+    """Return a relative path using filesystem identity, including Windows 8.3 aliases."""
+    root = root.resolve(strict=True)
+    cursor = path.absolute()
+    suffix = []
+    while True:
+        if cursor.exists():
+            try:
+                if cursor.samefile(root):
+                    return Path(*reversed(suffix)) if suffix else Path(".")
+            except OSError:
+                pass
+        parent = cursor.parent
+        if parent == cursor:
+            break
+        suffix.append(cursor.name)
+        cursor = parent
+    raise ValueError("Staging path escaped its root")
+
+
 def sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
@@ -55,7 +76,7 @@ def safe_path(root: Path, name: str, *, exists: bool = True) -> Path:
     for part in (root, *path.parents, path):
         require(not part.is_symlink() and not getattr(part, "is_junction", lambda: False)(),
                 "Links/junctions are not permitted in staging paths")
-    require(path.resolve().is_relative_to(root.resolve()), "Staging path escaped its root")
+    relative_under(path, root)
     if exists:
         info = path.stat()
         require(stat.S_ISREG(info.st_mode) and info.st_nlink == 1, f"Not a single regular file: {name}")
@@ -201,17 +222,31 @@ def stage(project: Path, beta: Path, output: Path, manifest_digest: str, legacy_
     project, beta = project.resolve(strict=True), beta.absolute()
     output = output.absolute()
     allowed_root = project / "build/module-qa"
-    require(output.resolve().is_relative_to(allowed_root.resolve()) and output.resolve() != allowed_root.resolve(),
+    relative_project = relative_under(output, project)
+    expected_prefix = ("build", "module-qa")
+    actual_prefix = relative_project.parts[:len(expected_prefix)]
+    if os.name == "nt":
+        matches_prefix = tuple(part.casefold() for part in actual_prefix) == expected_prefix
+    else:
+        matches_prefix = actual_prefix == expected_prefix
+    require(matches_prefix and len(relative_project.parts) > len(expected_prefix),
             "Output must be a fresh child directory under build/module-qa")
-    safe_path(allowed_root, output.relative_to(allowed_root).as_posix(), exists=False)
+    relative_output = Path(*relative_project.parts[len(expected_prefix):])
+    safe_path(project, relative_project.as_posix(), exists=False)
     require(not output.exists(), "Output already exists; use a fresh directory")
-    require(not output.resolve().is_relative_to(beta.resolve())
-            and not beta.resolve().is_relative_to(output.resolve()), "Input and output cannot overlap")
+    try:
+        relative_under(output, beta)
+    except ValueError:
+        pass
+    else:
+        raise ValueError("Input and output cannot overlap")
     production, prod_files = production_snapshot(project / "auth-service/releases", manifest_digest, legacy_digest)
     catalog, beta_files = beta_snapshot(beta, production)
     files = deployment_files(project / "auth-service", catalog["release_id"])
     files.update({f"releases/{name}": data for name, data in prod_files.items()})
     files.update({f"owner-beta/{catalog['release_id']}/{name}": data for name, data in beta_files.items()})
+    output.parent.mkdir(parents=True, exist_ok=True)
+    safe_path(allowed_root, relative_output.as_posix(), exists=False)
     output.mkdir(parents=True, exist_ok=False)
     for name, data in files.items():
         target = safe_path(output, name, exists=False)

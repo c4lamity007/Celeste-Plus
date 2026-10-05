@@ -20,7 +20,13 @@
       "configuration_sha256": "686f9de7e2fb741def07662e673b9560df4f8d0156ab3295cd1e7f62869404b1",
       "verifier_sha256": "371c98b05e77d45604022b56b4ea6106f5c9f302e33c744a780e8812410f4730",
       "platform": "windows-x64"
+    },
+    {
+      "protector_sha256": "138d140584e3d703c3592cc3cd15124b428daee75629e25710b65228103ff817",
+      "configuration_sha256": "b8c045b61e0094fbaa59348ef80434c50fe705eb926412541fb6e32d3103d5f1",
+      "verifier_sha256": "93320e6d9d8179d5ac5513625fbdc1e226f15d507c8e8889cd9ba9706ed54396",
+      "platform": "windows-x64"
     }
   ],
-  "note": "Each tuple approves only its exact artifact and private review: historical seven-function verify_reviewed_vmprotect.py and protocol-v2 fourteen-function verify_reviewed_vmprotect_v2.py. Loaded-code manual review and mechanical binding cover the selected entries. A rebuild requires fresh review. Source environment fixtures and Windows startup do not establish protected game runtime correctness or detection of every VM. Windows Unknown publisher is an explicitly scoped user-authorized exception, not Authenticode signing. The third exact tuple uses verify_reviewed_vmprotect_max.py for the separately reviewed fourteen-function Ultra/100 build; historical approvals remain unchanged."
+  "note": "Each tuple approves only its exact artifact and private review: historical seven-function verify_reviewed_vmprotect.py and protocol-v2 fourteen-function verify_reviewed_vmprotect_v2.py. Loaded-code manual review and mechanical binding cover the selected entries. A rebuild requires fresh review. Source environment fixtures and Windows startup do not establish protected game runtime correctness or detection of every VM. Windows Unknown publisher is an explicitly scoped user-authorized exception, not Authenticode signing. The third exact tuple uses verify_reviewed_vmprotect_max.py for the separately reviewed fourteen-function Ultra/100 build; historical approvals remain unchanged. The fourth exact tuple covers the optimized Windows loader e1bd810e0fa4d62338e01780b2c62da51e630472544b161d834bb0230b5cf541: fourteen reviewed Ultra entry paths, ten source environment classifiers and two read-only current-host probes. It does not establish protected environment effectiveness, live authentication/attachment, or game performance. The explicit unsigned Unknown publisher exception remains separate from protection."
 }

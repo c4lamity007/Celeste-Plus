@@ -32,6 +32,7 @@ import java.util.concurrent.Flow;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.nio.ByteBuffer;
 import java.util.List;
 import javax.net.ssl.SSLContext;
@@ -44,18 +45,90 @@ import javax.net.ssl.X509ExtendedTrustManager;
 /** Signed, nonce-bound pin rotation; credential-bearing requests use PKIX AND exact leaf pins. */
 public final class PinnedTls {
     private static final SecureRandom RANDOM = new SecureRandom();
-    private static final ConcurrentHashMap<String, Client> CLIENTS = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<String, Entry> CLIENTS = new ConcurrentHashMap<>();
     private static final Set<String> CLAIMS = Set.of("aud", "product", "origin", "request_nonce", "iat", "nbf", "exp", "leaf_sha256");
     private static final byte[] ED25519 = HexFormat.of().parseHex("302a300506032b6570032100");
     private PinnedTls() { }
     private record Client(HttpClient http, long deadline) { }
     record Policy(Set<String> pins, long expires) { }
 
-    public static synchronized HttpClient client(URI origin, byte[] serverKey, String product) throws IOException, InterruptedException {
-        String base = origin(origin);
-        if (!product.equals("celeste_plus") && !product.equals("celeste")) throw new IOException("Unsupported TLS policy product");
+    /** An auth session or delivery client owns its transport until explicit retirement. */
+    public static Owner acquire(URI origin, byte[] serverKey, String product) {
+        final String base;
+        try { base = origin(origin); }
+        catch (IOException invalid) { throw new IllegalArgumentException("Invalid TLS origin", invalid); }
+        if (serverKey == null || serverKey.length != 32 || !("celeste_plus".equals(product) || "celeste".equals(product)))
+            throw new IllegalArgumentException("Invalid TLS policy identity");
         String key = base + ":" + product + ":" + HexFormat.of().formatHex(serverKey);
-        Client existing = CLIENTS.get(key);
+        Entry entry = CLIENTS.compute(key, (ignored, existing) -> {
+            if (existing == null) return new Entry(base, serverKey, product);
+            existing.owners++;
+            return existing;
+        });
+        return new Owner(key, entry);
+    }
+
+    public static final class Owner implements AutoCloseable {
+        private final String key;
+        private final Entry entry;
+        private final AtomicBoolean closed = new AtomicBoolean();
+        private Owner(String key, Entry entry) { this.key = key; this.entry = entry; }
+        public HttpClient client() throws IOException, InterruptedException {
+            if (closed.get()) throw new IOException("TLS transport owner is closed");
+            HttpClient result = PinnedTls.client(entry);
+            if (closed.get()) throw new IOException("TLS transport owner is closed");
+            return result;
+        }
+        @Override public void close() {
+            if (!closed.compareAndSet(false, true)) return;
+            boolean[] last = {false};
+            CLIENTS.computeIfPresent(key, (ignored, existing) -> {
+                if (existing != entry) return existing;
+                if (--existing.owners != 0) return existing;
+                last[0] = true;
+                return null;
+            });
+            if (last[0]) entry.retire();
+        }
+    }
+
+    private static final class Entry {
+        private final String base, product;
+        private final byte[] serverKey;
+        // Policy refresh may wait on HTTPS while retirement only needs this short lock.
+        private final Object publication = new Object();
+        private final Set<HttpClient> transports = new HashSet<>();
+        private volatile Client current;
+        private volatile boolean retired;
+        private HttpClient bootstrap;
+        private CompletableFuture<?> pending;
+        private int owners = 1; // Only changed inside CLIENTS.compute.
+        private Entry(String base, byte[] serverKey, String product) {
+            this.base = base; this.serverKey = serverKey.clone(); this.product = product;
+        }
+        private void retire() {
+            List<HttpClient> closing;
+            CompletableFuture<?> operation;
+            synchronized (publication) {
+                retired = true; current = null;
+                closing = new java.util.ArrayList<>(transports); transports.clear();
+                if (bootstrap != null) closing.add(bootstrap);
+                bootstrap = null; operation = pending; pending = null;
+            }
+            if (operation != null) operation.cancel(true);
+            closing.forEach(HttpClient::shutdownNow);
+        }
+    }
+
+    private static HttpClient client(Entry entry) throws IOException, InterruptedException {
+        synchronized (entry) { return refresh(entry); }
+    }
+
+    private static HttpClient refresh(Entry entry) throws IOException, InterruptedException {
+        if (entry.retired) throw new IOException("TLS transport owner is closed");
+        String base = entry.base, product = entry.product;
+        byte[] serverKey = entry.serverKey;
+        Client existing = entry.current;
         if (existing != null && System.nanoTime() - existing.deadline < 0) return existing.http;
         // The only unpinned HTTPS request carries no token, identity, proof or license.
         // PKIX remains mandatory and its response is useless without the embedded-key signature.
@@ -68,15 +141,27 @@ public final class PinnedTls {
             .followRedirects(HttpClient.Redirect.NEVER).build();
         byte[] bytes;
         PolicyBody body = new PolicyBody();
-        var pending = bootstrap.sendAsync(request, info -> body);
+        CompletableFuture<HttpResponse<byte[]>> pending = null;
         try {
+            synchronized (entry.publication) {
+                if (entry.retired) throw new IOException("TLS transport owner is closed");
+                entry.bootstrap = bootstrap;
+            }
+            pending = bootstrap.sendAsync(request, info -> body);
+            synchronized (entry.publication) {
+                if (entry.retired) throw new IOException("TLS transport owner is closed");
+                entry.pending = pending;
+            }
             HttpResponse<byte[]> response = pending.get(12, TimeUnit.SECONDS);
             bytes = response.body();
             if (response.statusCode() != 200 || !response.uri().equals(endpoint) || bytes.length > 16_384)
                 throw new IOException("TLS pin policy unavailable");
         } catch (ExecutionException | TimeoutException error) {
             throw new IOException("TLS pin policy unavailable", error);
-        } finally { body.cancel(); pending.cancel(true); bootstrap.shutdown(); }
+        } finally {
+            body.cancel(); if (pending != null) pending.cancel(true); bootstrap.shutdownNow();
+            synchronized (entry.publication) { entry.bootstrap = null; entry.pending = null; }
+        }
         try {
             JsonObject wrapper = JsonParser.parseString(new String(bytes, StandardCharsets.UTF_8)).getAsJsonObject();
             if (!wrapper.keySet().equals(Set.of("policy"))) throw new GeneralSecurityException("Invalid TLS policy wrapper");
@@ -94,7 +179,14 @@ public final class PinnedTls {
             SSLParameters parameters = new SSLParameters(); parameters.setEndpointIdentificationAlgorithm("HTTPS");
             HttpClient pinned = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(8))
                 .followRedirects(HttpClient.Redirect.NEVER).sslContext(context).sslParameters(parameters).build();
-            Client previous = CLIENTS.put(key, new Client(pinned, deadline));
+            Client previous;
+            synchronized (entry.publication) {
+                if (entry.retired) { pinned.shutdownNow(); throw new IOException("TLS transport owner is closed"); }
+                previous = entry.current;
+                entry.transports.removeIf(HttpClient::isTerminated);
+                entry.transports.add(pinned);
+                entry.current = new Client(pinned, deadline);
+            }
             if (previous != null) previous.http.shutdown();
             return pinned;
         } catch (GeneralSecurityException | RuntimeException error) {

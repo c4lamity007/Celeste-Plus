@@ -26,9 +26,9 @@ public final class CustomFogFeature implements ModuleFeature {
         Snapshot previous = active;
         Snapshot next = world == null || context.client().player == null ? null : new Snapshot(world,
             new CustomFogMath.Settings(context.mode("Style", "Mist"), context.slider("Density", 0.45),
-                context.slider("Distance", 160), VisualAtmosphere.usesPreset()
+                context.slider("Distance", 160), CustomFogVisualAtmosphere.usesPreset()
                     || !"Native".equalsIgnoreCase(context.mode("Rendering", "Shader")),
-                VisualAtmosphere.sky(context.mode("Shader", "Match Sky"))));
+                CustomFogVisualAtmosphere.sky(context.mode("Shader", "Match Sky"))));
         active = next;
         if (previous != null && previous.settings.shader()
             && (next == null || !next.settings.shader())) ShaderFogRenderer.reset();

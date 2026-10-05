@@ -3,7 +3,7 @@ package dev.c4lam.celeste.module.expansion.sword;
 import dev.c4lam.celeste.friend.FriendManager;
 import dev.c4lam.celeste.module.ModuleContext;
 import dev.c4lam.celeste.module.ModuleFeature;
-import dev.c4lam.celeste.module.impl.expansion.LocalInputOwnership;
+import dev.c4lam.celeste.action.LocalInputOwnership;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.damage.DamageSource;
 import net.minecraft.entity.player.PlayerEntity;

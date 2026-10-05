@@ -62,6 +62,7 @@ public final class HandShadersRenderer {
     private static Object observedWorld, observedPlayer, observedScreen, observedMainItem, observedOffItem, observedArm;
     private static GpuTextureView observedTarget;
     private static HandShadersFeature.Settings observedSettings;
+    private static boolean releasePending;
 
     private HandShadersRenderer() { }
 
@@ -74,7 +75,7 @@ public final class HandShadersRenderer {
             ClientPlayConnectionEvents.Disconnect.class, (handler, client) -> requestRelease(), ClientPlayConnectionEvents.DISCONNECT::register);
         ResourceLoader resources = ResourceLoader.get(ResourceType.CLIENT_RESOURCES);
         BetaSubscriptions.register(resources, "celeste:hand_shaders", SynchronousResourceReloader.class,
-            manager -> requestRelease(), proxy -> resources.registerReloader(id("hand_shaders"), proxy));
+            manager -> requestRelease(), proxy -> resources.registerReloader(dev.c4lam.celeste.module.delivery.ModuleResourceNames.reloader(id("hand_shaders")), proxy));
     }
 
     /** Called before queue submission; the lease must cover its later dispatcher and buffer flushes. */
@@ -147,6 +148,13 @@ public final class HandShadersRenderer {
             if (active == this) active = null;
         }
         @Override public void finish(boolean success) {
+            if (finished) return;
+            try { finishCapture(success); }
+            finally {
+                if (releasePending) { releasePending = false; releaseResources(); }
+            }
+        }
+        private void finishCapture(boolean success) {
             if (finished) return;
             // Restoration precedes all processing and also runs on thrown vanilla render calls.
             restore();
@@ -298,7 +306,8 @@ public final class HandShadersRenderer {
     public static void resetFailure() { failed = false; validated = false; invalidateHistory(); }
     public static void releaseResources() {
         RenderSystem.assertOnRenderThread();
-        if (active != null) active.restore();
+        if (active != null) { releasePending = true; return; }
+        releasePending = false;
         deleteTargets();
         environmentSeen = false;
         observedWorld = observedPlayer = observedScreen = observedMainItem = observedOffItem = observedArm = null;
@@ -324,7 +333,7 @@ public final class HandShadersRenderer {
     }
     private static void requestRelease() {
         if (RenderSystem.isOnRenderThread()) releaseResources();
-        else MinecraftClient.getInstance().execute(HandShadersRenderer::releaseResources);
+        else dev.c4lam.celeste.module.delivery.ModuleScope.executeCurrent(MinecraftClient.getInstance()::execute, HandShadersRenderer::releaseResources);
     }
     private static void fail(Throwable failure) {
         invalidateHistory();

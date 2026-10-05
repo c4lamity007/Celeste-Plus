@@ -1,8 +1,7 @@
 package dev.c4lam.celeste.compat;
 
-import dev.c4lam.celeste.module.expansion.inventory.SilentInventoryScreen;
-import dev.c4lam.celeste.module.impl.movement.FreecamFeature;
-import dev.c4lam.celeste.module.impl.movement.FreecamInputPolicy;
+import dev.c4lam.celeste.gui.HudTransparentScreen;
+import dev.c4lam.celeste.module.delivery.ModuleHooks;
 import dev.c4lam.celeste.rotation.ElytraSilentAim;
 import dev.c4lam.celeste.rotation.MoveFix;
 import dev.c4lam.celeste.rotation.MoveFixMode;
@@ -70,21 +69,20 @@ public final class RotationHooks {
         return MoveFix.sprintJumpYaw(cameraYaw, rotations.serverRotation().yaw(), mode);
     }
     public static boolean redirectLook(Entity entity, double cursorDeltaX, double cursorDeltaY) {
-        return FreecamFeature.redirectPlayerLook(entity, cursorDeltaX, cursorDeltaY);
+        return (boolean) ModuleHooks.invoke("freecam", "freecam.look", false, entity, cursorDeltaX, cursorDeltaY);
     }
     public static boolean keepLocalPlayerControl(ClientPlayerEntity player) {
-        return FreecamFeature.keepsLocalPlayerControl(player);
+        return (boolean) ModuleHooks.invoke("freecam", "freecam.control", false, player);
     }
     public static Entity renderedCameraFocus(Entity vanillaFocus) {
-        return FreecamFeature.renderedCameraFocus(vanillaFocus);
+        return (Entity) ModuleHooks.invoke("freecam", "freecam.focus", vanillaFocus, vanillaFocus);
     }
 
     /** Null leaves both input fields unchanged. Inventory blocking retains first priority. */
     public static MoveFix.Correction keyboardCorrection(Input input, Vec2f movement, PlayerInput keys) {
         MinecraftClient client = MinecraftClient.getInstance();
-        if (SilentInventoryScreen.blocksMovement(client)) return new MoveFix.Correction(Vec2f.ZERO, PlayerInput.DEFAULT);
-        MoveFix.Correction freecam = FreecamInputPolicy.correction(
-            FreecamFeature.blocksPlayerInput(input), movement, keys);
+        if (client.currentScreen instanceof HudTransparentScreen) return new MoveFix.Correction(Vec2f.ZERO, PlayerInput.DEFAULT);
+        MoveFix.Correction freecam = (MoveFix.Correction) ModuleHooks.invoke("freecam", "freecam.input", null, input, movement, keys);
         if (freecam != null) return freecam;
         if (client.player == null || client.player.input != input || client.player.hasVehicle()) return null;
         RotationManager rotations = RotationManager.getInstance();

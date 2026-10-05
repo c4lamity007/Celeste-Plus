@@ -21,8 +21,6 @@ import dev.c4lam.celeste.hud.HudEditorScreen;
 import dev.c4lam.celeste.media.SystemMediaService;
 import dev.c4lam.celeste.module.BuiltInFeatures;
 import dev.c4lam.celeste.module.ModuleManager;
-import dev.c4lam.celeste.module.impl.visual.expansion.UnifiedChamsRenderer;
-import dev.c4lam.celeste.module.impl.visual.expansion.UnifiedVolumeRenderer;
 import dev.c4lam.celeste.render.GuiPipelines;
 import dev.c4lam.celeste.render.RenderUtil;
 import dev.c4lam.celeste.render.font.Fonts;
@@ -214,10 +212,8 @@ public final class CelesteClient implements ClientModInitializer {
         GameplayFoundation.initialize();
         ModuleManager modules = ModuleManager.getInstance();
         // LIFO: stop features, then retire their GPU storage before detaching lifecycle callbacks.
-        cleanup.push(UnifiedChamsRenderer::releaseResources);
-        cleanup.push(UnifiedVolumeRenderer::releaseResources);
-        cleanup.push(dev.c4lam.celeste.module.impl.visual.PlayerModelsFeature::shutdown);
         cleanup.push(modules::close);
+        AuthBootstrap.configureModules(modules);
         BuiltInFeatures.register(modules);
         modules.initialize();
         configLibrary = ConfigLibrary.getInstance();
@@ -266,7 +262,7 @@ public final class CelesteClient implements ClientModInitializer {
             net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
             if (client.currentScreen instanceof CelesteScreen || client.currentScreen instanceof HudEditorScreen
                 || client.currentScreen instanceof dev.c4lam.celeste.gui.ModelImportScreen) client.setScreen(null);
-            else if (lateMode && client.currentScreen instanceof dev.c4lam.celeste.module.expansion.inventory.SilentInventoryScreen) {
+            else if (lateMode && client.currentScreen instanceof dev.c4lam.celeste.gui.HudTransparentScreen) {
                 // Finish the ordinary inventory close lifecycle if module cleanup
                 // could not return the carried stack. Do not synthesize another click.
                 if (client.player != null) client.currentScreen.close();
@@ -285,10 +281,11 @@ public final class CelesteClient implements ClientModInitializer {
         if (lateMode) {
             CompletableFuture.allOf(authorizationStopped.toCompletableFuture(), coreCallbacksDetached().toCompletableFuture(),
                 subscriptionsDetached().toCompletableFuture(),
+                ModuleManager.getInstance().payloadsStopped().toCompletableFuture(),
+                AuthBootstrap.moduleDeliveryStopped().toCompletableFuture(),
                 configLibrary == null ? CompletableFuture.completedFuture(null) : configLibrary.stopped().toCompletableFuture(),
                 mediaService == null ? CompletableFuture.completedFuture(null) : mediaService.stopped().toCompletableFuture(),
-                dev.c4lam.celeste.beta.lifecycle.BetaNetworkRetirement.drained().toCompletableFuture(),
-                dev.c4lam.celeste.module.impl.visual.PlayerModelsFeature.importsStopped().toCompletableFuture())
+                dev.c4lam.celeste.beta.lifecycle.BetaNetworkRetirement.drained().toCompletableFuture())
                 .whenComplete(this::finishLateShutdown);
         }
     }

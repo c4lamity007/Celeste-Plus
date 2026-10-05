@@ -34,7 +34,7 @@ import java.util.Set;
 import java.util.TreeSet;
 
 /** Celeste+ verification and bounded memory delivery. Never loads or executes code. */
-public final class BetaDeliveryClient {
+public final class BetaDeliveryClient implements AutoCloseable {
     public static final int MAX_ARTIFACT_BYTES = 64 * 1024 * 1024;
     public static final long MAX_RELEASE_BYTES = 128L * 1024 * 1024;
     static final int MAX_TOKEN_BYTES = 16_384;
@@ -56,6 +56,9 @@ public final class BetaDeliveryClient {
     private final Transport transport;
     private final DpopProofSigner proofSigner;
     private final java.util.function.Supplier<String> hardwareIdentity;
+    private final java.util.concurrent.atomic.AtomicBoolean closed = new java.util.concurrent.atomic.AtomicBoolean();
+
+    @Override public void close() { if (closed.compareAndSet(false, true)) transport.close(); }
 
     public BetaDeliveryClient(URI origin, byte[] pinnedEd25519Key, String installerToken,
                               String expectedDevice, long expectedUid, DpopProofSigner proofSigner,
@@ -183,6 +186,7 @@ public final class BetaDeliveryClient {
     }
 
     public VerifiedCatalog fetchCatalog() throws IOException, InterruptedException, GeneralSecurityException {
+        if (closed.get()) throw new IOException("Beta delivery client is closed");
         installer();
         byte[] random = new byte[24];
         REQUEST_RANDOM.nextBytes(random);
@@ -198,6 +202,7 @@ public final class BetaDeliveryClient {
 
     /** A new signed server response is required at each loading boundary. */
     public void revalidate(VerifiedCatalog catalog) throws IOException, InterruptedException, GeneralSecurityException {
+        if (closed.get()) throw new IOException("Beta delivery client is closed");
         current(catalog);
         VerifiedCatalog fresh = fetchCatalog();
         if (!fresh.catalogSha256.equals(catalog.catalogSha256) || !fresh.releaseId.equals(catalog.releaseId)
@@ -207,6 +212,7 @@ public final class BetaDeliveryClient {
     }
 
     public MemoryRelease download(VerifiedCatalog catalog) throws IOException, InterruptedException, GeneralSecurityException {
+        if (closed.get()) throw new IOException("Beta delivery client is closed");
         current(catalog);
         Map<String, byte[]> bytes = new LinkedHashMap<>();
         boolean complete = false;
@@ -345,13 +351,16 @@ public final class BetaDeliveryClient {
         } catch (IllegalArgumentException exception) { throw new GeneralSecurityException("Invalid base64url", exception); }
     }
 
-    static JsonObject object(byte[] bytes) throws GeneralSecurityException {
+    static JsonObject object(byte[] bytes) throws GeneralSecurityException { return object(bytes,64); }
+
+    static JsonObject object(byte[] bytes,int arrayLimit) throws GeneralSecurityException {
+        if (arrayLimit < 1 || arrayLimit > 512) throw invalid("Invalid metadata collection bound");
         try {
             String decoded = StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
                 .onUnmappableCharacter(CodingErrorAction.REPORT).decode(ByteBuffer.wrap(bytes)).toString();
             try (JsonReader reader = new JsonReader(new StringReader(decoded))) {
                 reader.setStrictness(Strictness.STRICT);
-                JsonElement value = read(reader, 0);
+                JsonElement value = read(reader, 0, arrayLimit);
                 if (!value.isJsonObject() || reader.peek() != JsonToken.END_DOCUMENT) throw invalid("Expected one JSON object");
                 return value.getAsJsonObject();
             }
@@ -360,7 +369,7 @@ public final class BetaDeliveryClient {
         }
     }
 
-    private static JsonElement read(JsonReader reader, int depth) throws IOException, GeneralSecurityException {
+    private static JsonElement read(JsonReader reader, int depth, int arrayLimit) throws IOException, GeneralSecurityException {
         if (depth > 12) throw invalid("Metadata nesting exceeds limit");
         switch (reader.peek()) {
             case BEGIN_OBJECT -> {
@@ -368,13 +377,13 @@ public final class BetaDeliveryClient {
                 while (reader.hasNext()) {
                     String key = reader.nextName();
                     if (++count > 64 || object.has(key)) throw invalid("Duplicate or excessive metadata keys");
-                    object.add(key, read(reader, depth + 1));
+                    object.add(key, read(reader, depth + 1, arrayLimit));
                 }
                 reader.endObject(); return object;
             }
             case BEGIN_ARRAY -> {
                 JsonArray array = new JsonArray(); reader.beginArray();
-                while (reader.hasNext()) { if (array.size() >= 64) throw invalid("Metadata array exceeds limit"); array.add(read(reader, depth + 1)); }
+                while (reader.hasNext()) { if (array.size() >= arrayLimit) throw invalid("Metadata array exceeds limit"); array.add(read(reader, depth + 1, arrayLimit)); }
                 reader.endArray(); return array;
             }
             case STRING -> { return new JsonPrimitive(reader.nextString()); }
@@ -441,8 +450,9 @@ public final class BetaDeliveryClient {
     }
     static GeneralSecurityException invalid(String message) { return new GeneralSecurityException(message); }
 
-    @FunctionalInterface interface Transport {
+    @FunctionalInterface interface Transport extends AutoCloseable {
         Reply get(URI uri, Map<String, String> headers, int maximumBytes, Duration timeout) throws IOException, InterruptedException;
+        @Override default void close() { }
     }
     record Reply(URI uri, int status, Map<String, List<String>> headers, byte[] body) { }
 }
