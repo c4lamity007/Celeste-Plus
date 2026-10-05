@@ -39,7 +39,7 @@ def auth(e, *, scope="installer", hwid=HWID, complete=True):
     if hwid is not None:
         body["hwid_sha256"] = hwid
     if scope == "auth":
-        catalog = beta_runtime_catalog(e.config, e.uid, e.enrolled["device_id"])
+        catalog = beta_runtime_catalog(e.config, e.uid)
         body.update(release_id=catalog["release_id"], client_version=catalog["client_version"],
                     client_sha256=catalog["runtime_sha256"], beta_catalog_sha256=catalog["catalog_sha256"])
     start = e.client.post(f"/v1/{scope}/start", json=body)
@@ -64,7 +64,7 @@ def access(e, path, token, **extensions):
 
 
 def session(e, *, core=CORE, hwid=HWID, pid=1234, identity=None, nonce=None):
-    catalog = beta_runtime_catalog(e.config, e.uid, e.enrolled["device_id"])
+    catalog = beta_runtime_catalog(e.config, e.uid)
     body = {**release(), "product": "celeste_plus", "device_id": e.enrolled["device_id"],
             "release_id": catalog["release_id"], "client_version": catalog["client_version"],
             "client_sha256": catalog["runtime_sha256"], "beta_catalog_sha256": catalog["catalog_sha256"],

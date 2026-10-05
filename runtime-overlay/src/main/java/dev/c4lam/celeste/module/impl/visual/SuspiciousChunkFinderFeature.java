@@ -1,6 +1,5 @@
 package dev.c4lam.celeste.module.impl.visual;
 
-import dev.c4lam.celeste.render.geometry.WorldBox;
 import dev.c4lam.celeste.auth.AuthBootstrap;
 import dev.c4lam.celeste.beta.lifecycle.BetaSubscriptions;
 import dev.c4lam.celeste.gui.model.CelestePage;
@@ -74,7 +73,6 @@ public final class SuspiciousChunkFinderFeature implements ModuleFeature {
     private EnumSet<Check> checks = EnumSet.allOf(Check.class);
     private Capture capture;
     private ExecutorService worker;
-    private CompletableFuture<Void> workerDrain = CompletableFuture.completedFuture(null);
     private Future<Result> future;
     private long generation, snapshotSerial;
     private String failure = "";
@@ -171,8 +169,7 @@ public final class SuspiciousChunkFinderFeature implements ModuleFeature {
         generation++;
         if (future != null) future.cancel(true);
         if (activityFuture != null) activityFuture.cancel(true);
-        if (worker != null) workerDrain = CompletableFuture.allOf(workerDrain,
-            dev.c4lam.celeste.module.delivery.ModuleRetirement.stopWorker(worker).toCompletableFuture());
+        if (worker != null) worker.shutdownNow();
         future = null; activityFuture = null; worker = null; capture = null;
         cache.clearLive(); revisions.clear(); dirty.clear(); changedChunks.clear(); pending.clear(); results.clear();
         displayed = List.of(); displayedPaths = List.of(); discovery = List.of(); nextDiscovery = 0; failure = "";
@@ -181,14 +178,6 @@ public final class SuspiciousChunkFinderFeature implements ModuleFeature {
         estimateSurfaces.clear(); nextSurface = 0; surfaceDirty = false; preferDirty = true;
         publicationDirty = false; activityMarkersDirty = false;
     }
-    /** Called only after module callbacks are withdrawn; completion means all old workers exited. */
-    public CompletionStage<Void> retire() {
-        enabled = false;
-        if (active == this) active = null;
-        reset();
-        return workerDrain.minimalCompletionStage();
-    }
-
     private void reset() {
         suspend(); world = null; resumeHistory = false; cache.clear(); classified.clear(); rawClassified = null;
         activityEvidence.clear(); growthKinds.clear(); activityVersion++;
@@ -662,7 +651,7 @@ public final class SuspiciousChunkFinderFeature implements ModuleFeature {
         return heights[heights.length * 3 / 4];
     }
 
-    public void extract(WorldExtractionContext context, List<WorldBox> boxes) {
+    public void extract(WorldExtractionContext context, List<VisualWorldRenderer.WorldBox> boxes) {
         if (!enabled || world == null || context.world() != world) return;
         if (showPaths && checks.contains(Check.BURIED_ACCESS_PATH)) {
             var client = MinecraftClient.getInstance();
@@ -680,7 +669,7 @@ public final class SuspiciousChunkFinderFeature implements ModuleFeature {
                 if (shape.isEmpty()) continue;
                 Box box = shape.getBoundingBox().offset(pos).expand(.002);
                 if (context.frustum() != null && !context.frustum().isVisible(box)) continue;
-                boxes.add(new WorldBox(box, 0x18FFB85C, 0xD9FFB85C, 1.2f));
+                boxes.add(new VisualWorldRenderer.WorldBox(box, 0x18FFB85C, 0xD9FFB85C, 1.2f));
                 drawn++;
             }
         }
@@ -690,8 +679,8 @@ public final class SuspiciousChunkFinderFeature implements ModuleFeature {
             Box footprint = new Box(marker.x * 16.0, marker.y, marker.z * 16.0,
                 marker.x * 16.0 + 16, marker.y, marker.z * 16.0 + 16);
             if (context.frustum() != null && !context.frustum().isVisible(footprint.expand(0, .03, 0))) continue;
-            boxes.add(new WorldBox(footprint, activityColor(marker.origin), 0, 0, 1,
-                WorldBox.Shape.FOOTPRINT, false));
+            boxes.add(new VisualWorldRenderer.WorldBox(footprint, activityColor(marker.origin), 0, 0, 1,
+                VisualWorldRenderer.Shape.FOOTPRINT, false));
         }
     }
     private static int activityColor(SuspiciousActivity.Origin origin) {

@@ -1,7 +1,5 @@
 package dev.c4lam.celeste.module.impl.visual.expansion;
 
-import dev.c4lam.celeste.render.geometry.WorldLineStrip;
-import dev.c4lam.celeste.render.geometry.WorldBox;
 import dev.c4lam.celeste.module.ModuleContext;
 import dev.c4lam.celeste.module.ModuleFeature;
 import net.fabricmc.fabric.api.client.rendering.v1.world.WorldExtractionContext;
@@ -113,18 +111,18 @@ public final class ItemEspFeature implements ModuleFeature {
     private record Target(ItemEntity item, double distanceSquared, int id) { }
     private record Selection(ClientWorld world, List<ItemEntity> items) { }
 
-    public void extract(WorldExtractionContext context, List<WorldBox> output,
-                 List<WorldLineStrip> lines) {
+    void extract(WorldExtractionContext context, List<VisualExpansionRenderer.WorldBox> output,
+                 List<VisualExpansionRenderer.WorldLineStrip> lines) {
         extract(context, output, lines, null);
     }
 
-    public void extract(WorldExtractionContext context, List<WorldBox> output,
-                 List<WorldLineStrip> lines, List<ItemEspWorldGlowRenderer.Quad> glows) {
+    void extract(WorldExtractionContext context, List<VisualExpansionRenderer.WorldBox> output,
+                 List<VisualExpansionRenderer.WorldLineStrip> lines, List<WorldGlowRenderer.Quad> glows) {
         extract(context, output, lines, glows, 768);
     }
 
-    public void extract(WorldExtractionContext context, List<WorldBox> output,
-                 List<WorldLineStrip> lines, List<ItemEspWorldGlowRenderer.Quad> glows,
+    void extract(WorldExtractionContext context, List<VisualExpansionRenderer.WorldBox> output,
+                 List<VisualExpansionRenderer.WorldLineStrip> lines, List<WorldGlowRenderer.Quad> glows,
                  int quadLimit) {
         ClientPlayerEntity self = MinecraftClient.getInstance().player;
         Selection selected = selection;
@@ -145,10 +143,10 @@ public final class ItemEspFeature implements ModuleFeature {
             Box bounds = item.getBoundingBox().offset(interpolated.subtract(item.getEntityPos())).expand(.045D);
             if (context.frustum() != null && !context.frustum().isVisible(bounds)) continue;
             double seed = Math.floorMod(item.getId(), 61) / 61.0D;
-            int color = ItemEspVisualEffects.color(theme, customColor, time, seed * .2D);
-            output.add(new WorldBox(bounds,
-                dev.c4lam.celeste.render.geometry.WorldBox.argb(alpha * .045F, color),
-                dev.c4lam.celeste.render.geometry.WorldBox.argb(alpha * .80F, color), 1.15F));
+            int color = VisualEffects.color(theme, customColor, time, seed * .2D);
+            output.add(new VisualExpansionRenderer.WorldBox(bounds,
+                VisualExpansionRenderer.argb(alpha * .045F, color),
+                VisualExpansionRenderer.argb(alpha * .80F, color), 1.15F));
         }
     }
 
@@ -164,7 +162,7 @@ public final class ItemEspFeature implements ModuleFeature {
             || player.squaredDistanceTo(entity) > feature.range * feature.range) return;
         double time = Util.getMeasuringTimeMs() / 1000.0D;
         double seed = Math.floorMod(entity.getId(), 61) / 61.0D;
-        int rgb = ItemEspVisualEffects.color(feature.theme, feature.customColor, time, seed * .2D);
+        int rgb = VisualEffects.color(feature.theme, feature.customColor, time, seed * .2D);
         state.outlineColor = ColorHelper.fullAlpha(rgb);
     }
 

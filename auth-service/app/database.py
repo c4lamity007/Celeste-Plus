@@ -6,9 +6,6 @@ from contextlib import contextmanager
 from pathlib import Path
 
 
-AUTH_EXPIRY_PRUNE_BATCH = 128
-
-
 SCHEMA = """
 PRAGMA journal_mode=WAL;
 PRAGMA foreign_keys=ON;
@@ -79,8 +76,6 @@ CREATE TABLE IF NOT EXISTS challenges (
     consumed_at INTEGER
 );
 
-CREATE INDEX IF NOT EXISTS idx_challenges_expiry ON challenges(expires_at);
-
 CREATE TABLE IF NOT EXISTS admin_sessions (
     session_id TEXT PRIMARY KEY,
     created_at INTEGER NOT NULL,
@@ -95,8 +90,6 @@ CREATE TABLE IF NOT EXISTS session_nonces (
     expires_at INTEGER NOT NULL,
     PRIMARY KEY(device_id, nonce)
 );
-
-CREATE INDEX IF NOT EXISTS idx_session_nonces_expiry ON session_nonces(expires_at);
 
 CREATE TABLE IF NOT EXISTS installer_ticket_uses (
     jti TEXT PRIMARY KEY,
@@ -200,18 +193,6 @@ CREATE TABLE IF NOT EXISTS active_tokens (
     changed_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_active_tokens_device ON active_tokens(device_id, status, expires_at);
-CREATE INDEX IF NOT EXISTS idx_active_tokens_expiry ON active_tokens(expires_at);
-CREATE TABLE IF NOT EXISTS runtime_sessions (
-    device_id TEXT NOT NULL REFERENCES devices(device_id) ON DELETE CASCADE,
-    process_id INTEGER NOT NULL,
-    session_id TEXT NOT NULL,
-    hardware_sha256 TEXT NOT NULL,
-    last_seen_at INTEGER NOT NULL,
-    status TEXT NOT NULL CHECK(status IN ('active','retired')),
-    PRIMARY KEY(device_id,process_id,session_id)
-);
-CREATE INDEX IF NOT EXISTS idx_runtime_sessions_expiry ON runtime_sessions(last_seen_at);
-
 CREATE TABLE IF NOT EXISTS runtime_bindings (
     device_id TEXT PRIMARY KEY REFERENCES devices(device_id) ON DELETE CASCADE,
     hardware_sha256 TEXT NOT NULL,
@@ -232,41 +213,6 @@ CREATE TABLE IF NOT EXISTS device_rebindings (
 """
 
 
-SCHEMA += """
-CREATE TABLE IF NOT EXISTS security_product_blocks (
- license_uid INTEGER NOT NULL REFERENCES licenses(uid) ON DELETE CASCADE,
- product TEXT NOT NULL CHECK(product='celeste_plus'),
- incident_id TEXT NOT NULL, blocked_at INTEGER NOT NULL,
- PRIMARY KEY(license_uid,product)
-);
-CREATE TABLE IF NOT EXISTS security_incidents (
- device TEXT NOT NULL, incident_id TEXT NOT NULL,
- license_uid INTEGER NOT NULL, process_id INTEGER NOT NULL,
- session_id TEXT NOT NULL, scope TEXT NOT NULL CHECK(scope IN ('celeste_plus','license')),
- binding_json BLOB NOT NULL, first_json BLOB NOT NULL, confirm_json BLOB,
- install_key BLOB NOT NULL, token_key BLOB NOT NULL,
- challenge_id TEXT NOT NULL UNIQUE, created_ms INTEGER NOT NULL,
- confirm_after INTEGER NOT NULL, expires_at INTEGER NOT NULL,
- outcome_expires_at INTEGER NOT NULL, confirmed_at INTEGER,
- PRIMARY KEY(device,incident_id)
-);
-CREATE INDEX IF NOT EXISTS idx_incident_session ON security_incidents(device,process_id,session_id,expires_at);
-CREATE INDEX IF NOT EXISTS idx_incident_expiry ON security_incidents(outcome_expires_at);
-CREATE INDEX IF NOT EXISTS idx_incident_account_time ON security_incidents(license_uid,created_ms);
-CREATE TABLE IF NOT EXISTS security_incident_nonces (
- device TEXT NOT NULL, nonce TEXT NOT NULL, expires_at INTEGER NOT NULL,
- PRIMARY KEY(device,nonce)
-);
-CREATE INDEX IF NOT EXISTS idx_incident_nonce_expiry ON security_incident_nonces(expires_at);
-CREATE TABLE IF NOT EXISTS security_incident_observations (
- device TEXT NOT NULL, observation_id TEXT NOT NULL, incident_id TEXT NOT NULL,
- phase TEXT NOT NULL, expires_at INTEGER NOT NULL,
- PRIMARY KEY(device,observation_id)
-);
-CREATE INDEX IF NOT EXISTS idx_incident_observation_expiry ON security_incident_observations(expires_at);
-"""
-
-
 class Database:
     def __init__(self, path: str) -> None:
         self.path = path
@@ -277,22 +223,6 @@ class Database:
         with self.connect() as connection:
             connection.executescript(SCHEMA)
             self._migrate(connection)
-
-    @staticmethod
-    def prune_expired_auth(connection: sqlite3.Connection, table: str, now: int) -> int:
-        """Caller owns the transaction; indexed cleanup has a fixed row budget.
-
-        Keep the final accepted second: signed session timestamps have an
-        inclusive freshness boundary. Never remove a replay marker early.
-        Table identifiers come only from this explicit internal allowlist.
-        """
-        if table not in {"challenges", "session_nonces", "active_tokens"}:
-            raise ValueError("unsupported auth expiry table")
-        return connection.execute(
-            f"DELETE FROM {table} WHERE rowid IN ("
-            f"SELECT rowid FROM {table} WHERE expires_at < ? ORDER BY expires_at LIMIT ?)",
-            (now, AUTH_EXPIRY_PRUNE_BATCH),
-        ).rowcount
 
     @staticmethod
     def _migrate(connection: sqlite3.Connection) -> None:
@@ -331,65 +261,6 @@ class Database:
             for name, declaration in columns.items():
                 if name not in existing:
                     connection.execute(f"ALTER TABLE {table} ADD COLUMN {name} {declaration}")
-        Database._migrate_incident_identities(connection)
-
-    @staticmethod
-    def _migrate_incident_identities(connection: sqlite3.Connection) -> None:
-        """Retain signed incident history across device reset; block follows account lifetime.
-
-        Only the exact earlier schema is rebuilt. Unknown constraints, triggers,
-        references or indexes require explicit review instead of silently losing them.
-        """
-        def canonical(value):
-            return " ".join(value.replace("IF NOT EXISTS ", "").strip().rstrip(";").split())
-        names = ("security_product_blocks", "security_incidents")
-        connection.execute("SAVEPOINT incident_identity_migration")
-        try:
-            for name in names:
-                start = SCHEMA.index("CREATE TABLE IF NOT EXISTS " + name + " (")
-                desired = SCHEMA[start:SCHEMA.index(";", start) + 1]
-                legacy = desired.replace("REFERENCES licenses(uid) ON DELETE CASCADE", "REFERENCES licenses(uid)")
-                if name == "security_incidents":
-                    legacy = legacy.replace("device TEXT NOT NULL,", "device TEXT NOT NULL REFERENCES devices(device_id),")
-                    legacy = legacy.replace("license_uid INTEGER NOT NULL,", "license_uid INTEGER NOT NULL REFERENCES licenses(uid),")
-                row = connection.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name=?", (name,)).fetchone()
-                if row is None:
-                    raise RuntimeError("Missing incident identity schema")
-                if canonical(row[0]) == canonical(desired):
-                    continue
-                if canonical(row[0]) != canonical(legacy):
-                    raise RuntimeError("Unrecognized incident identity schema; review migration")
-                if connection.execute("SELECT 1 FROM sqlite_master WHERE type='trigger' AND tbl_name=?", (name,)).fetchone():
-                    raise RuntimeError("Incident identity triggers require reviewed migration")
-                indexes = connection.execute("SELECT name,sql FROM sqlite_master WHERE type='index' AND tbl_name=? AND sql IS NOT NULL", (name,)).fetchall()
-                expected = {} if name == "security_product_blocks" else {
-                    "idx_incident_session": "CREATE INDEX idx_incident_session ON security_incidents(device,process_id,session_id,expires_at)",
-                    "idx_incident_expiry": "CREATE INDEX idx_incident_expiry ON security_incidents(outcome_expires_at)",
-                    "idx_incident_account_time": "CREATE INDEX idx_incident_account_time ON security_incidents(license_uid,created_ms)",
-                }
-                if {r[0]: canonical(r[1]) for r in indexes} != expected:
-                    raise RuntimeError("Incident identity indexes require reviewed migration")
-                tables = connection.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
-                for table in tables:
-                    # Table-valued PRAGMA takes the name as data, never SQL text.
-                    if connection.execute("SELECT 1 FROM pragma_foreign_key_list(?) WHERE [table]=?", (table[0], name)).fetchone():
-                        raise RuntimeError("Incident identity references require reviewed migration")
-                temporary = name + "_legacy_identity"
-                if connection.execute("SELECT 1 FROM sqlite_master WHERE name=?", (temporary,)).fetchone():
-                    raise RuntimeError("Incident identity migration destination exists")
-                connection.execute(f"ALTER TABLE {name} RENAME TO {temporary}")
-                connection.execute(desired)
-                connection.execute(f"INSERT INTO {name} SELECT * FROM {temporary}")
-                connection.execute(f"DROP TABLE {temporary}")
-                for index in indexes:
-                    connection.execute(index[1])
-                if connection.execute("SELECT 1 FROM pragma_foreign_key_check(?)", (name,)).fetchone():
-                    raise RuntimeError("Incident identity migration violates account reference")
-            connection.execute("RELEASE incident_identity_migration")
-        except BaseException:
-            connection.execute("ROLLBACK TO incident_identity_migration")
-            connection.execute("RELEASE incident_identity_migration")
-            raise
 
     @contextmanager
     def connect(self):

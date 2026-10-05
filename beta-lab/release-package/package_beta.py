@@ -61,13 +61,8 @@ def validate_media_support(media: dict[str, bytes]) -> None:
                 f"Windows media must use x64 DLLs: {name}")
 
 
-def read_zip(data: bytes, label: str, native_approval=None, artifact="payload", *,
-             combined_input: bool = False) -> dict[str, bytes]:
-    # Only the build source combines both future transport parts. All ordinary
-    # payload, bootstrap and nested-support reads retain the per-part limit.
-    compressed_limit = MAX_TOTAL if combined_input else MAX_PART
-    require(len(data) <= compressed_limit,
-            f"{label}: compressed input exceeds {compressed_limit // (1024 * 1024)} MiB")
+def read_zip(data: bytes, label: str, native_approval=None, artifact="payload") -> dict[str, bytes]:
+    require(len(data) <= MAX_PART, f"{label}: compressed input exceeds 64 MiB")
     result: dict[str, bytes] = {}
     total = 0
     with zipfile.ZipFile(io.BytesIO(data)) as archive:
@@ -103,67 +98,6 @@ def zip_bytes(entries: dict[str, bytes]) -> bytes:
             info.external_attr = 0o100644 << 16
             archive.writestr(info, data)
     return output.getvalue()
-
-
-def descriptor_classes(value: str) -> set[str]:
-    """Read JVM descriptors/generic signatures without mistaking type variables for classes."""
-    refs: set[str] = set()
-    length = len(value)
-
-    def field_type(index: int) -> int:
-        require(index < length, "Truncated type signature")
-        token = value[index]
-        if token in "+-[":
-            return field_type(index + 1)
-        if token in "BCDFIJSZV*":
-            return index + 1
-        if token == "T":
-            end = value.find(";", index + 1)
-            require(end > index + 1, "Invalid type-variable signature")
-            return end + 1
-        require(token == "L", "Invalid class signature token")
-        index += 1
-        name = ""
-        while index < length:
-            start = index
-            while index < length and value[index] not in "<.;":
-                index += 1
-            require(index > start, "Empty class signature segment")
-            name += value[start:index]
-            refs.add(name)
-            if index < length and value[index] == "<":
-                index += 1
-                while index < length and value[index] != ">":
-                    index = field_type(index)
-                require(index < length, "Unclosed generic type arguments")
-                index += 1
-            require(index < length, "Unclosed class signature")
-            if value[index] == ";":
-                return index + 1
-            require(value[index] == ".", "Invalid nested class signature")
-            name += "$"
-            index += 1
-        raise ValueError("Truncated class signature")
-
-    index = 0
-    if value.startswith("<"):
-        index = 1
-        while index < length and value[index] != ">":
-            colon = value.find(":", index)
-            require(colon > index, "Invalid formal type parameter")
-            index = colon + 1
-            if index < length and value[index] != ":":
-                index = field_type(index)
-            while index < length and value[index] == ":":
-                index = field_type(index + 1)
-        require(index < length, "Unclosed formal type parameters")
-        index += 1
-    while index < length:
-        if value[index] in "()^":
-            index += 1
-        else:
-            index = field_type(index)
-    return refs
 
 
 def class_info(data: bytes) -> tuple[str, set[str]]:
@@ -219,24 +153,15 @@ def class_info(data: bytes) -> tuple[str, set[str]]:
                 if attribute_name == "Signature":
                     require(length == 2, "Invalid generic signature attribute")
                     descriptors.append(struct.unpack(">H", value)[0])
-    # Class-level generic inheritance bounds are attributes after the members.
-    for _ in range(u2()):
-        attribute_name = pool[u2()]
-        length = struct.unpack(">I", stream.read(4))[0]
-        value = stream.read(length)
-        require(len(value) == length, "Truncated class attribute")
-        if attribute_name == "Signature":
-            require(length == 2, "Invalid generic signature attribute")
-            descriptors.append(struct.unpack(">H", value)[0])
     refs: set[str] = set()
     for index in class_indices:
         value = pool[pool[index]]
         if value.startswith("["):
-            refs.update(descriptor_classes(value))
+            refs.update(re.findall(r"L([^;]+);", value))
         else:
             refs.add(value)
     for index in descriptors:
-        refs.update(descriptor_classes(pool[index]))
+        refs.update(re.findall(r"L([^;<:]+)", pool[index]))
     return own_name, refs
 
 
@@ -274,9 +199,8 @@ def descriptor(base: str, key: str, release: str, digest: str, version: str, cod
 def prepare(args: argparse.Namespace) -> None:
     native_approval = native_auth_resources.from_args(args, args.release_id)
     source_path = args.input.resolve(strict=True)
-    with source_path.open("rb") as stream:
-        source_bytes = stream.read(MAX_TOTAL + 1)
-    source = read_zip(source_bytes, "client input", native_approval, combined_input=True)
+    source_bytes = source_path.read_bytes()
+    source = read_zip(source_bytes, "client input", native_approval)
     require(native_auth_resources.BUDGET_RESOURCE not in source, "Input must not supply its own native budget")
     native_budget = native_auth_resources.budget_bytes(native_approval)
     native_entries = native_auth_resources.validate_entries(source, "payload", native_approval)

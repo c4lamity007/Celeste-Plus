@@ -70,11 +70,7 @@ record HardwareFingerprint(String system, String board, String processor, List<S
     }
 
     static HardwareFingerprint collectWindowsUsingFirmware() {
-        return collectWindowsUsingFirmware(WindowsFirmwareIdentity.read());
-    }
-
-    /** Uses this request's firmware snapshot while still reading processor/monitor registry data freshly. */
-    static HardwareFingerprint collectWindowsUsingFirmware(WindowsFirmwareIdentity.Identity firmware) {
+        WindowsFirmwareIdentity.Identity firmware = WindowsFirmwareIdentity.read();
         String processorRoot = "HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0";
         String manufacturer = Advapi32Util.registryGetStringValue(WinReg.HKEY_LOCAL_MACHINE,
             processorRoot, "VendorIdentifier", REGISTRY_ACCESS);

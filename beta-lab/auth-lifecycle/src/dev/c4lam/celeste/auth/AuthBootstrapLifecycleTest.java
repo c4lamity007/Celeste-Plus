@@ -72,14 +72,12 @@ public final class AuthBootstrapLifecycleTest {
                 case "heartbeat-recovery-stop-race" -> recoveryStopRace();
                 case "heartbeat-recovery-expired" -> recoveryExpired();
                 case "heartbeat-recovery-waits-for-termination" -> recoveryWaitsForTermination();
-                case "supervisor-module-expiry-failure" -> supervisorModuleExpiryFailure();
                 default -> throw new IllegalArgumentException("Unknown scenario: " + args[0]);
             }
             System.out.println("PASS " + args[0]);
         } finally {
             worker().shutdownNow();
             supervisor().shutdownNow();
-            ((ScheduledExecutorService)field("SECURITY_WORKER")).shutdownNow();
         }
     }
 
@@ -529,18 +527,6 @@ public final class AuthBootstrapLifecycleTest {
         await(() -> AuthServiceClient.checks.get() >= 3, 4_000, "recovery after actual request exit");
         require(original.isTerminated() && worker() != original && AuthBootstrap.authorized(),
             "Healthy replacement follows old request completion");
-    }
-
-    private static void supervisorModuleExpiryFailure() throws Exception {
-        activate();
-        AuthenticatedModulePayloadProvider provider = AuthenticatedModulePayloadProvider.failingExpiry();
-        setField("modulePayloads", provider);
-        invoke("superviseHeartbeat", new Class<?>[0]);
-        CLIENT.drain();
-        assertClosedSession();
-        require(provider.closed && CLEANUPS.get() == 1, "Module expiry failure closes credentials and runtime");
-        invoke("superviseHeartbeat", new Class<?>[0]);
-        require(CLEANUPS.get() == 1, "Repeated expiry failure cannot escape or reopen authorization");
     }
 
     private static void completeAuthorization() throws Exception {

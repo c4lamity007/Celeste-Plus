@@ -16,7 +16,7 @@ import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.math.BlockPos;
 
 /** Volt/Silk AutoWeb behavior using only the aimed vanilla support face. */
-public final class AutoWebFeature implements ModuleFeature {
+final class AutoWebFeature implements ModuleFeature {
     private static final int PRIORITY = 155;
     private boolean actionDown;
     private int remaining;
@@ -31,17 +31,17 @@ public final class AutoWebFeature implements ModuleFeature {
 
     @Override
     public void onEnable(ModuleContext context) {
-        actionDown = AutoWebInventorySupport.actionKeyDown(context);
+        actionDown = InventorySupport.actionKeyDown(context);
     }
 
     @Override
     public void onStartTick(ModuleContext context) {
         MinecraftClient client = context.client();
-        boolean down = AutoWebInventorySupport.actionKeyDown(context);
+        boolean down = InventorySupport.actionKeyDown(context);
         boolean rising = down && !actionDown;
         actionDown = down;
         plan = null;
-        if (!AutoWebInventorySupport.playable(client) || !client.isWindowFocused() || client.getOverlay() != null) {
+        if (!InventorySupport.playable(client) || !client.isWindowFocused() || client.getOverlay() != null) {
             cancel();
             return;
         }
@@ -54,30 +54,30 @@ public final class AutoWebFeature implements ModuleFeature {
             if (remaining <= 0 || client.player.age > expiresAtAge) GameplayFoundation.releaseOwner(this);
             return;
         }
-        int slot = AutoWebInventorySupport.hotbarSlot(client, Items.COBWEB);
+        int slot = InventorySupport.hotbarSlot(client, Items.COBWEB);
         if (slot < 0) {
             cancel();
             return;
         }
-        plan = new Plan(client.world, hit, slot, AutoWebInventorySupport.lookAt(client.player, hit.getPos()));
-        AutoWebInventorySupport.requestRotation(this, client.player, hit.getPos(), PRIORITY, 180.0F, 90.0F);
+        plan = new Plan(client.world, hit, slot, InventorySupport.lookAt(client.player, hit.getPos()));
+        InventorySupport.requestRotation(this, client.player, hit.getPos(), PRIORITY, 180.0F, 90.0F);
     }
 
     @Override
     public void onActionTick(ModuleContext context) {
         Plan selected = plan;
-        if (selected == null || !AutoWebInventorySupport.rotationReady(this, selected.rotation, 8.0F)) return;
+        if (selected == null || !InventorySupport.rotationReady(this, selected.rotation, 8.0F)) return;
         ActionScheduler.getInstance().submit(this, PRIORITY, client -> {
-            if (!AutoWebInventorySupport.playable(client) || !client.isWindowFocused() || client.getOverlay() != null
+            if (!InventorySupport.playable(client) || !client.isWindowFocused() || client.getOverlay() != null
                 || client.world != selected.world || !context.module().enabled()
                 || remaining <= 0 || client.player.age > expiresAtAge || !delayElapsed(context)
-                || !AutoWebInventorySupport.sameHit(client.crosshairTarget, selected.hit) || !valid(client, selected.hit)
+                || !InventorySupport.sameHit(client.crosshairTarget, selected.hit) || !valid(client, selected.hit)
                 || selected.slot > 8 || !client.player.getInventory().getStack(selected.slot).isOf(Items.COBWEB)
-                || !AutoWebInventorySupport.rotationReady(this, selected.rotation, 8.0F)) return;
+                || !InventorySupport.rotationReady(this, selected.rotation, 8.0F)) return;
             SilentSlotManager.getInstance().runWithSlot(this, selected.slot, PRIORITY,
                 context.toggle("Silent swap", true), () -> {
                 if (valid(client, selected.hit)
-                    && AutoWebInventorySupport.interactBlock(client, Hand.MAIN_HAND, selected.hit)) {
+                    && InventorySupport.interactBlock(client, Hand.MAIN_HAND, selected.hit)) {
                     lastActionAge = client.player.age;
                     remaining--;
                 }

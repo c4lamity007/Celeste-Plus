@@ -1,12 +1,10 @@
 package dev.c4lam.celeste.module.impl.visual.expansion;
 
-import dev.c4lam.celeste.render.geometry.WorldLineStrip;
-import dev.c4lam.celeste.render.geometry.WorldBox;
 import dev.c4lam.celeste.module.ModuleContext;
 import dev.c4lam.celeste.module.ModuleFeature;
 import dev.c4lam.celeste.render.RenderUtil;
 import dev.c4lam.celeste.render.font.Fonts;
-import dev.c4lam.celeste.gui.HudTransparentScreen;
+import dev.c4lam.celeste.module.expansion.inventory.SilentInventoryScreen;
 import net.fabricmc.fabric.api.client.rendering.v1.world.WorldExtractionContext;
 import net.minecraft.block.Blocks;
 import net.minecraft.block.DispenserBlock;
@@ -1353,8 +1351,8 @@ public final class FakeGambleFeature implements ModuleFeature {
     }
 
     /** Bounded presentation of existing local selections; does not inspect or create prize slots. */
-    public static void extract(WorldExtractionContext context, List<WorldBox> boxes,
-                        List<WorldLineStrip> lines) {
+    static void extract(WorldExtractionContext context, List<VisualExpansionRenderer.WorldBox> boxes,
+                        List<VisualExpansionRenderer.WorldLineStrip> lines) {
         MinecraftClient client = MinecraftClient.getInstance();
         if (!enabled || !selectionMarkers || client.player == null || !client.player.isAlive()
             || client.world != context.world() || client.options.hudHidden) return;
@@ -1366,8 +1364,8 @@ public final class FakeGambleFeature implements ModuleFeature {
     }
 
     private static void selection(BlockPos pos, int rgb, MinecraftClient client,
-                                  List<WorldBox> boxes,
-                                  List<WorldLineStrip> lines) {
+                                  List<VisualExpansionRenderer.WorldBox> boxes,
+                                  List<VisualExpansionRenderer.WorldLineStrip> lines) {
         if (!client.world.getBlockState(pos).isOf(Blocks.DISPENSER)
             || client.player.squaredDistanceTo(pos.toCenterPos()) > 4096D) return;
         double phase = System.nanoTime() / 1_000_000_000D;
@@ -1375,9 +1373,9 @@ public final class FakeGambleFeature implements ModuleFeature {
         double x = pos.getX();
         double y = pos.getY() + 1.014D;
         double z = pos.getZ();
-        boxes.add(new WorldBox(
+        boxes.add(new VisualExpansionRenderer.WorldBox(
             new Box(x - 0.018D, y, z - 0.018D, x + 1.018D, y + 0.012D, z + 1.018D),
-            dev.c4lam.celeste.render.geometry.WorldBox.argb(0.08F, rgb), 0, 1F));
+            VisualExpansionRenderer.argb(0.08F, rgb), 0, 1F));
         for (int index = 0; index < 4; index++) {
             double cornerX = x + (index == 1 || index == 2 ? 1.03D : -0.03D);
             double cornerZ = z + (index >= 2 ? 1.03D : -0.03D);
@@ -1385,17 +1383,17 @@ public final class FakeGambleFeature implements ModuleFeature {
             double dz = index >= 2 ? -0.24D : 0.24D;
             List<Vec3d> corner = List.of(new Vec3d(cornerX + dx, y + 0.014D, cornerZ),
                 new Vec3d(cornerX, y + 0.014D, cornerZ), new Vec3d(cornerX, y + 0.014D, cornerZ + dz));
-            lines.add(new WorldLineStrip(corner,
-                dev.c4lam.celeste.render.geometry.WorldBox.argb(pulse * 0.15F, rgb), 5F));
-            lines.add(new WorldLineStrip(corner,
-                dev.c4lam.celeste.render.geometry.WorldBox.argb(pulse, rgb), 1.5F));
+            lines.add(new VisualExpansionRenderer.WorldLineStrip(corner,
+                VisualExpansionRenderer.argb(pulse * 0.15F, rgb), 5F));
+            lines.add(new VisualExpansionRenderer.WorldLineStrip(corner,
+                VisualExpansionRenderer.argb(pulse, rgb), 1.5F));
         }
     }
 
     public static void renderHud(MinecraftClient client, int width, int height) {
         if (!enabled || !roundDisplay || client.player == null || !client.player.isAlive()
             || client.world == null || client.options.hudHidden
-            || (client.currentScreen != null && !(client.currentScreen instanceof HudTransparentScreen))) return;
+            || (client.currentScreen != null && !(client.currentScreen instanceof SilentInventoryScreen))) return;
         int primed = selection.positions().size();
         RoundResult result = lastRound;
         long now = System.nanoTime();

@@ -223,13 +223,6 @@ class ActualPrivateReviewTest(unittest.TestCase):
 
     def test_mixed_process_lifetime_or_unreviewed_observer_is_rejected(self):
         review, original_files = verifier.load_review(self.directory)
-        if verifier.gate.source_digest("celeste_plus") != review["source_sha256"]:
-            # This private receipt predates the current native sources. Verify
-            # that it remains rejected; its nested observations cannot be used
-            # to exercise later validation stages until freshly reviewed.
-            with self.assertRaisesRegex(ValueError, "Current native sources differ from review"):
-                verifier.verify(self.binary, self.original, self.directory)
-            return
         for field, value in (("process_created_filetime", 1), ("observer_sha256", "0" * 64)):
             files = dict(original_files)
             name = review["observations"][1]

@@ -12,24 +12,7 @@ The [small launcher](beta-lab/mini-launcher/README.md), `Celeste+Setup.exe`, dow
 
 The [Windows download](https://github.com/c4lamity007/Celeste-Plus/releases/tag/celeste-plus-20260928-mini-01) is about **1.6 MB**. The final build passed 22 release tests and a live download, automatic open, UI rendering and normal-exit cleanup check. Windows **Unknown publisher** remains accepted. See the linked README for build instructions and cleanup limits.
 
-The [September 28 authentication payload](docs/native-auth-20260928.md), `celeste-plus-20260928-native-auth-02`, virtualizes 16 selected methods across three authentication classes. Its 41 final native checks and 15 Java continuation stages passed. These are historical artifact and fixture results, not a pointer to the current release or Minecraft gameplay QA.
-
-## Current authentication development
-
-The [security incident protocol](auth-service/SECURITY_INCIDENTS.md) adds signed,
-request-bound warning and confirmation messages for direct current-process
-debugger signals and verified mutations of retained approved bytes. Enforcement
-is disabled until the operator explicitly selects its product scope and supplies
-both installation and approved-release allowlists. Eligibility requires an exact
-match in both lists and is rechecked on each incident mutation. Network
-errors and unavailable probes do not count as detections. This source change is
-not a statement that an owner or public release has been deployed.
-
-The [Code Virtualizer Control MCP](tools/codevirtualizer-control/README.md)
-provides five local tools for the pinned demo installation. Its source and
-synthetic tests are included; the vendor executable, local configuration and
-licenses are not. Compilation remains blocked until a real saved project has
-been reviewed. No combined Code Virtualizer/VMProtect artifact is approved yet.
+The current deployed [September 28 authentication payload](docs/native-auth-20260928.md), `celeste-plus-20260928-native-auth-02`, virtualizes 16 selected methods across three authentication classes. All 41 final native checks and 15 Java continuation stages passed. These are artifact and fixture checks, not Minecraft gameplay QA.
 
 ## Build and test
 

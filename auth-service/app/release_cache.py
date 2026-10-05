@@ -112,15 +112,9 @@ def verified_catalog(settings, filenames, safe_file, read_release) -> dict:
         _LOCK.release()
 
 
-def require_current(settings, filenames, safe_file, catalog, *, wait: bool = False) -> None:
-    """Check current stamps without hashing artifacts.
-
-    Transaction callers must retain the nonblocking default. Download preparation
-    outside a database transaction may wait briefly for another verifier instead
-    of rejecting a valid parallel download solely because the cache is occupied.
-    """
-    acquired = _LOCK.acquire(timeout=2) if wait else _LOCK.acquire(blocking=False)
-    if not acquired:
+def require_current(settings, filenames, safe_file, catalog) -> None:
+    """Cheap nonblocking check usable under a database transaction; never hashes artifacts."""
+    if not _LOCK.acquire(blocking=False):
         raise HTTPException(503, "release verification busy", headers={"Retry-After": "1"})
     try:
         cached = _ENTRIES.get(_key(settings))

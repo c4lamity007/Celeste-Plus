@@ -30,14 +30,6 @@ def require_entitlement(connection, license_uid: int, product: str) -> None:
     if connection.execute("SELECT 1 FROM license_entitlements WHERE license_uid=? AND product=?",
                           (license_uid, product)).fetchone() is None:
         raise HTTPException(403, f"license does not include {PRODUCT_LABELS[product]}")
-    require_product_not_blocked(connection, license_uid, product)
-
-
-def require_product_not_blocked(connection, license_uid: int, product: str) -> None:
-    # Preserve paid entitlement membership/history and the separate Standard product.
-    if product == PLUS and connection.execute(
-            "SELECT 1 FROM security_product_blocks WHERE license_uid=? AND product=?", (license_uid, PLUS)).fetchone():
-        raise HTTPException(403, "Celeste+ access has been revoked")
 
 
 def require_claim_product(claims: dict, expected: str) -> None:

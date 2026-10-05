@@ -42,17 +42,17 @@ public final class SwingAnimationFeature implements ModuleFeature {
         affectPosition = context.toggle("Affect position", true);
     }
 
-    public static void transform(AbstractClientPlayerEntity player, Hand hand, ItemStack item, MatrixStack matrices) {
+    static void transform(AbstractClientPlayerEntity player, Hand hand, ItemStack item, MatrixStack matrices) {
         transform(player, hand, item, matrices, new Matrix4f());
     }
 
     /** Capture inside vanilla's hand push; finish at the existing model-submission hook. */
-    public static void transform(AbstractClientPlayerEntity player, Hand hand, ItemStack item, MatrixStack matrices,
+    static void transform(AbstractClientPlayerEntity player, Hand hand, ItemStack item, MatrixStack matrices,
                           Matrix4f placement) {
         pending = null;
         MinecraftClient client = MinecraftClient.getInstance();
         Hand swingingHand = player.preferredHand == null ? Hand.MAIN_HAND : player.preferredHand;
-        if (!enabled || player != client.player || client.world == null || client.currentScreen instanceof dev.c4lam.celeste.gui.HandModelsEditorScreen
+        if (!enabled || player != client.player || client.world == null || HandModelsFeature.isEditing()
             || player.isUsingItem() || player.isUsingSpyglass() || player.isUsingRiptide()
             || item.isEmpty() || item.contains(DataComponentTypes.MAP_ID)
             || item.isOf(Items.CROSSBOW) || item.getSwingAnimation().type() != SwingAnimationType.WHACK
@@ -79,7 +79,7 @@ public final class SwingAnimationFeature implements ModuleFeature {
     }
 
     /** Consumed once, by the same visible item and the same pushed first-person entry. */
-    public static void finish(ItemDisplayContext context, ItemStack item) {
+    static void finish(ItemDisplayContext context, ItemStack item) {
         Pending pass = pending;
         pending = null;
         if (pass == null || !enabled || !affectPosition || pass.context != context || pass.item != item

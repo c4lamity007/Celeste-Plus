@@ -17,7 +17,6 @@ use std::fmt;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use zeroize::Zeroizing;
 
 const PRODUCT: &str = "celeste_plus";
 const MAX_TOKEN_BYTES: usize = 16_384;
@@ -162,7 +161,7 @@ pub fn download_bootstrap(
             sha256: expected_digest,
         });
     }
-    let bytes = transport.fetch(
+    let mut bytes = transport.fetch(
         &bootstrap.url,
         session,
         Some(&manifest),
@@ -170,17 +169,20 @@ pub fn download_bootstrap(
         bootstrap.size,
         obfstr::obfstr!("application/octet-stream"),
     )?;
-    verify_artifact(&bytes, bootstrap)?;
-    current(installer, device, &key, &catalog, now()?)?;
-    crate::bootstrap_cache::store(&cache, &bootstrap.sha256, &bytes)?;
-    let agent = crate::bootstrap_cache::materialize(directory, &bootstrap.sha256, &bytes)?;
-    // The owned transport buffer wipes on every return path, including failure.
-    Ok(VerifiedBootstrap {
-        agent,
-        release: catalog.release.clone(),
-        catalog_sha256: catalog.catalog_sha256.clone(),
-        sha256: expected_digest,
-    })
+    let result = (|| {
+        verify_artifact(&bytes, bootstrap)?;
+        current(installer, device, &key, &catalog, now()?)?;
+        crate::bootstrap_cache::store(&cache, &bootstrap.sha256, &bytes)?;
+        let agent = crate::bootstrap_cache::materialize(directory, &bootstrap.sha256, &bytes)?;
+        Ok(VerifiedBootstrap {
+            agent,
+            release: catalog.release.clone(),
+            catalog_sha256: catalog.catalog_sha256.clone(),
+            sha256: expected_digest,
+        })
+    })();
+    bytes.fill(0);
+    result
 }
 
 fn manifest_from_response(bytes: &[u8]) -> Result<String> {
@@ -773,7 +775,7 @@ impl HttpsTransport {
         request_nonce: Option<&str>,
         limit: usize,
         media_type: &str,
-    ) -> Result<Zeroizing<Vec<u8>>> {
+    ) -> Result<Vec<u8>> {
         ensure!(
             limit > 0 && limit <= MAX_ARTIFACT_BYTES,
             "{}",
@@ -856,9 +858,9 @@ impl HttpsTransport {
         )?;
         let bytes = read_bounded(response.into_reader(), advertised, transport_limit)?;
         if let Some(key) = encrypted {
-            key.decrypt(bytes, path, &session.grant, limit)
+            Ok(key.decrypt(&bytes, path, &session.grant, limit)?.to_vec())
         } else {
-            Ok(Zeroizing::new(bytes))
+            Ok(bytes)
         }
     }
 }

@@ -17,7 +17,7 @@ public final class JumpCirclesFeature implements ModuleFeature {
     private static final int MAX_PULSES = 6;
     private static final int MAX_WAVE_PULSES = 2;
     private static final int MAX_QUADS = 300; // Two complete water waves plus supporting floor rings.
-    private final JumpCirclesJumpCircleAnimation.Clock clock = new JumpCirclesJumpCircleAnimation.Clock();
+    private final JumpCircleAnimation.Clock clock = new JumpCircleAnimation.Clock();
     private volatile List<Pulse> pulses = List.of();
     private volatile boolean enabled;
     private ClientWorld observedWorld;
@@ -64,7 +64,7 @@ public final class JumpCirclesFeature implements ModuleFeature {
         if (!enabled || player == null || startPosition == null || observedWorld != client.world) return;
         Vec3d position = player.getEntityPos();
         boolean jumping = player.input.playerInput.jump() || client.options.jumpKey.isPressed();
-        boolean takeoff = JumpCirclesJumpCircleAnimation.takeoff(startGrounded, player.isOnGround(), jumping,
+        boolean takeoff = JumpCircleAnimation.takeoff(startGrounded, player.isOnGround(), jumping,
             allowed(player), position.y - startPosition.y, position.squaredDistanceTo(startPosition));
         Vec3d origin = startPosition.add(0.0, 0.028, 0.0);
         startGrounded = false;
@@ -74,11 +74,11 @@ public final class JumpCirclesFeature implements ModuleFeature {
         List<Pulse> next = new ArrayList<>(pulses);
         while (next.size() >= MAX_PULSES) next.removeFirst();
         // The captured grounded position keeps the effect fixed, including on slabs/stairs.
-        next.add(new Pulse(origin, now, duration, size, intensity, style, shrink, now % JumpCirclesVisualEffects.TAU));
+        next.add(new Pulse(origin, now, duration, size, intensity, style, shrink, now % VisualEffects.TAU));
         pulses = List.copyOf(next);
     }
 
-    public void extract(WorldExtractionContext context, List<JumpCirclesWorldGlowRenderer.Quad> output) {
+    void extract(WorldExtractionContext context, List<WorldGlowRenderer.Quad> output) {
         MinecraftClient client = MinecraftClient.getInstance();
         if (!enabled || client.player == null || !client.player.isAlive()
             || observedWorld != context.world() || pulses.isEmpty()) return;
@@ -95,43 +95,43 @@ public final class JumpCirclesFeature implements ModuleFeature {
                 if (output.size() + 2 > limit) continue;
                 boolean splash = "Splash".equals(pulse.style());
                 double age = (now - pulse.born()) / pulse.duration();
-                double alpha = JumpCirclesJumpCircleAnimation.opacity(age) * pulse.intensity();
+                double alpha = JumpCircleAnimation.opacity(age) * pulse.intensity();
                 if (alpha < .003) continue;
-                int color = splash ? JumpCirclesVisualEffects.mix(0x43C8FF, 0xA8F4FF, age * .65)
-                    : JumpCirclesVisualEffects.color("Celeste", 0, now, pulse.phase() / JumpCirclesVisualEffects.TAU);
-                JumpCirclesWorldGlowRenderer.Texture texture = splash ? JumpCirclesWorldGlowRenderer.Texture.SPLASH
-                    : JumpCirclesWorldGlowRenderer.Texture.JUMP_CLASSIC;
-                ground(output, texture, pulse.origin(), JumpCirclesJumpCircleAnimation.radius(age, pulse.size()),
+                int color = splash ? VisualEffects.mix(0x43C8FF, 0xA8F4FF, age * .65)
+                    : VisualEffects.color("Celeste", 0, now, pulse.phase() / VisualEffects.TAU);
+                WorldGlowRenderer.Texture texture = splash ? WorldGlowRenderer.Texture.SPLASH
+                    : WorldGlowRenderer.Texture.JUMP_CLASSIC;
+                ground(output, texture, pulse.origin(), JumpCircleAnimation.radius(age, pulse.size()),
                     pulse.phase() + age * .20, color, color, alpha * (splash ? .45 : 1));
                 double echoAge = (age - .13) / .87;
                 ground(output, texture, pulse.origin().add(0, .009, 0),
-                    JumpCirclesJumpCircleAnimation.radius(echoAge, pulse.size() * .77),
+                    JumpCircleAnimation.radius(echoAge, pulse.size() * .77),
                     -pulse.phase() - age * .13, color, color,
-                    JumpCirclesJumpCircleAnimation.opacity(echoAge) * pulse.intensity() * .27 * (splash ? .20 : 1));
+                    JumpCircleAnimation.opacity(echoAge) * pulse.intensity() * .27 * (splash ? .20 : 1));
                 if (splash && waterPulses++ < MAX_WAVE_PULSES && waveBudget >= 48) {
                     int used = water(output, Math.min(waveBudget, limit - output.size()), pulse, age, color);
                     waveBudget -= used;
                 }
             } else {
                 // Keep both added styles and their configured grow/hold/shrink timing.
-                JumpCirclesJumpCircleAnimation.Frame frame = JumpCirclesJumpCircleAnimation.frame(now - pulse.born(),
+                JumpCircleAnimation.Frame frame = JumpCircleAnimation.frame(now - pulse.born(),
                     pulse.duration(), pulse.size(), pulse.shrink());
                 double alpha = frame.opacity() * pulse.intensity();
                 if (alpha < .003) continue;
-                int color = JumpCirclesVisualEffects.color("Celeste", 0, now, pulse.phase() / JumpCirclesVisualEffects.TAU);
-                int accent = JumpCirclesVisualEffects.color("Celeste", 0, now, pulse.phase() / JumpCirclesVisualEffects.TAU + .4);
-                ground(output, "Lean".equals(pulse.style()) ? JumpCirclesWorldGlowRenderer.Texture.JUMP_LEAN : JumpCirclesWorldGlowRenderer.Texture.JUMP,
+                int color = VisualEffects.color("Celeste", 0, now, pulse.phase() / VisualEffects.TAU);
+                int accent = VisualEffects.color("Celeste", 0, now, pulse.phase() / VisualEffects.TAU + .4);
+                ground(output, "Lean".equals(pulse.style()) ? WorldGlowRenderer.Texture.JUMP_LEAN : WorldGlowRenderer.Texture.JUMP,
                     pulse.origin(), frame.radius(), frame.rotation() + pulse.phase(), color, accent, alpha);
             }
         }
     }
 
-    private static int water(List<JumpCirclesWorldGlowRenderer.Quad> output, int budget, Pulse pulse,
+    private static int water(List<WorldGlowRenderer.Quad> output, int budget, Pulse pulse,
                              double age, int color) {
         List<WaterJumpMesh.Face> faces = WaterJumpMesh.build(age, pulse.size(), pulse.phase(), budget);
         for (WaterJumpMesh.Face face : faces) {
-            int tint = dev.c4lam.celeste.render.geometry.WorldBox.argb((float) (face.opacity() * pulse.intensity()), color);
-            output.add(new JumpCirclesWorldGlowRenderer.Quad(JumpCirclesWorldGlowRenderer.Texture.WATER,
+            int tint = VisualExpansionRenderer.argb((float) (face.opacity() * pulse.intensity()), color);
+            output.add(new WorldGlowRenderer.Quad(WorldGlowRenderer.Texture.WATER,
                 worldPoint(pulse.origin(), face.a()), worldPoint(pulse.origin(), face.b()),
                 worldPoint(pulse.origin(), face.c()), worldPoint(pulse.origin(), face.d()),
                 tint, tint, face.uStart(), face.uEnd()));
@@ -143,14 +143,14 @@ public final class JumpCirclesFeature implements ModuleFeature {
         return origin.add(point.x(), point.y(), point.z());
     }
 
-    private static void ground(List<JumpCirclesWorldGlowRenderer.Quad> output, JumpCirclesWorldGlowRenderer.Texture texture,
+    private static void ground(List<WorldGlowRenderer.Quad> output, WorldGlowRenderer.Texture texture,
                                Vec3d center, double radius, double rotation, int color, int accent, double alpha) {
         if (alpha < .003) return;
         Vec3d u = new Vec3d(Math.cos(rotation) * radius, 0, Math.sin(rotation) * radius);
         Vec3d v = new Vec3d(-Math.sin(rotation) * radius, 0, Math.cos(rotation) * radius);
-        output.add(new JumpCirclesWorldGlowRenderer.Quad(texture, center.subtract(u).subtract(v), center.add(u).subtract(v),
-            center.add(u).add(v), center.subtract(u).add(v), dev.c4lam.celeste.render.geometry.WorldBox.argb((float) alpha, color),
-            dev.c4lam.celeste.render.geometry.WorldBox.argb((float) alpha, accent)));
+        output.add(new WorldGlowRenderer.Quad(texture, center.subtract(u).subtract(v), center.add(u).subtract(v),
+            center.add(u).add(v), center.subtract(u).add(v), VisualExpansionRenderer.argb((float) alpha, color),
+            VisualExpansionRenderer.argb((float) alpha, accent)));
     }
 
     private static boolean allowed(ClientPlayerEntity player) {

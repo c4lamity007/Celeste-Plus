@@ -1,7 +1,5 @@
 package dev.c4lam.celeste.module.impl.visual.expansion;
 
-import dev.c4lam.celeste.render.geometry.WorldLineStrip;
-import dev.c4lam.celeste.render.geometry.WorldBox;
 import dev.c4lam.celeste.friend.FriendManager;
 import dev.c4lam.celeste.hud.HudTargetTracker;
 import dev.c4lam.celeste.module.ModuleContext;
@@ -64,18 +62,18 @@ public final class TargetEspFeature implements ModuleFeature {
         acquiredId = -1;
     }
 
-    public void extract(WorldExtractionContext context, List<WorldBox> boxes,
-                 List<WorldLineStrip> lines) {
+    void extract(WorldExtractionContext context, List<VisualExpansionRenderer.WorldBox> boxes,
+                 List<VisualExpansionRenderer.WorldLineStrip> lines) {
         extract(context, boxes, lines, null);
     }
 
-    public void extract(WorldExtractionContext context, List<WorldBox> boxes,
-                 List<WorldLineStrip> lines, List<TargetEspWorldGlowRenderer.Quad> glows) {
+    void extract(WorldExtractionContext context, List<VisualExpansionRenderer.WorldBox> boxes,
+                 List<VisualExpansionRenderer.WorldLineStrip> lines, List<WorldGlowRenderer.Quad> glows) {
         extract(context, boxes, lines, glows, 768);
     }
 
-    public void extract(WorldExtractionContext context, List<WorldBox> boxes,
-                 List<WorldLineStrip> lines, List<TargetEspWorldGlowRenderer.Quad> glows, int quadLimit) {
+    void extract(WorldExtractionContext context, List<VisualExpansionRenderer.WorldBox> boxes,
+                 List<VisualExpansionRenderer.WorldLineStrip> lines, List<WorldGlowRenderer.Quad> glows, int quadLimit) {
         ClientPlayerEntity self = MinecraftClient.getInstance().player;
         if (!enabled || self == null || self.getEntityWorld() != context.world()) return;
         long now = Util.getMeasuringTimeMs();
@@ -111,34 +109,34 @@ public final class TargetEspFeature implements ModuleFeature {
         double alpha = opacity * enter * exit * distanceFade * (0.94D + 0.06D * Math.sin(phase * 1.2D));
         Box bounds = target.getBoundingBox().offset(interpolated.subtract(target.getEntityPos()));
         Vec3d center = bounds.getCenter();
-        int color = TargetEspVisualEffects.color(theme, customColor, time, 0.0D);
+        int color = VisualEffects.color(theme, customColor, time, 0.0D);
         if (glows == null) {
             // Compatibility extraction has no material batch; keep a simple
             // target box there, never a hairline fallback in the actual path.
-            boxes.add(new WorldBox(bounds,
-                dev.c4lam.celeste.render.geometry.WorldBox.argb((float) (alpha * 0.045D), color),
-                dev.c4lam.celeste.render.geometry.WorldBox.argb((float) (alpha * 0.85D), color), 1.4F));
+            boxes.add(new VisualExpansionRenderer.WorldBox(bounds,
+                VisualExpansionRenderer.argb((float) (alpha * 0.045D), color),
+                VisualExpansionRenderer.argb((float) (alpha * 0.85D), color), 1.4F));
             return;
         }
         int available = Math.max(0, Math.min(Math.min(768, quadLimit) - glows.size(), MAX_EFFECT_QUADS));
-        int main = dev.c4lam.celeste.render.geometry.WorldBox.argb((float) (alpha * (.78D + glow * .16D)), color);
-        int accent = dev.c4lam.celeste.render.geometry.WorldBox.argb((float) (alpha * (.70D + glow * .16D)),
-            TargetEspVisualEffects.color(theme, customColor, time, .45D));
-        List<TargetEspSolidVisualMesh.Face> mesh = "Box".equals(style)
+        int main = VisualExpansionRenderer.argb((float) (alpha * (.78D + glow * .16D)), color);
+        int accent = VisualExpansionRenderer.argb((float) (alpha * (.70D + glow * .16D)),
+            VisualEffects.color(theme, customColor, time, .45D));
+        List<SolidVisualMesh.Face> mesh = "Box".equals(style)
             ? TargetOrbitMesh.box(bounds.getLengthX(), bounds.getLengthZ(), bounds.getLengthY(), phase,
-                dev.c4lam.celeste.render.geometry.WorldBox.argb((float) (alpha * .34D), color),
-                dev.c4lam.celeste.render.geometry.WorldBox.argb((float) (alpha * .28D), color), main, available)
+                VisualExpansionRenderer.argb((float) (alpha * .34D), color),
+                VisualExpansionRenderer.argb((float) (alpha * .28D), color), main, available)
             : TargetOrbitMesh.build(style, bounds.getLengthX(), bounds.getLengthZ(), bounds.getLengthY(),
                 radius, phase, main, accent, available);
         Vec3d origin = new Vec3d(center.x, bounds.minY, center.z);
-        TargetEspWorldGlowRenderer.Texture material = "Box".equals(style) ? TargetEspWorldGlowRenderer.Texture.PRISM : TargetEspWorldGlowRenderer.Texture.VOLUME;
-        for (TargetEspSolidVisualMesh.Face face : mesh) {
-            glows.add(new TargetEspWorldGlowRenderer.Quad(material, point(origin, face.a()), point(origin, face.b()),
+        WorldGlowRenderer.Texture material = "Box".equals(style) ? WorldGlowRenderer.Texture.PRISM : WorldGlowRenderer.Texture.VOLUME;
+        for (SolidVisualMesh.Face face : mesh) {
+            glows.add(new WorldGlowRenderer.Quad(material, point(origin, face.a()), point(origin, face.b()),
                 point(origin, face.c()), point(origin, face.d()), face.color(), face.endColor(), face.uStart(), face.uEnd()));
         }
     }
 
-    private static Vec3d point(Vec3d origin, TargetEspSolidVisualMesh.Point point) {
+    private static Vec3d point(Vec3d origin, SolidVisualMesh.Point point) {
         return origin.add(point.x(), point.y(), point.z());
     }
 

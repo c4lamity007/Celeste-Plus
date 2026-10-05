@@ -63,7 +63,7 @@ def write_archive(path,entries):
             jar.writestr(item,data)
 def sources():
     values=java_release.source_inputs()
-    for relative in ('tools/protect_auth_native_release.py','tools/qa/NativeMethodParity.java','tools/qa/AuthNativeSelectionCheck.java','beta-lab/obfuscation/native-auth-producer.json'):
+    for relative in ('tools/protect_auth_native_release.py','tools/qa/NativeMethodParity.java','beta-lab/obfuscation/native-auth-producer.json'):
         values[relative]=sha(read(ROOT/relative))
     return dict(sorted(values.items()))
 def inventory(root):
@@ -165,7 +165,7 @@ def prepare(args):
     java=args.java_home.resolve()/'bin/java.exe';javac=args.java_home.resolve()/'bin/javac.exe'
     parity=output/'parity-classes';parity.mkdir()
     cp=tool_cp(bundle,tool,'reembed_classpath')
-    command_step(output,'compile-method-parity',[javac,'-Xlint:all','-Werror','-cp',cp,'-d',parity,ROOT/'tools/qa/NativeMethodParity.java',ROOT/'tools/qa/AuthNativeSelectionCheck.java'])
+    command_step(output,'compile-method-parity',[javac,'-Xlint:all','-Werror','-cp',cp,'-d',parity,ROOT/'tools/qa/NativeMethodParity.java'])
     candidates={};parts=[]
     for kind,owner in OWNERS.items():
         stage=output/kind;stage.mkdir()
@@ -174,8 +174,6 @@ def prepare(args):
         write_archive(source,{owner+'.class':entries[owner+'.class']})
         write_archive(support,{n:b for n,b in entries.items() if n!=owner+'.class'})
         methods_path=tool/bundle['selections'][kind]['methods'];methods=read(methods_path).decode().splitlines()
-        before=stage/'before.class';before.write_bytes(entries[owner+'.class'])
-        command_step(output,'selection-'+kind,[java,'-cp',str(parity)+os.pathsep+cp,'AuthNativeSelectionCheck',before,methods_path],required_output=['PASS native-selector-bodies='])
         profile=stage/'profile.json';write_json(profile,native_profile(source,target,[support,*parents],owner))
         command_step(output,'native-'+kind,[java,'-Xmx2g','-Dceleste.prototype.callLocalJni=true','-Dceleste.prototype.nativeOnly=true',
           '-Dceleste.prototype.methods='+str(methods_path),'-Dceleste.prototype.export='+str(export),
@@ -204,9 +202,6 @@ def prepare(args):
       'java_home':str(args.java_home.resolve()),'candidates':candidates,
       'release_arguments':{k:getattr(args,k) for k in ('tool_sha256','release_id','client_version','base_url','server_key','offline')},
       'parents':report['parent_dependencies'],'files':inventory(output),'production_approved':False}
-    if getattr(args, 'module_preparation', None) is not None:
-        sealed['release_arguments']['module_preparation'] = str(Path(args.module_preparation).resolve(strict=True))
-        sealed['release_arguments']['module_preparation_sha256'] = args.module_preparation_sha256
     write_json(output/'checkpoint.json',sealed)
     print(json.dumps({'checkpoint':str(output/'checkpoint.json'),'checkpoint_sha256':sha(read(output/'checkpoint.json')),'status':sealed['status']}))
 
@@ -304,8 +299,6 @@ def main():
     p=sub.add_parser('prepare-native-candidate')
     for name in ('input','obfuscator','parent-classpath','java-home','output','descriptor-module','native-tool-bundle'):p.add_argument('--'+name,type=Path,required=True)
     for name in ('tool-sha256','release-id','client-version','base-url','server-key','native-tool-sha256'):p.add_argument('--'+name,required=True)
-    p.add_argument('--module-preparation',type=Path)
-    p.add_argument('--module-preparation-sha256')
     p.add_argument('--offline',action='store_true')
     r=sub.add_parser('resume-with-approved-index')
     for name in ('checkpoint','output','verification-plan'):r.add_argument('--'+name,type=Path,required=True)

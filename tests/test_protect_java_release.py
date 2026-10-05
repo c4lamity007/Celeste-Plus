@@ -103,7 +103,7 @@ class ProtectionRunnerCheck(unittest.TestCase):
             input=self.jar,descriptor_module=descriptor,java_home=java_home,offline=True)
         with patch.object(tool,'source_inputs',return_value={}), \
              patch.object(subprocess,'run',return_value=SimpleNamespace(returncode=17)), \
-             self.assertRaisesRegex(ValueError,'auth-namespace-compile'):
+             self.assertRaisesRegex(ValueError,'payload-stage'):
             tool.run(args)
         receipt=json.loads((args.output/'receipt.json').read_bytes())
         self.assertEqual(receipt['status'],'failed-not-published')

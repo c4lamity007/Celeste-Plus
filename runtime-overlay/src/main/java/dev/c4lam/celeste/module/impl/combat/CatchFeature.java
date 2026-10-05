@@ -23,7 +23,7 @@ import org.lwjgl.glfw.GLFW;
 
 import java.util.concurrent.ThreadLocalRandom;
 
-import static dev.c4lam.celeste.module.impl.combat.CatchHorizontalPearlTrajectory.*;
+import static dev.c4lam.celeste.module.impl.combat.HorizontalPearlTrajectory.*;
 
 /** Throws a pearl straight up, follows it with a wind charge, then restores cleanly. */
 public final class CatchFeature implements ModuleFeature {
@@ -71,8 +71,8 @@ public final class CatchFeature implements ModuleFeature {
         }
 
         if (stage == Stage.IDLE && pressed) {
-            int pearl = CatchCombatLoadout.findItem(client, Items.ENDER_PEARL);
-            int charge = CatchCombatLoadout.findItem(client, Items.WIND_CHARGE);
+            int pearl = CombatLoadout.findItem(client, Items.ENDER_PEARL);
+            int charge = CombatLoadout.findItem(client, Items.WIND_CHARGE);
             if (pearl >= 0 && charge >= 0 && !coolingDown(client, pearl) && !coolingDown(client, charge)) {
                 visiblePlayer = client.player;
                 visibleWorld = client.world;
@@ -112,7 +112,7 @@ public final class CatchFeature implements ModuleFeature {
         }
 
         if (stage == Stage.WAIT_CHARGE && now >= readyAtNanos) {
-            if (CatchCombatLoadout.findItem(client, Items.WIND_CHARGE) < 0) {
+            if (CombatLoadout.findItem(client, Items.WIND_CHARGE) < 0) {
                 beginRestore(context);
             } else {
                 enter(Stage.AIM_CHARGE);
@@ -158,7 +158,7 @@ public final class CatchFeature implements ModuleFeature {
         }
 
         boolean pearl = stage == Stage.AIM_PEARL;
-        int slot = CatchCombatLoadout.findItem(client, pearl ? Items.ENDER_PEARL : Items.WIND_CHARGE);
+        int slot = CombatLoadout.findItem(client, pearl ? Items.ENDER_PEARL : Items.WIND_CHARGE);
         if (slot < 0 || coolingDown(client, slot) || !useSlot(context, slot)) {
             return;
         }
@@ -193,7 +193,7 @@ public final class CatchFeature implements ModuleFeature {
     private void submitGlidingRotation(ModuleContext context) {
         MinecraftClient client = context.client();
         if (stage == Stage.AIM_PEARL || stage == Stage.AIM_CHARGE) {
-            int slot = CatchCombatLoadout.findItem(client, stage == Stage.AIM_PEARL ? Items.ENDER_PEARL : Items.WIND_CHARGE);
+            int slot = CombatLoadout.findItem(client, stage == Stage.AIM_PEARL ? Items.ENDER_PEARL : Items.WIND_CHARGE);
             if (!ElytraSilentAim.canAim(client)
                 || !ElytraSilentAim.withinAimWindow(stageStartedTick, ActionScheduler.getInstance().tickNumber())
                 || slot < 0 || coolingDown(client, slot)
@@ -248,7 +248,7 @@ public final class CatchFeature implements ModuleFeature {
             } else if (rotations.serverRotation().angularDistanceTo(glidingAim) > .01) {
                 return;
             }
-            int slot = CatchCombatLoadout.findItem(actionClient, pearl ? Items.ENDER_PEARL : Items.WIND_CHARGE);
+            int slot = CombatLoadout.findItem(actionClient, pearl ? Items.ENDER_PEARL : Items.WIND_CHARGE);
             if (slot < 0 || coolingDown(actionClient, slot)) { beginRestore(context); return; }
             Vec eyes = vec(actionClient.player.getEyePos());
             Vec movement = inherited(vec(actionClient.player.getMovement()), actionClient.player.isOnGround());

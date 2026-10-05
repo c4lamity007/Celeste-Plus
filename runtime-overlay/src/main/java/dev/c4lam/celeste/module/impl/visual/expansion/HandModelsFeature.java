@@ -1,8 +1,6 @@
 package dev.c4lam.celeste.module.impl.visual.expansion;
 
 import dev.c4lam.celeste.gui.HandModelsEditorScreen;
-import dev.c4lam.celeste.gui.HandModelPreview;
-import dev.c4lam.celeste.gui.HandModelsLayout;
 import dev.c4lam.celeste.module.ModuleContext;
 import dev.c4lam.celeste.module.ModuleFeature;
 import net.minecraft.block.enums.CameraSubmersionType;
@@ -21,7 +19,10 @@ import org.joml.Matrix4f;
 public final class HandModelsFeature implements ModuleFeature {
     private static boolean enabled;
     private static double rightX = 0.72, rightY = 0.78, leftX = 0.28, leftY = 0.78;
+    private static double previewRightX = Double.NaN, previewRightY = Double.NaN;
+    private static double previewLeftX = Double.NaN, previewLeftY = Double.NaN;
     private static double rightSize = 1, leftSize = 1;
+    private static double previewRightSize = Double.NaN, previewLeftSize = Double.NaN;
 
     @Override public String name() { return "Hand Models"; }
     @Override public void onEnable(ModuleContext context) { update(context); enabled = true; }
@@ -44,16 +45,24 @@ public final class HandModelsFeature implements ModuleFeature {
 
     /** GUI preview is immediate even while the module is disabled or the world is paused. */
     public static void setPreviewPosition(boolean right, double x, double y) {
-        HandModelPreview.setPreviewPosition(right, x, y);
+        if (right) {
+            previewRightX = coordinate(x, 0.72);
+            previewRightY = coordinate(y, 0.78);
+        } else {
+            previewLeftX = coordinate(x, 0.28);
+            previewLeftY = coordinate(y, 0.78);
+        }
     }
 
     public static void clearPreview() {
-        HandModelPreview.clearPreview();
+        previewRightX = previewRightY = previewLeftX = previewLeftY = Double.NaN;
+        previewRightSize = previewLeftSize = Double.NaN;
         HandModelsFacing.clear();
     }
 
     public static void setPreviewSize(boolean right, double size) {
-        HandModelPreview.setPreviewSize(right, size);
+        if (right) previewRightSize = HandModelsLayout.size(size);
+        else previewLeftSize = HandModelsLayout.size(size);
     }
 
     /** Only first-person display transforms change; inventory, third-person and physical hands do not. */
@@ -65,6 +74,7 @@ public final class HandModelsFeature implements ModuleFeature {
         // Facing now follows the selected model's actual authored transform.
         // Retain physical context for every item: switching it at screen center
         // changes translations and even the basis of generated/left-hand items.
+        SwingAnimationFeature.finish(original, renderedItem);
         return original;
     }
 
@@ -75,15 +85,12 @@ public final class HandModelsFeature implements ModuleFeature {
 
     /** Use the rendered stack: equip transitions may still draw the previous hotbar item. */
     public static void transform(AbstractClientPlayerEntity player, Hand hand, ItemStack renderedItem, MatrixStack matrices) {
-        matrices.multiplyPositionMatrix(placement(player, hand, renderedItem));
-    }
-
-    /** Parent-owned matrix value; the host composes Swing Animations independently. */
-    public static Matrix4f placement(AbstractClientPlayerEntity player, Hand hand, ItemStack renderedItem) {
         MinecraftClient client = MinecraftClient.getInstance();
         boolean editing = isEditing();
-        if (player != client.player || client.world == null) return new Matrix4f();
-        return enabled || editing ? placement(player, hand, renderedItem, client, editing) : new Matrix4f();
+        if (player != client.player || client.world == null) return;
+        Matrix4f placement = enabled || editing
+            ? placement(player, hand, renderedItem, client, editing) : new Matrix4f();
+        SwingAnimationFeature.transform(player, hand, renderedItem, matrices, placement);
     }
 
     private static Matrix4f placement(AbstractClientPlayerEntity player, Hand hand, ItemStack renderedItem,
@@ -94,11 +101,11 @@ public final class HandModelsFeature implements ModuleFeature {
         double y = right ? rightY : leftY;
         double size = right ? rightSize : leftSize;
         if (editing) {
-            double px = HandModelPreview.x(right);
-            double py = HandModelPreview.y(right);
+            double px = right ? previewRightX : previewLeftX;
+            double py = right ? previewRightY : previewLeftY;
             if (Double.isFinite(px)) x = px;
             if (Double.isFinite(py)) y = py;
-            double previewSize = HandModelPreview.size(right);
+            double previewSize = right ? previewRightSize : previewLeftSize;
             if (Double.isFinite(previewSize)) size = previewSize;
         }
         double aspect = (double) Math.max(1, client.getWindow().getFramebufferWidth())

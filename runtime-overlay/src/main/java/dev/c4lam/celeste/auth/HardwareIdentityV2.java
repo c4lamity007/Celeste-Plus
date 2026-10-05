@@ -21,8 +21,6 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
 import java.util.TreeSet;
-import java.util.function.Function;
-import java.util.function.Supplier;
 
 /** Additive identity shared with native hardware_v2.rs; never changes legacy hashes. */
 final class HardwareIdentityV2 {
@@ -38,31 +36,6 @@ final class HardwareIdentityV2 {
             } catch (RuntimeException error) { throw new IllegalStateException("Windows hardware identity could not be read", error); }
         }
         return cached;
-    }
-    /** Fresh module-request identity without the session cache or a blocking WMI query. */
-    static String freshWindows() {
-        String guid = Advapi32Util.registryGetStringValue(WinReg.HKEY_LOCAL_MACHINE,
-            "SOFTWARE\\Microsoft\\Cryptography", "MachineGuid", WinNT.KEY_READ | WinNT.KEY_WOW64_64KEY);
-        byte[] raw=WindowsFirmwareIdentity.readTable();
-        try { return digest(String.join("+",firmwareIds(raw)),disk(),guid); }
-        finally { java.util.Arrays.fill(raw,(byte)0); }
-    }
-    record ModuleHardware(HardwareFingerprint fingerprint,String hwid) { }
-    /** One request-local table supplies both legacy component hashes and the all-CPU v2 hash. */
-    static ModuleHardware freshWindowsEvidence() {
-        return freshWindowsEvidence(WindowsFirmwareIdentity::readTable,HardwareFingerprint::collectWindowsUsingFirmware,
-            HardwareIdentityV2::disk,()->Advapi32Util.registryGetStringValue(WinReg.HKEY_LOCAL_MACHINE,
-                "SOFTWARE\\Microsoft\\Cryptography","MachineGuid",WinNT.KEY_READ | WinNT.KEY_WOW64_64KEY));
-    }
-    static ModuleHardware freshWindowsEvidence(Supplier<byte[]> firmwareReader,
-            Function<WindowsFirmwareIdentity.Identity,HardwareFingerprint> fingerprintReader,
-            Supplier<String> diskReader,Supplier<String> guidReader) {
-        byte[] raw=firmwareReader.get();
-        try {
-            HardwareFingerprint hardware=fingerprintReader.apply(WindowsFirmwareIdentity.parse(raw));
-            String cpu=String.join("+",firmwareIds(raw));
-            return new ModuleHardware(hardware,digest(cpu,diskReader.get(),guidReader.get()));
-        } finally { if(raw!=null)java.util.Arrays.fill(raw,(byte)0); }
     }
     static String digest(String cpu, String disk, String guid) {
         return Crypto.sha256(normalize(cpu) + ":" + normalize(disk) + ":" + normalize(guid));
@@ -99,9 +72,13 @@ final class HardwareIdentityV2 {
             if (ids.isEmpty()) throw new IllegalStateException("Processor identity unavailable");
             return String.join("+", ids);
         } catch (RuntimeException error) {
-            byte[] raw=WindowsFirmwareIdentity.readTable();
-            try { return String.join("+",firmwareIds(raw)); }
-            finally { java.util.Arrays.fill(raw,(byte)0); }
+            int count = SystemApi.INSTANCE.GetSystemFirmwareTable(0x52534d42, 0, null, 0);
+            if (count < 8 || count > 4 * 1024 * 1024) throw new IllegalStateException("Firmware identity unavailable");
+            try (Memory memory = new Memory(count)) {
+                if (SystemApi.INSTANCE.GetSystemFirmwareTable(0x52534d42, 0, memory, count) != count)
+                    throw new IllegalStateException("Firmware table changed");
+                return String.join("+", firmwareIds(memory.getByteArray(0, count)));
+            }
         } finally { if (hr == 0 || hr == 1) Ole32.INSTANCE.CoUninitialize(); }
     }
     static List<String> firmwareIds(byte[] raw) {
@@ -165,6 +142,7 @@ final class HardwareIdentityV2 {
     private interface SystemApi extends StdCallLibrary {
         SystemApi INSTANCE = Native.load("kernel32", SystemApi.class, W32APIOptions.UNICODE_OPTIONS);
         int GetWindowsDirectoryW(char[] buffer, int size);
+        int GetSystemFirmwareTable(int provider, int table, Pointer buffer, int size);
         boolean DeviceIoControl(WinNT.HANDLE handle, int code, Pointer input, int inputSize, Pointer output,
                               int outputSize, IntByReference returned, Pointer overlapped);
     }

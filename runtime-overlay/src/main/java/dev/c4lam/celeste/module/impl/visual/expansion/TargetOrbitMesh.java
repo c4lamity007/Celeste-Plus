@@ -2,8 +2,8 @@ package dev.c4lam.celeste.module.impl.visual.expansion;
 
 import java.util.ArrayList;
 import java.util.List;
-import dev.c4lam.celeste.module.impl.visual.expansion.TargetEspSolidVisualMesh.Face;
-import dev.c4lam.celeste.module.impl.visual.expansion.TargetEspSolidVisualMesh.Point;
+import dev.c4lam.celeste.module.impl.visual.expansion.SolidVisualMesh.Face;
+import dev.c4lam.celeste.module.impl.visual.expansion.SolidVisualMesh.Point;
 
 /** Small, complete solid objects around the actual target bounds. Pure geometry. */
 public final class TargetOrbitMesh {
@@ -25,9 +25,9 @@ public final class TargetOrbitMesh {
         double small = Math.min(1, height / .8);
         double size = (sparks ? .029 : cubes ? .045 : .050) * small;
         List<Face> main = cubes ? cube(size, color, accent)
-            : TargetEspSolidVisualMesh.diamond(new Point(0, 0, 0), size, (sparks ? .085 : .115) * small, color, cost);
+            : SolidVisualMesh.diamond(new Point(0, 0, 0), size, (sparks ? .085 : .115) * small, color, cost);
         List<Face> alternate = cubes ? main
-            : TargetEspSolidVisualMesh.diamond(new Point(0, 0, 0), size, (sparks ? .085 : .115) * small, accent, cost);
+            : SolidVisualMesh.diamond(new Point(0, 0, 0), size, (sparks ? .085 : .115) * small, accent, cost);
         for (int i = 0; i < count; i++) {
             // Three interleaved rising bands fill the body-to-above-head span.
             // Distribute heights across the available count, even on a smaller budget.

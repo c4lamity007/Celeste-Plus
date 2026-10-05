@@ -1,6 +1,5 @@
 package dev.c4lam.celeste.module.impl.visual;
 
-import dev.c4lam.celeste.render.geometry.WorldBox;
 import dev.c4lam.celeste.gui.model.GuiSetting;
 import dev.c4lam.celeste.beta.lifecycle.BetaSubscriptions;
 import dev.c4lam.celeste.module.ModuleContext;
@@ -177,7 +176,7 @@ public abstract class SelectedBlockEspFeature implements ModuleFeature {
         published = scan.snapshotSections();
     }
 
-    public final void extract(WorldExtractionContext context, List<WorldBox> output) {
+    public final void extract(WorldExtractionContext context, List<VisualWorldRenderer.WorldBox> output) {
         var client = MinecraftClient.getInstance();
         if (!enabled || context == null || output == null || scannedWorld != context.world()
             || client.player == null || client.world != scannedWorld || !client.player.isAlive()) return;
@@ -232,8 +231,8 @@ public abstract class SelectedBlockEspFeature implements ModuleFeature {
                 box = box.expand(.002);
                 if (context.frustum() != null && !context.frustum().isVisible(box)) continue;
                 float fade = loadedChunks ? 1f : (float) Math.min(1, Math.max(0, (range - Math.sqrt(distance)) / 3));
-                output.add(new WorldBox(box, WorldBox.argb(fill * fade, rgb),
-                    WorldBox.argb(opacity * fade, rgb), lineWidth));
+                output.add(new VisualWorldRenderer.WorldBox(box, VisualWorldRenderer.argb(fill * fade, rgb),
+                    VisualWorldRenderer.argb(opacity * fade, rgb), lineWidth));
                 drawnPositions.add(pos);
                 drawn++;
             }

@@ -4,8 +4,9 @@ import dev.c4lam.celeste.config.InterfaceConfig;
 import dev.c4lam.celeste.gui.model.GuiModule;
 import dev.c4lam.celeste.gui.model.GuiSetting;
 import dev.c4lam.celeste.module.ModuleManager;
-import dev.c4lam.celeste.gui.HandModelsLayout;
-import dev.c4lam.celeste.gui.HandModelsLayout.Position;
+import dev.c4lam.celeste.module.impl.visual.expansion.HandModelsFeature;
+import dev.c4lam.celeste.module.impl.visual.expansion.HandModelsLayout;
+import dev.c4lam.celeste.module.impl.visual.expansion.HandModelsLayout.Position;
 import dev.c4lam.celeste.render.GuiRenderer;
 import dev.c4lam.celeste.render.RenderUtil;
 import dev.c4lam.celeste.render.font.Fonts;
@@ -87,10 +88,10 @@ public final class HandModelsEditorScreen extends Screen {
     }
 
     private void preview() {
-        HandModelPreview.setPreviewPosition(true, right.x(), right.y());
-        HandModelPreview.setPreviewPosition(false, left.x(), left.y());
-        HandModelPreview.setPreviewSize(true, rightSize);
-        HandModelPreview.setPreviewSize(false, leftSize);
+        HandModelsFeature.setPreviewPosition(true, right.x(), right.y());
+        HandModelsFeature.setPreviewPosition(false, left.x(), left.y());
+        HandModelsFeature.setPreviewSize(true, rightSize);
+        HandModelsFeature.setPreviewSize(false, leftSize);
     }
 
     private void savePositions() {
@@ -129,7 +130,7 @@ public final class HandModelsEditorScreen extends Screen {
         button(matrices, "Reset", width / 2f - 82 * scale, bottom, 75 * scale, mouseX, mouseY, false);
         button(matrices, "Done", width / 2f + 7 * scale, bottom, 75 * scale, mouseX, mouseY, true);
         if (!module.enabled()) Fonts.regular().drawCenteredText(matrices,
-            "Positions saved — enable Hand Models to preview in game", width / 2f,
+            "Preview only — enable Hand Models to use these positions", width / 2f,
             bottom - 13 * scale, 7 * scale, MUTED);
         GuiCursors.draw(matrices, mouseX, mouseY, draggingRight != null || hoveredHand != null);
     }
@@ -231,7 +232,7 @@ public final class HandModelsEditorScreen extends Screen {
         if (client.player == null || client.world == null) {
             // Let the world/disconnect transition choose its own screen. A null
             // screen while a world still exists requires a non-null player.
-            HandModelPreview.clearPreview();
+            HandModelsFeature.clearPreview();
             return;
         }
         if (!client.player.isAlive()) {
@@ -244,7 +245,7 @@ public final class HandModelsEditorScreen extends Screen {
     @Override public void close() { if (client != null) client.setScreen(parent); }
     @Override public void removed() {
         savePositions();
-        HandModelPreview.clearPreview();
+        HandModelsFeature.clearPreview();
         if (client != null && originalPerspective != null) {
             client.options.setPerspective(originalPerspective);
             client.options.hudHidden = originalHudHidden;

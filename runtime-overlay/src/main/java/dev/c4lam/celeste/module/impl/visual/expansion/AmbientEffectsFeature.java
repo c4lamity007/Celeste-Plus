@@ -36,7 +36,7 @@ public final class AmbientEffectsFeature implements ModuleFeature {
     @Override public void onWorldChanged(ModuleContext context) { reset(); }
     @Override public void onStartTick(ModuleContext context) { update(context); }
 
-    public AmbientEffectsRenderer.Frame extract(WorldExtractionContext context) {
+    AmbientEffectsRenderer.Frame extract(WorldExtractionContext context) {
         MinecraftClient client = MinecraftClient.getInstance();
         if (!enabled || context.world() == null || context.camera() == null || client.player == null
             || !context.camera().isReady() || !client.player.isAlive() || client.player.getEntityWorld() != context.world()
@@ -160,18 +160,18 @@ public final class AmbientEffectsFeature implements ModuleFeature {
     }
 
     private static SkyLinesMath.Geometry atmosphere(SkyLinesMath.Geometry geometry, double seconds) {
-        if (!AmbientEffectsVisualAtmosphere.usesPreset() || geometry.isEmpty()) return geometry;
+        if (!VisualAtmosphere.usesPreset() || geometry.isEmpty()) return geometry;
         List<SkyLinesMath.Segment> segments = new ArrayList<>(geometry.segments().size());
         List<SkyLinesMath.Star> stars = new ArrayList<>(geometry.stars().size());
         for (int i = 0; i < geometry.segments().size(); i++) {
             SkyLinesMath.Segment segment = geometry.segments().get(i);
             segments.add(new SkyLinesMath.Segment(segment.from(), segment.to(), segment.opacity(), segment.width(),
-                AmbientEffectsVisualAtmosphere.tint(segment.color(), seconds, (double)i / geometry.segments().size())));
+                VisualAtmosphere.tint(segment.color(), seconds, (double)i / geometry.segments().size())));
         }
         for (int i = 0; i < geometry.stars().size(); i++) {
             SkyLinesMath.Star star = geometry.stars().get(i);
             stars.add(new SkyLinesMath.Star(star.position(), star.opacity(), star.radius(),
-                AmbientEffectsVisualAtmosphere.tint(star.color(), seconds, (double)i / geometry.stars().size())));
+                VisualAtmosphere.tint(star.color(), seconds, (double)i / geometry.stars().size())));
         }
         return new SkyLinesMath.Geometry(List.copyOf(segments), List.copyOf(stars));
     }

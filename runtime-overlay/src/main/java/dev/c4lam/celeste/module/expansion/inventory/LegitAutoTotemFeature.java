@@ -18,7 +18,7 @@ import net.minecraft.screen.slot.Slot;
 import org.lwjgl.glfw.GLFW;
 
 /** Visible vanilla inventory input. No hidden screen, packet synthesis or cursor overlay. */
-public final class LegitAutoTotemFeature implements ModuleFeature {
+final class LegitAutoTotemFeature implements ModuleFeature {
     private static final int PRIORITY = 230;
     private static final long MANUAL_PAUSE_NANOS = 300_000_000L;
     private static final java.util.Map<Integer, Integer> SCANCODE_KEYS = new java.util.HashMap<>();
@@ -67,14 +67,14 @@ public final class LegitAutoTotemFeature implements ModuleFeature {
         }
         if (client.currentScreen == null && autoOpen
             && policy.wantsOpen((int) Math.round(context.slider("Open after pops", 1)))
-            && LegitAutoTotemInventorySupport.playerInventoryAvailable(client)
+            && InventorySupport.playerInventoryAvailable(client)
             && nextDestination(context) >= 0 && hasMainInventoryTotem(client)) {
             // The same visible survival inventory as E, including native input
             // blocking, normal cursor unlock, recipe book and close lifecycle.
             client.setScreen(new InventoryScreen(client.player));
             policy.openedOrCancelled();
         }
-        if (!LegitAutoTotemInventorySupport.visibleInventoryAvailable(client)) {
+        if (!InventorySupport.visibleInventoryAvailable(client)) {
             invalidateMotion();
             return;
         }
@@ -129,7 +129,7 @@ public final class LegitAutoTotemFeature implements ModuleFeature {
             invalidateTarget();
             return;
         }
-        LegitAutoTotemInventorySupport.SlotBounds bounds = LegitAutoTotemInventorySupport.slotBounds(client, selected);
+        InventorySupport.SlotBounds bounds = InventorySupport.slotBounds(client, selected);
         if (bounds == null) { invalidateMotion(); return; }
         // Keep the actual pointer away from the neighboring slot's hit margin.
         TotemCursorMotion.Box box = new TotemCursorMotion.Box(bounds.x() + 2, bounds.y() + 2,
@@ -188,10 +188,10 @@ public final class LegitAutoTotemFeature implements ModuleFeature {
             Slot selected = source(current);
             if (!validSource(current, selected)) { invalidateTarget(); return; }
             TotemCursorMotion.Point actual = cursor(current);
-            var liveBounds = LegitAutoTotemInventorySupport.slotBounds(current, selected);
+            var liveBounds = InventorySupport.slotBounds(current, selected);
             if (actual == null || liveBounds == null || targetBox == null
                 || !targetBox.contains(actual) || !liveBounds.contains(actual.x(), actual.y())
-                || LegitAutoTotemInventorySupport.focusedSlot(current) != selected
+                || InventorySupport.focusedSlot(current) != selected
                 || MinecraftAccess.focusedSlot(screen) != selected) return;
             // A key event goes through vanilla's actual focused-slot handling.
             // Do not set keybinding held/queued state or manufacture click packets.
@@ -216,7 +216,7 @@ public final class LegitAutoTotemFeature implements ModuleFeature {
         var candidates = new ArrayList<TotemCursorMotion.Candidate>();
         for (Slot slot : client.player.playerScreenHandler.slots) {
             if (!validSource(client, slot)) continue;
-            var bounds = LegitAutoTotemInventorySupport.slotBounds(client, slot);
+            var bounds = InventorySupport.slotBounds(client, slot);
             if (bounds != null) candidates.add(new TotemCursorMotion.Candidate(slot.getIndex(),
                 new TotemCursorMotion.Box(bounds.x(), bounds.y(), bounds.width(), bounds.height())));
         }
@@ -236,7 +236,7 @@ public final class LegitAutoTotemFeature implements ModuleFeature {
         return eligible(context) && screen != null && client.currentScreen == screen
             && client.player == sessionPlayer && client.isWindowFocused() && client.getOverlay() == null
             && client.getWindow() != null && !client.mouse.isCursorLocked()
-            && LegitAutoTotemInventorySupport.visibleInventoryAvailable(client);
+            && InventorySupport.visibleInventoryAvailable(client);
     }
 
     private static boolean eligible(ModuleContext context) {

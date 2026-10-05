@@ -20,10 +20,8 @@ class SourceReceiptCheck(unittest.TestCase):
         self.source.parent.mkdir(parents=True)
         self.source.write_bytes(b'package dev.c4lam.celeste.auth; class Fixture {}\n')
         for name in ('build.gradle', 'gradle.properties', 'settings.gradle',
-                     'tools/protect_java_release.py', 'tools/packaging/AuthNamespacePass.java', 'tools/prepare_runtime.py', 'tools/validate_package.py', 'tools/module_release.py', 'tools/module_access.py', 'tools/protect_module_release.py', 'tools/sync_module_delivery_sources.py', 'tools/packaging/ModuleArtifactCheck.java', 'tools/build_media_cleanup.py', 'tools/native_auth_resources.py',
+                     'tools/protect_java_release.py', 'tools/packaging/AuthNamespacePass.java', 'tools/prepare_runtime.py', 'tools/validate_package.py', 'tools/build_media_cleanup.py', 'tools/native_auth_resources.py',
                      'beta-lab/obfuscation/check.init.gradle', 'beta-lab/obfuscation/prepare_obfuscation.py',
-                     'tools/modular_runtime_profile.py', 'tools/packaging/ModularBuiltInFeatures.java',
-                     'tools/generate_module_source_copies.py',
                      'beta-lab/release-package/package_beta.py', 'beta-lab/example/src/Host.java',
                      'beta-lab/obfuscation/profiles/test.json'):
             path = self.root / name

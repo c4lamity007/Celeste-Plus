@@ -1,6 +1,6 @@
 package dev.c4lam.celeste.mixin.expansion;
 
-import dev.c4lam.celeste.action.SwordAttackCoordinator;
+import dev.c4lam.celeste.module.expansion.sword.SwordAttackCoordinator;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.item.ItemStack;

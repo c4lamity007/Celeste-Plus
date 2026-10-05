@@ -5,7 +5,6 @@ import hmac
 import re
 import time
 from .auth_errors import failure
-from .database import Database
 
 
 def require_artifact_hardware(row, request) -> str:
@@ -26,7 +25,6 @@ def require_artifact_hardware(row, request) -> str:
 
 def record_grant(connection, token: str, claims: dict) -> None:
     now = int(time.time())
-    Database.prune_expired_auth(connection, "active_tokens", now)
     connection.execute("""INSERT INTO active_tokens(jti,token_sha256,license_uid,device_id,product,audience,
         issued_at,expires_at,status,changed_at) VALUES(?,?,?,?,?,?,?,?,'active',?)""",
         (claims["jti"], hashlib.sha256(token.encode("ascii")).hexdigest(), int(claims["sub"]), claims["device"],
@@ -100,19 +98,6 @@ def check_runtime_binding(connection, device, body, now: int):
         return failure("device_mismatch", "This installation belongs to a different device")
     if prior is not None and prior["conflicted_at"] is not None:
         return failure("concurrent_session_rejected", "Verify this installation again after the session conflict", 409)
-    # Multiple legitimate JVMs on one installation are independent. A retired
-    # generation for one PID must not become current again through a late retry.
-    connection.execute("DELETE FROM runtime_sessions WHERE last_seen_at<?", (now - 3600,))
-    current = connection.execute("SELECT status FROM runtime_sessions WHERE device_id=? AND process_id=? AND session_id=?",
-                                 (body.device_id, body.process_id, body.session_id)).fetchone()
-    if current is not None and current["status"] == "retired":
-        return failure("concurrent_session_rejected", "This runtime session has been replaced; reload the client", 409)
-    connection.execute("UPDATE runtime_sessions SET status='retired',last_seen_at=? WHERE device_id=? AND process_id=? AND session_id<>? AND status='active'",
-                       (now, body.device_id, body.process_id, body.session_id))
-    connection.execute("""INSERT INTO runtime_sessions(device_id,process_id,session_id,hardware_sha256,last_seen_at,status)
-        VALUES(?,?,?,?,?,'active') ON CONFLICT(device_id,process_id,session_id) DO UPDATE SET
-        hardware_sha256=excluded.hardware_sha256,last_seen_at=excluded.last_seen_at""",
-        (body.device_id, body.process_id, body.session_id, body.hardware_sha256, now))
     connection.execute("""INSERT INTO runtime_bindings(device_id,hardware_sha256,process_id,session_id,last_seen_at)
         VALUES(?,?,?,?,?) ON CONFLICT(device_id) DO UPDATE SET hardware_sha256=excluded.hardware_sha256,
         process_id=excluded.process_id,session_id=excluded.session_id,last_seen_at=excluded.last_seen_at""",

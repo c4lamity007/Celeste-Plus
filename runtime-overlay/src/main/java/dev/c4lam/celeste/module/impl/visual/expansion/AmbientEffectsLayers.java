@@ -29,7 +29,7 @@ public final class AmbientEffectsLayers {
         };
     }
     public static int color(Layer layer,double seconds,double phase) {
-        return AmbientEffectsVisualAtmosphere.tint(layer.color(),seconds,phase);
+        return VisualAtmosphere.tint(layer.color(),seconds,phase);
     }
 
     public static List<Layer> normalize(List<Layer> input) {
@@ -63,7 +63,7 @@ public final class AmbientEffectsLayers {
     public static final class State {
         private final AmbientTesseractField tesseracts;
         private final AmbientTronField trails;
-        private final AmbientEffectsJumpCircleAnimation.Clock clock = new AmbientEffectsJumpCircleAnimation.Clock();
+        private final JumpCircleAnimation.Clock clock = new JumpCircleAnimation.Clock();
         private EnumSet<AmbientField.Style> active = EnumSet.noneOf(AmbientField.Style.class);
         private Object world;
 

@@ -49,7 +49,7 @@ def delivery_vector():
         (directory / 'beta-release.json').write_bytes(canonical_json(catalog))
         class FixtureSettings(SimpleNamespace):
             accepts_installer_identity = Settings.accepts_installer_identity
-        settings = FixtureSettings(plus_enabled=True, plus_auth_protocol=2, runtime_kill_switch=False, module_delivery_required=False, beta_release_dir=str(directory),
+        settings = FixtureSettings(plus_enabled=True, plus_auth_protocol=2, beta_release_dir=str(directory),
             artifact_dir=str(root / 'unused'), release_id=claims['payload_release'], release_sha256=claims['payload_sha256'],
             installer_channel_id=claims['release'], installer_compatible_sha256=frozenset({claims['client_sha256']}),
             installer_allow_runtime_digest=False, bootstrap_id=claims['bootstrap'], bootstrap_sha256=claims['bootstrap_sha256'],
@@ -71,8 +71,7 @@ def delivery_vector():
                 verifier.require(c, request, public, token=access_token(request), claims=verified)
             return original['expected_device']
         app = FastAPI()
-        app.include_router(create_beta_router(settings, database, signer, require_proof,
-                                            lambda *args: None, lambda *args: None))
+        app.include_router(create_beta_router(settings, database, signer, require_proof, lambda *args: None))
         proof_header = {'typ': 'dpop+jwt', 'alg': 'EdDSA', 'jwk': {'kty': 'OKP', 'crv': 'Ed25519', 'x': original['installation_public_key']}}
         proof_claims = {'htm': 'GET', 'htu': 'https://offline.invalid/v1/beta/manifest', 'iat': original['now'],
                         'jti': 'public-v2-golden-request-0001', 'ath': b64e(hashlib.sha256(token.encode()).digest())}
