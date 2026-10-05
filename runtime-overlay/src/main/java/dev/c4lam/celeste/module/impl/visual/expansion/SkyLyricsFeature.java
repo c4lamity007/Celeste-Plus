@@ -34,8 +34,8 @@ public final class SkyLyricsFeature implements ModuleFeature {
         var resources = net.fabricmc.fabric.api.resource.v1.ResourceLoader.get(net.minecraft.resource.ResourceType.CLIENT_RESOURCES);
         dev.c4lam.celeste.beta.lifecycle.BetaSubscriptions.register(resources, "celeste:sky_lyrics/reload",
             net.minecraft.resource.SynchronousResourceReloader.class,
-            manager -> dev.c4lam.celeste.module.delivery.ModuleScope.executeCurrent(MinecraftClient.getInstance()::execute, SkyLyricsRenderer::release),
-            proxy -> resources.registerReloader(dev.c4lam.celeste.module.delivery.ModuleResourceNames.reloader(net.minecraft.util.Identifier.of("celeste", "sky_lyrics")), proxy));
+            manager -> MinecraftClient.getInstance().execute(SkyLyricsRenderer::release),
+            proxy -> resources.registerReloader(net.minecraft.util.Identifier.of("celeste", "sky_lyrics"), proxy));
         dev.c4lam.celeste.beta.lifecycle.BetaSubscriptions.register(
             net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents.CLIENT_STOPPING, "celeste:sky_lyrics/stopping",
             net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents.ClientStopping.class,
@@ -75,7 +75,7 @@ public final class SkyLyricsFeature implements ModuleFeature {
             finite(context.slider("Distance", 18), 18, 2, 64));
         media = SystemMediaService.getInstance().snapshot();
     }
-    public SkyLyricsRenderer.Frame extract(WorldExtractionContext context) {
+    SkyLyricsRenderer.Frame extract(WorldExtractionContext context) {
         MediaPlaybackSnapshot frameMedia = media;
         // A shadow extraction must not replace the real camera's anchor.
         if (RenderCompatibility.isShadowPass()) return SkyLyricsRenderer.Frame.EMPTY;

@@ -19,7 +19,6 @@ import net.minecraft.client.MinecraftClient;
 public final class AuthBootstrap {
     private static volatile ScheduledExecutorService WORKER = executor("cst-license-gateway");
     private static final ScheduledExecutorService SUPERVISOR = executor("cst-license-supervisor");
-    private static final ScheduledExecutorService SECURITY_WORKER = executor("cst-security-observer");
     private static ScheduledFuture<?> heartbeatTask;
     private static int workerRecoveries;
     private static final int MAX_WORKER_RECOVERIES = 3;
@@ -30,12 +29,6 @@ public final class AuthBootstrap {
     private static final AtomicBoolean INSTALLED = new AtomicBoolean();
     private static final AtomicBoolean STARTED = new AtomicBoolean();
     private static final AtomicBoolean STOPPED = new AtomicBoolean();
-    private static final AtomicBoolean QUARANTINED = new AtomicBoolean();
-    private static final AtomicBoolean INCIDENT_STARTING = new AtomicBoolean();
-    private static final java.security.SecureRandom INCIDENT_RANDOM=new java.security.SecureRandom();
-    private static volatile long authorizationGeneration;
-    private static volatile SecurityIncidentProtocol.Scope incidentScope;
-    private static volatile IncidentContext incident;
     private static volatile String status = "Waiting for license";
     private static volatile AuthConfig config;
     private static volatile AuthServiceClient service;
@@ -45,8 +38,6 @@ public final class AuthBootstrap {
     private static volatile InstallCredential pendingCredential;
     private static volatile String sessionGrant;
     private static volatile long sessionDeadlineNanos;
-    private static volatile dev.c4lam.celeste.beta.delivery.ModuleDeliveryClient.Session moduleSession;
-    private static volatile AuthenticatedModulePayloadProvider modulePayloads;
     private static Runnable authorizedInitializer;
     private static Runnable authorizedShutdown;
     private static volatile Consumer<Throwable> lateFailureObserver;
@@ -87,8 +78,7 @@ public final class AuthBootstrap {
                 try {
                     long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
                     if (!SUPERVISOR.awaitTermination(30, TimeUnit.SECONDS)
-                        || !WORKER.awaitTermination(Math.max(0, deadline - System.nanoTime()), TimeUnit.NANOSECONDS)
-                        || !SECURITY_WORKER.awaitTermination(Math.max(0, deadline-System.nanoTime()),TimeUnit.NANOSECONDS)) {
+                        || !WORKER.awaitTermination(Math.max(0, deadline - System.nanoTime()), TimeUnit.NANOSECONDS)) {
                         throw new IllegalStateException("Authorization workers did not finish stopping within 30 seconds");
                     }
                 } catch (InterruptedException failure) {
@@ -135,7 +125,6 @@ public final class AuthBootstrap {
         }
         heartbeatTask = WORKER.scheduleWithFixedDelay(AuthBootstrap::heartbeat, 30, 30, TimeUnit.SECONDS);
         SUPERVISOR.scheduleWithFixedDelay(AuthBootstrap::superviseHeartbeat, 1, 1, TimeUnit.SECONDS);
-        SECURITY_WORKER.scheduleWithFixedDelay(AuthBootstrap::inspectSecurity,1,1,TimeUnit.SECONDS);
         if (alreadyStarted) {
             MinecraftClient client = MinecraftClient.getInstance();
             client.execute(() -> start(client));
@@ -152,30 +141,12 @@ public final class AuthBootstrap {
         return BUSY.get();
     }
 
-    public static void configureModules(dev.c4lam.celeste.module.ModuleManager modules) {
-        AuthenticatedModulePayloadProvider provider=modulePayloads;
-        if(provider!=null) {
-            if(!authorized())throw new SecurityException("Module installation requires authorization");
-            modules.configurePayloads(provider);
-        }
-    }
-    private static dev.c4lam.celeste.beta.delivery.ModuleDeliveryClient.Session moduleSessionSnapshot()
-            throws GeneralSecurityException {
-        if(!authorized() || moduleSession==null)throw new GeneralSecurityException("Runtime module lease expired");
-        return moduleSession;
-    }
-    public static CompletionStage<Void> moduleDeliveryStopped() {
-        AuthenticatedModulePayloadProvider provider=modulePayloads;
-        return provider==null?CompletableFuture.completedFuture(null):provider.stopped();
-    }
-    private static void closeModules(AuthenticatedModulePayloadProvider provider) { if(provider!=null)provider.close(); }
-
     public static boolean locked() {
         return LOCKED.get();
     }
 
     public static boolean authorized() {
-        if (!AUTHORIZED.get() || LOCKED.get() || STOPPED.get() || QUARANTINED.get()) return false;
+        if (!AUTHORIZED.get() || LOCKED.get() || STOPPED.get()) return false;
         // Gameplay checks this even if the network worker is delayed or stops.
         // A cached boolean must never outlive the verified server session.
         if (System.nanoTime() - sessionDeadlineNanos >= 0) {
@@ -210,7 +181,7 @@ public final class AuthBootstrap {
 
     public static void submitLicense(String licenseKey) {
         MinecraftClient client = MinecraftClient.getInstance();
-        if (LOCKED.get() || QUARANTINED.get() || STOPPED.get()) {
+        if (LOCKED.get()) {
             show(client, "Restart Minecraft before authorizing again");
             return;
         }
@@ -238,7 +209,7 @@ public final class AuthBootstrap {
 
     public static void retry() {
         MinecraftClient client = MinecraftClient.getInstance();
-        if (LOCKED.get() || QUARANTINED.get() || STOPPED.get()) {
+        if (LOCKED.get()) {
             show(client, "Restart Minecraft before authorizing again");
             return;
         }
@@ -251,7 +222,7 @@ public final class AuthBootstrap {
 
     public static void clearLocalBinding() {
         MinecraftClient client = MinecraftClient.getInstance();
-        if (BUSY.get() || LOCKED.get() || QUARANTINED.get() || STOPPED.get()) {
+        if (BUSY.get() || LOCKED.get()) {
             return;
         }
         try {
@@ -281,7 +252,6 @@ public final class AuthBootstrap {
     }
 
     private static void authenticateStored(MinecraftClient client) {
-        if(LOCKED.get()||QUARANTINED.get()||STOPPED.get())return;
         if (!BUSY.compareAndSet(false, true)) {
             return;
         }
@@ -324,9 +294,6 @@ public final class AuthBootstrap {
     }
 
     private static void reportStartupIntegrityFailure(AuthConfig loaded, String observedDigest) {
-        // A rejected startup is not a mutation of an already verified live Plus source.
-        // New Plus reports require a live lease and the two-observation incident flow.
-        if(expectedBetaCatalog!=null)return;
         if (!STORE.exists()) {
             return;
         }
@@ -347,50 +314,37 @@ public final class AuthBootstrap {
         // Grants authorize delivery; a fresh nonce-bound response authorizes
         // activation. Replaying a captured startup grant cannot satisfy this.
         String verifiedSession = service.checkSession(credential, config.releaseDigest(), false);
-        SecurityIncidentProtocol.Scope selectedIncidentScope=expectedBetaCatalog==null?null:service.incidentScope(verifiedSession);
         long deadline = System.nanoTime() + service.sessionValidityNanos(verifiedSession);
-        var delivery=service.moduleDelivery(AuthBootstrap::moduleSessionSnapshot);
-        var candidateSession=delivery==null?null:dev.c4lam.celeste.beta.delivery.ModuleDeliveryClient.verifiedSession(
-            verifiedSession,deadline,config.serverKey());
-        AuthenticatedModulePayloadProvider candidate=delivery==null?null:new AuthenticatedModulePayloadProvider(delivery,
-            failure->lockSession("Module authorization failed; reconnect to verify this session",failure));
         synchronized (AuthBootstrap.class) {
-            if (STOPPED.get() || LOCKED.get()) { discardCredential(credential); closeModules(candidate); return; }
+            if (STOPPED.get() || LOCKED.get()) { discardCredential(credential); return; }
             if (pendingCredential != null) discardCredential(pendingCredential);
             pendingCredential = credential;
         }
         try { client.execute(() -> {
             // A response queued before shutdown/revocation must never reactivate the client.
             synchronized (AuthBootstrap.class) {
-            if (pendingCredential != credential) { discardCredential(credential); closeModules(candidate); return; }
+            if (pendingCredential != credential) { discardCredential(credential); return; }
             pendingCredential = null;
             if (STOPPED.get() || LOCKED.get() || AUTHORIZED.get()) {
                 discardCredential(credential);
-                closeModules(candidate);
                 return;
             }
             if (System.nanoTime() - deadline >= 0) {
                 discardCredential(credential);
-                closeModules(candidate);
                 fail(client, "Authorization expired before initialization");
                 return;
             }
             sessionCredential = credential;
             sessionGrant = verifiedSession;
             sessionDeadlineNanos = deadline;
-            moduleSession=candidateSession;
-            modulePayloads=candidate;
-            incidentScope=selectedIncidentScope;
-            authorizationGeneration++;
             // Publish the complete session before the worker can observe it.
-            if (!AUTHORIZED.compareAndSet(false, true)) { discardCredential(credential); closeModules(candidate); return; }
+            if (!AUTHORIZED.compareAndSet(false, true)) { discardCredential(credential); return; }
             if (STOPPED.get() || LOCKED.get()) {
                 AUTHORIZED.set(false);
                 sessionCredential = null;
                 discardCredential(credential);
                 sessionGrant = null;
                 sessionDeadlineNanos = 0;
-                moduleSession=null;closeModules(candidate);
                 return;
             }
             }
@@ -398,7 +352,6 @@ public final class AuthBootstrap {
                 LicenseIdentity.accept(authenticated.uid());
                 authorizedInitializer.run();
                 if (authorized()) {
-                    if(candidate!=null)candidate.prefetchCatalog();
                     status = "Authorized";
                 }
             } catch (RuntimeException | LinkageError exception) {
@@ -407,7 +360,6 @@ public final class AuthBootstrap {
         }); } catch (RuntimeException | Error failure) {
             synchronized (AuthBootstrap.class) { if (pendingCredential == credential) pendingCredential = null; }
             discardCredential(credential);
-            closeModules(candidate);
             throw failure;
         }
     }
@@ -426,11 +378,6 @@ public final class AuthBootstrap {
         try {
             String observedDigest = ArtifactIntegrity.digest();
             if (!currentConfig.releaseDigest().equals(observedDigest)) {
-                if(expectedBetaCatalog!=null) {
-                    beginIncident(new SecurityIncidentProtocol.Observation(SecurityIncidentProtocol.Kind.RESIDENT_MUTATION,
-                        "resident",currentConfig.releaseDigest(),observedDigest),AuthBootstrap::residentObservation);
-                    return;
-                }
                 try {
                     currentService.checkSession(credential, observedDigest, true);
                 } finally {
@@ -438,29 +385,15 @@ public final class AuthBootstrap {
                 }
                 return;
             }
-            AuthenticatedModulePayloadProvider retainedModules=modulePayloads;
-            if(retainedModules!=null)retainedModules.verifyRetainedModules();
             String refreshedGrant = currentService.checkSession(credential, observedDigest, false);
-            SecurityIncidentProtocol.Scope refreshedIncidentScope=expectedBetaCatalog==null?null:currentService.incidentScope(refreshedGrant);
             long deadline = System.nanoTime() + currentService.sessionValidityNanos(refreshedGrant);
-            AuthenticatedModulePayloadProvider modules=modulePayloads;
-            var renewedModuleSession=modules==null?null:dev.c4lam.celeste.beta.delivery.ModuleDeliveryClient.verifiedSession(
-                refreshedGrant,deadline,currentConfig.serverKey());
             synchronized (AuthBootstrap.class) {
                 if (authorized()) {
                     sessionDeadlineNanos = deadline;
                     sessionGrant = refreshedGrant;
-                    moduleSession=renewedModuleSession;
                     workerRecoveries = 0;
-                    incidentScope=refreshedIncidentScope;
                 }
             }
-            if(modules!=null && authorized())modules.delivery().renewActive();
-        } catch (AuthenticatedModulePayloadProvider.RetainedModuleMismatch mismatch) {
-            beginIncident(mismatch.observation(),new ObservationSource(){
-                public SecurityIncidentProtocol.Observation sample()throws Exception{return mismatch.sample();}
-                public void close(){mismatch.close();}
-            });
         } catch (AuthServiceClient.AuthRejectedException exception) {
             if (exception.statusCode() == 401 || exception.statusCode() == 403 || exception.statusCode() == 409) {
                 lockSession(exception.getMessage(), exception);
@@ -478,20 +411,6 @@ public final class AuthBootstrap {
 
     private static synchronized void superviseHeartbeat() {
         try {
-            IncidentContext security=incident;
-            if(security!=null) {
-                security.controller.watchdog();
-                if(security.controller.state()==SecurityIncidentController.State.EXPIRED)
-                    lockSession("Security verification ended; restart Minecraft before trying again");
-                if(QUARANTINED.get())return;
-            }
-            if(QUARANTINED.get()) {
-                if(System.nanoTime()-sessionDeadlineNanos>=0)
-                    lockSession("Security verification expired; restart Minecraft before trying again");
-                return;
-            }
-            AuthenticatedModulePayloadProvider modules=modulePayloads;
-            if(modules!=null)modules.delivery().expire();
             if (!authorized()) return;
             if (heartbeatTask != null && !heartbeatTask.isDone() && !WORKER.isShutdown()) return;
             // A cancelled future can still own a running network request. Never
@@ -527,12 +446,6 @@ public final class AuthBootstrap {
     }
 
     private static void closeSessionMaterial() {
-        authorizationGeneration++;
-        IncidentContext security=incident;incident=null;
-        if(security!=null)security.close();
-        incidentScope=null;
-        moduleSession=null;
-        closeModules(modulePayloads);
         InstallCredential active = sessionCredential, pending = pendingCredential;
         sessionCredential = null; pendingCredential = null;
         discardCredential(active);
@@ -577,7 +490,6 @@ public final class AuthBootstrap {
         sessionDeadlineNanos = 0;
         SUPERVISOR.shutdownNow();
         WORKER.shutdownNow();
-        SECURITY_WORKER.shutdownNow();
         client.execute(() -> {
             try {
                 authorizedShutdown.run();
@@ -605,117 +517,6 @@ public final class AuthBootstrap {
     // fresh dual-proof authentication. Only explicit clearLocalBinding removes them.
     private static void show(MinecraftClient client, String message) {
         status = message;
-    }
-
-    @FunctionalInterface private interface ObservationSource extends AutoCloseable {
-        SecurityIncidentProtocol.Observation sample() throws Exception;
-        @Override default void close(){ }
-    }
-
-    /** Observers execute independently of network heartbeats and never on the render thread. */
-    private static void inspectSecurity() {
-        if(STOPPED.get())return;
-        IncidentContext current=incident;
-        if(current!=null) {
-            SecurityIncidentController.State state=current.controller.state();
-            if(state==SecurityIncidentController.State.REVOKED||state==SecurityIncidentController.State.EXPIRED
-                    ||state==SecurityIncidentController.State.CLOSED)return;
-            SecurityIncidentProtocol.Observation sample=null;
-            try {sample=current.source.sample();}
-            catch(Exception|LinkageError unavailable){/* Unavailable is not a strike. */}
-            current.controller.poll(sample);
-            return;
-        }
-        if(expectedBetaCatalog==null||incidentScope==null||!authorized())return;
-        if(WindowsSelfDebuggerProbe.read()==WindowsSelfDebuggerProbe.Result.CONFIRMED)
-            beginIncident(SecurityIncidentProtocol.Observation.debugger(),()->
-                WindowsSelfDebuggerProbe.read()==WindowsSelfDebuggerProbe.Result.CONFIRMED
-                    ?SecurityIncidentProtocol.Observation.debugger():null);
-    }
-
-    private static SecurityIncidentProtocol.Observation residentObservation() throws Exception {
-        AuthConfig current=config;if(current==null||!ArtifactIntegrity.hasRetainedMemorySource())return null;
-        String observed=ArtifactIntegrity.digest();
-        return current.releaseDigest().equals(observed)?null:new SecurityIncidentProtocol.Observation(
-            SecurityIncidentProtocol.Kind.RESIDENT_MUTATION,"resident",current.releaseDigest(),observed);
-    }
-
-    private static void beginIncident(SecurityIncidentProtocol.Observation observation,ObservationSource source) {
-        if(!AUTHORIZED.get()||STOPPED.get()||LOCKED.get()||incident!=null||!INCIDENT_STARTING.compareAndSet(false,true)){
-            source.close();return;
-        }
-        QUARANTINED.set(true);
-        AuthenticatedModulePayloadProvider modules=modulePayloads;if(modules!=null)modules.quarantine();
-        AuthServiceClient.IncidentTransport transport=null;
-        boolean sourceInstalled=false;
-        try {
-            AuthServiceClient currentService=service;InstallCredential credential=sessionCredential;
-            String grant=sessionGrant;long deadline=sessionDeadlineNanos,generation=authorizationGeneration;
-            if(expectedBetaCatalog==null||incidentScope==null||currentService==null||credential==null
-                    ||grant==null||System.nanoTime()-deadline>=0) {
-                lockSession("Security verification failed; restart Minecraft before trying again");return;
-            }
-            transport=currentService.incidentTransport(credential,grant,deadline);
-            IncidentContext candidate=new IncidentContext(generation,source,transport,deadline);
-            synchronized(AuthBootstrap.class) {
-                if(STOPPED.get()||LOCKED.get()||generation!=authorizationGeneration||service!=currentService
-                        ||sessionCredential!=credential||incident!=null){candidate.close();return;}
-                incident=candidate;transport=null;sourceInstalled=true;
-            }
-            candidate.controller.poll(observation);
-        } catch(Exception|LinkageError failure) {
-            lockSession("Security verification could not start; restart Minecraft before trying again",failure);
-        } finally {
-            try{if(transport!=null)transport.close();if(!sourceInstalled)source.close();}
-            finally{INCIDENT_STARTING.set(false);}
-        }
-    }
-
-    static SecurityIncidentController warningController() {
-        IncidentContext current=incident;
-        return current==null||STOPPED.get()?null:current.controller;
-    }
-
-    private static String incidentId(){byte[] bytes=new byte[24];INCIDENT_RANDOM.nextBytes(bytes);return java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);}
-
-    private static final class IncidentContext implements AutoCloseable {
-        final long generation;
-        final ObservationSource source;
-        final AuthServiceClient.IncidentTransport transport;
-        final SecurityIncidentController controller;
-        IncidentContext(long generation,ObservationSource source,AuthServiceClient.IncidentTransport transport,long deadline) throws GeneralSecurityException {
-            this.generation=generation;this.source=source;this.transport=transport;
-            controller=new SecurityIncidentController(transport.binding(),Crypto.ed25519Public(config.serverKey()),new SecurityIncidentController.Clock(){
-                public long nanos(){return System.nanoTime();}public long epochMillis(){return System.currentTimeMillis();}
-            },AuthBootstrap::incidentId,transport,new SecurityIncidentController.Effects(){
-                public void enqueue(Runnable action){MinecraftClient.getInstance().execute(action);}
-                public void quarantine(){if(incident==IncidentContext.this)status="Stop.";}
-                public void scheduleStop(){
-                    synchronized(AuthBootstrap.class){
-                        if(incident!=IncidentContext.this||authorizationGeneration!=generation||STOPPED.get())return;
-                        MinecraftClient.getInstance().scheduleStop();
-                        lockSession("Security authorization revoked");
-                    }
-                }
-                public void releaseReporter(){
-                    try{source.close();}finally{releaseMaterial();}
-                }
-                private void releaseMaterial(){
-                    transport.close();
-                    // Keep the small final warning/stop controller alive until its host action runs,
-                    // but release all its shared live credentials after bounded reporting ends.
-                    synchronized(AuthBootstrap.class) {
-                        if(incident!=IncidentContext.this)return;
-                        moduleSession=null;closeModules(modulePayloads);
-                        InstallCredential active=sessionCredential;sessionCredential=null;discardCredential(active);
-                        sessionGrant=null;
-                        AuthServiceClient current=service;if(current!=null)current.close();
-                    }
-                }
-                public void failed(Throwable failure){if(incident==IncidentContext.this)status="Security verification could not finish";}
-            },generation,()->authorizationGeneration,deadline);
-        }
-        @Override public void close(){controller.close();transport.close();}
     }
 
     private static String friendlyMessage(Exception exception) {

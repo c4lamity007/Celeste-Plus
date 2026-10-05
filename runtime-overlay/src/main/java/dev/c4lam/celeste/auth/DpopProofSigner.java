@@ -101,50 +101,7 @@ public final class DpopProofSigner implements AutoCloseable {
         return proof(method, uri, accessToken, deliveryKey, deliveryNonce, hardwareDigest);
     }
 
-    /** Incident proofs bind the canonical diagnostic body without module recipient fields. */
-    public String proofForIncident(String method, URI uri, String accessToken, String hardwareDigest, byte[] body)
-            throws GeneralSecurityException {
-        if (hardwareDigest == null || !hardwareDigest.matches("[0-9a-f]{64}")
-                || body == null || body.length == 0 || body.length > 8192)
-            throw new GeneralSecurityException("Invalid incident request proof binding");
-        return proof(method, uri, accessToken, null, null, hardwareDigest,
-            BASE64.encodeToString(MessageDigest.getInstance("SHA-256").digest(body)));
-    }
-
-    /** Module proofs bind the exact request body, including empty GET requests. */
-    public String proofForModule(String method, URI uri, String accessToken, String deliveryKey,
-                                 String deliveryNonce, String hardwareDigest, byte[] body) throws GeneralSecurityException {
-        if (hardwareDigest == null || !hardwareDigest.matches("[0-9a-f]{64}")
-                || deliveryKey == null || deliveryNonce == null || body == null || body.length > 1_048_576)
-            throw new GeneralSecurityException("Invalid module request proof binding");
-        return proof(method, uri, accessToken, deliveryKey, deliveryNonce, hardwareDigest,
-            BASE64.encodeToString(MessageDigest.getInstance("SHA-256").digest(body)));
-    }
-
-    /** Module-only device evidence is authenticated by both this installation proof and the token key. */
-    public String proofForModule(String method, URI uri, String accessToken, String deliveryKey,
-                                 String deliveryNonce, String hardwareDigest, byte[] body, byte[] evidence)
-            throws GeneralSecurityException {
-        if (hardwareDigest == null || !hardwareDigest.matches("[0-9a-f]{64}")
-                || deliveryKey == null || deliveryNonce == null || body == null || body.length > 1_048_576
-                || evidence == null || evidence.length == 0 || evidence.length > 4096)
-            throw new GeneralSecurityException("Invalid module identity evidence");
-        MessageDigest hash = MessageDigest.getInstance("SHA-256");
-        return proof(method, uri, accessToken, deliveryKey, deliveryNonce, hardwareDigest,
-            BASE64.encodeToString(hash.digest(body)), BASE64.encodeToString(hash.digest(evidence)));
-    }
-
     private String proof(String method, URI uri, String accessToken, String deliveryKey, String deliveryNonce, String hardwareDigest) throws GeneralSecurityException {
-        return proof(method, uri, accessToken, deliveryKey, deliveryNonce, hardwareDigest, null);
-    }
-
-    private String proof(String method, URI uri, String accessToken, String deliveryKey, String deliveryNonce,
-                         String hardwareDigest, String bodyHash) throws GeneralSecurityException {
-        return proof(method, uri, accessToken, deliveryKey, deliveryNonce, hardwareDigest, bodyHash, null);
-    }
-
-    private String proof(String method, URI uri, String accessToken, String deliveryKey, String deliveryNonce,
-                         String hardwareDigest, String bodyHash, String evidenceHash) throws GeneralSecurityException {
         if (method == null || !method.matches("[A-Z]{3,16}")) throw new GeneralSecurityException("Invalid DPoP method");
         byte[] unique = new byte[24];
         RANDOM.nextBytes(unique);
@@ -163,8 +120,6 @@ public final class DpopProofSigner implements AutoCloseable {
             claims.addProperty("cnonce", deliveryNonce);
         }
         if (hardwareDigest != null) claims.addProperty("hwid", hardwareDigest);
-        if (bodyHash != null) claims.addProperty("bht", bodyHash);
-        if (evidenceHash != null) claims.addProperty("meh", evidenceHash);
         if (accessToken != null) {
             if (accessToken.isEmpty() || accessToken.length() > 32768
                 || !accessToken.chars().allMatch(c -> c > 32 && c < 127)) {

@@ -95,14 +95,6 @@ def memoryCheck = tasks.register('betaMemoryRuntimeCheck', JavaExec) {
     enableAssertions = true
     jvmArgs '-Xverify:all'
 }
-def retainedReadCheck = tasks.register('betaRetainedReadConcurrencyCheck', JavaExec) {
-    dependsOn tasks.named('testClasses')
-    classpath = sourceSets.test.runtimeClasspath
-    mainClass = 'dev.c4lam.celeste.beta.memory.RetainedReadConcurrencyCheck'
-    enableAssertions = true
-    jvmArgs '-Xverify:all'
-}
-tasks.named('check') { dependsOn retainedReadCheck }
 def environmentCheck = tasks.register('betaEnvironmentGateCheck', JavaExec) {
     dependsOn tasks.named('testClasses')
     classpath = sourceSets.test.runtimeClasspath
@@ -182,16 +174,6 @@ def tlsPolicyCheck = tasks.register('betaTlsPolicyCheck', JavaExec) {
 }
 tasks.named('check') { dependsOn tlsPolicyCheck }
 
-def tlsLifetimeCheck = tasks.register('betaTlsLifetimeCheck', JavaExec) {
-    dependsOn tasks.named('testClasses')
-    classpath = sourceSets.test.runtimeClasspath
-    mainClass = 'dev.c4lam.celeste.auth.PinnedTlsLifetimeCheck'
-    args sourceSets.main.output.classesDirs.singleFile.absolutePath
-    enableAssertions = true
-    jvmArgs '-Xverify:all'
-}
-tasks.named('check') { dependsOn tlsLifetimeCheck }
-
 def deliveryHardwareCheck = tasks.register('betaArtifactHardwareCheck', JavaExec) {
     dependsOn tasks.named('testClasses')
     classpath = sourceSets.test.runtimeClasspath
@@ -202,45 +184,28 @@ def deliveryHardwareCheck = tasks.register('betaArtifactHardwareCheck', JavaExec
 }
 tasks.named('check') { dependsOn deliveryHardwareCheck }
 
-// Explicit runtime protocol fixture uses reviewed overlays before unchanged pinned-core
-// sources. Preparing a core once must not freeze later authentication fixes out of QA.
+// Explicit runtime protocol fixture requires a prepared pinned core, never a live game.
 configurations { runtimeAuthCheckDependencies }
 dependencies {
     runtimeAuthCheckDependencies 'net.java.dev.jna:jna:5.19.0'
     runtimeAuthCheckDependencies 'net.java.dev.jna:jna-platform:5.19.0'
 }
 def runtimeAuthCheckOutput = layout.buildDirectory.dir('module-qa/runtime-auth-check/classes')
-def runtimeAuthCheckSourcePaths = [
-    'dev/c4lam/celeste/auth/AuthServiceClient.java',
-    'dev/c4lam/celeste/auth/SecurityIncidentProtocol.java',
-    'dev/c4lam/celeste/auth/SecurityIncidentController.java',
-    'dev/c4lam/celeste/auth/WindowsSelfDebuggerProbe.java',
-    'dev/c4lam/celeste/auth/CredentialStore.java',
-    'dev/c4lam/celeste/auth/HardwareIdentityV2.java',
-    'dev/c4lam/celeste/auth/WindowsFirmwareIdentity.java',
-    'dev/c4lam/celeste/auth/Crypto.java',
-    'dev/c4lam/celeste/auth/AuthConfig.java',
-    'dev/c4lam/celeste/auth/InstallCredential.java',
-    'dev/celestebeta/host/ResourceReloadBridge.java'
-]
-def runtimeAuthCheckSources = providers.provider {
-    runtimeAuthCheckSourcePaths.collect { relative ->
-        def overlay = file("runtime-overlay/src/main/java/${relative}")
-        overlay.isFile() ? overlay : file("build/runtime-core/src/main/java/${relative}")
-    }
-}
 def compileRuntimeAuthCheck = tasks.register('compileRuntimeAuthCheck', JavaCompile) {
     dependsOn tasks.named('classes')
     source fileTree('beta-lab/runtime-auth-check/src') { include '**/*.java' }
     source fileTree('beta-lab/runtime-auth-check/stubs') { include '**/*.java' }
     source file('beta-lab/bootstrap-a/test/dev/c4lam/celeste/beta/delivery/RuntimeInstallationSignerCheck.java')
-    source runtimeAuthCheckSources
+    source file('runtime-overlay/src/main/java/dev/c4lam/celeste/auth/AuthServiceClient.java')
+    source file('runtime-overlay/src/main/java/dev/c4lam/celeste/auth/CredentialStore.java')
+    source file('runtime-overlay/src/main/java/dev/c4lam/celeste/auth/HardwareIdentityV2.java')
+    source file('runtime-overlay/src/main/java/dev/celestebeta/host/ResourceReloadBridge.java')
+    ['Crypto', 'AuthConfig', 'InstallCredential'].each { name -> source file("build/runtime-core/src/main/java/dev/c4lam/celeste/auth/${name}.java") }
     classpath = sourceSets.main.output + configurations.compileClasspath + configurations.runtimeAuthCheckDependencies
     destinationDirectory = runtimeAuthCheckOutput
     doFirst {
-        def missing = runtimeAuthCheckSources.get().findAll { !it.isFile() }
-        if (!missing.isEmpty())
-            throw new GradleException('runtimeAuthProtocolCheck needs reviewed runtime sources; prepare unchanged pinned sources with tools/prepare_runtime.py. Missing: ' + missing.join(', '))
+        if (!file('build/runtime-core/src/main/java/dev/c4lam/celeste/auth/Crypto.java').isFile())
+            throw new GradleException('runtimeAuthProtocolCheck requires the pinned runtime core from tools/prepare_runtime.py; no user Minecraft files are used.')
     }
 }
 tasks.register('runtimeAuthProtocolCheck', JavaExec) {
@@ -250,24 +215,6 @@ tasks.register('runtimeAuthProtocolCheck', JavaExec) {
     enableAssertions = true
     jvmArgs '-Xverify:all'
 }
-
-tasks.register('runtimeIncidentTransportCheck', JavaExec) {
-    dependsOn compileRuntimeAuthCheck
-    classpath = files(runtimeAuthCheckOutput) + sourceSets.main.runtimeClasspath + configurations.runtimeAuthCheckDependencies
-    mainClass = 'dev.c4lam.celeste.auth.IncidentTransportCheck'
-    enableAssertions = true
-    jvmArgs '-Xverify:all'
-}
-
-tasks.register('runtimeSecurityIncidentCheck', JavaExec) {
-    dependsOn compileRuntimeAuthCheck
-    classpath = files(runtimeAuthCheckOutput) + sourceSets.main.runtimeClasspath + configurations.runtimeAuthCheckDependencies
-    mainClass = 'dev.c4lam.celeste.auth.SecurityIncidentCheck'
-    enableAssertions = true
-    jvmArgs '-Xverify:all'
-}
-
-tasks.named('check') { dependsOn tasks.named('runtimeIncidentTransportCheck'), tasks.named('runtimeSecurityIncidentCheck') }
 
 tasks.register('runtimeHardwareIdentityCheck', JavaExec) {
     dependsOn compileRuntimeAuthCheck
@@ -288,13 +235,3 @@ tasks.register('runtimeCredentialSecretCheck', JavaExec) {
     doFirst { fixture.get().asFile.mkdirs() }
     args fixture.get().asFile.absolutePath
 }
-
-// Independent-module trust, cache, and disposable-loader contract.
-tasks.register('betaModuleDeliveryCheck', JavaExec) {
-    dependsOn tasks.named('testClasses')
-    classpath = sourceSets.test.runtimeClasspath
-    mainClass = 'dev.c4lam.celeste.beta.delivery.ModuleDeliveryCheck'
-    enableAssertions = true
-    jvmArgs '-Xverify:all'
-}
-tasks.named('check') { dependsOn tasks.named('betaModuleDeliveryCheck') }

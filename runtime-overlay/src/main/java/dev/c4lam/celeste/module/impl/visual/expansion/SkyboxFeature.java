@@ -17,7 +17,7 @@ import net.minecraft.world.dimension.DimensionType;
 /** Local presentation only: no time, weather, dimension, world or server mutations. */
 public final class SkyboxFeature implements ModuleFeature {
     private static volatile Settings settings = new Settings(false, 0, 0, .85F, .7F);
-    private static final CustomSkyJumpCircleAnimation.Clock CLOCK = new CustomSkyJumpCircleAnimation.Clock();
+    private static final JumpCircleAnimation.Clock CLOCK = new JumpCircleAnimation.Clock();
 
     private record Settings(boolean enabled, long generation, int mode, float brightness, float stars) { }
 
@@ -40,9 +40,9 @@ public final class SkyboxFeature implements ModuleFeature {
     @Override public void onWorldChanged(ModuleContext context) { reset(); }
 
     private static Settings configured(ModuleContext context, long generation) {
-        return new Settings(true, generation, CustomSkySkyboxMath.mode(CustomSkyVisualAtmosphere.sky(context.mode("Mode", "Aurora"))),
-            CustomSkySkyboxMath.finiteClamp(context.slider("Brightness", .85), .85, .35, 1.4),
-            CustomSkySkyboxMath.finiteClamp(context.slider("Stars", .7), .7, 0, 1));
+        return new Settings(true, generation, SkyboxMath.mode(VisualAtmosphere.sky(context.mode("Mode", "Aurora"))),
+            SkyboxMath.finiteClamp(context.slider("Brightness", .85), .85, .35, 1.4),
+            SkyboxMath.finiteClamp(context.slider("Stars", .7), .7, 0, 1));
     }
 
     private static void reset() {
@@ -71,11 +71,11 @@ public final class SkyboxFeature implements ModuleFeature {
         boolean aboveVoid = !state.shouldRenderSkyDark && (voidRange <= 0
             || camera.getCameraPos().y >= world.getBottomY() + voidRange);
         boolean overworld = World.OVERWORLD.equals(world.getRegistryKey()) && state.skybox == DimensionType.Skybox.OVERWORLD;
-        if (!CustomSkySkyboxMath.shouldRender(options.enabled() && AuthBootstrap.authorized(), overworld,
+        if (!SkyboxMath.shouldRender(options.enabled() && AuthBootstrap.authorized(), overworld,
             clearMedium, normalVision, aboveVoid)) return SkyboxRenderer.Frame.EMPTY;
         return new SkyboxRenderer.Frame(options.generation(), options.mode(), options.brightness(), options.stars(),
-            CustomSkySkyboxMath.animationPhase((long) (elapsed * 1_000_000_000.0), 0),
-            CustomSkySkyboxMath.finiteClamp(1 - state.rainGradient, 0, 0, 1));
+            SkyboxMath.animationPhase((long) (elapsed * 1_000_000_000.0), 0),
+            SkyboxMath.finiteClamp(1 - state.rainGradient, 0, 0, 1));
     }
 
     /** A frame extracted before a disable/world transition must not replace vanilla later. */
@@ -87,7 +87,7 @@ public final class SkyboxFeature implements ModuleFeature {
     }
 
     /** Fog matches the selected sky palette without importing renderer state or GPU objects. */
-    public static int fogMode() {
+    static int fogMode() {
         Settings current = settings;
         return current.enabled() ? current.mode() : 0;
     }

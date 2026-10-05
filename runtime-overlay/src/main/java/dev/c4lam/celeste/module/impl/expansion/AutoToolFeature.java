@@ -3,7 +3,7 @@ package dev.c4lam.celeste.module.impl.expansion;
 import dev.c4lam.celeste.action.VanillaInputGuard;
 import dev.c4lam.celeste.module.ModuleContext;
 import dev.c4lam.celeste.module.ModuleFeature;
-import dev.c4lam.celeste.module.delivery.ModuleHooks;
+import dev.c4lam.celeste.module.impl.visual.expansion.FakeGambleGhostBlocks;
 import dev.c4lam.celeste.silent.SilentSlotManager;
 import net.minecraft.block.BlockState;
 import net.minecraft.client.MinecraftClient;
@@ -33,7 +33,7 @@ public final class AutoToolFeature implements ModuleFeature {
             return;
         }
         boolean silent = context.toggle("Silent swap", true);
-        boolean localMining = !silent && Boolean.TRUE.equals(ModuleHooks.invoke("fake_gamble", "mining.active", false));
+        boolean localMining = !silent && FakeGambleGhostBlocks.isMining();
         if ((!client.interactionManager.isBreakingBlock() && !localMining)
             || !(client.crosshairTarget instanceof BlockHitResult hit)) {
             // A hidden tool lease must never outlive active vanilla mining;

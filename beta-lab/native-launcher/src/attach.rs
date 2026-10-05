@@ -24,12 +24,10 @@ use std::os::windows::process::CommandExt;
 use std::path::{Component, Prefix};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 #[cfg(windows)]
 use winapi::um::winnt::FILE_SHARE_READ;
-use zeroize::Zeroizing;
 
 #[derive(Clone)]
 pub struct AttachContext {
@@ -71,73 +69,10 @@ struct ResidentEndpoint {
     pid: u64,
     started: u64,
     digest: String,
-    key: Zeroizing<String>,
+    key: String,
 }
 
-// The registry never holds its mutex across OS inspection, network traffic or
-// Java startup. Only commands for one exact process lifetime are serialized.
-#[derive(Default)]
-struct ResidentRegistry {
-    entries: Mutex<HashMap<(u32, u64), Arc<ResidentSlot>>>,
-}
-
-#[derive(Default)]
-struct ResidentSlot {
-    retired: AtomicBool,
-    endpoint: Mutex<Option<ResidentEndpoint>>,
-}
-
-impl ResidentSlot {
-    fn require_current(&self) -> Result<()> {
-        if self.retired.load(Ordering::Acquire) {
-            bail!("Resident process lifetime has ended; select Minecraft again");
-        }
-        Ok(())
-    }
-}
-
-impl ResidentRegistry {
-    fn acquire(
-        &self,
-        target: &MinecraftProcess,
-        gone: impl Fn(u32, u64) -> bool,
-    ) -> Result<Arc<ResidentSlot>> {
-        let snapshot: Vec<_> = self
-            .entries
-            .lock()
-            .map_err(|_| anyhow!("Resident control state is unavailable"))?
-            .iter()
-            .map(|(identity, slot)| (*identity, Arc::clone(slot)))
-            .collect();
-        for (identity, slot) in snapshot {
-            if !gone(identity.0, identity.1) {
-                continue;
-            }
-            let mut entries = self
-                .entries
-                .lock()
-                .map_err(|_| anyhow!("Resident control state is unavailable"))?;
-            if entries
-                .get(&identity)
-                .is_some_and(|current| Arc::ptr_eq(current, &slot))
-            {
-                // An in-flight command may own this Arc, but it cannot publish
-                // or reuse a retired endpoint after removal from the registry.
-                slot.retired.store(true, Ordering::Release);
-                entries.remove(&identity);
-            }
-        }
-        let mut entries = self
-            .entries
-            .lock()
-            .map_err(|_| anyhow!("Resident control state is unavailable"))?;
-        Ok(Arc::clone(
-            entries.entry((target.pid, target.started)).or_default(),
-        ))
-    }
-}
-
-static RESIDENT: OnceLock<ResidentRegistry> = OnceLock::new();
+static RESIDENT: OnceLock<Mutex<HashMap<String, ResidentEndpoint>>> = OnceLock::new();
 
 fn unhex(value: &str) -> Result<Vec<u8>> {
     if value.len() != 64
@@ -153,10 +88,16 @@ fn unhex(value: &str) -> Result<Vec<u8>> {
         .collect()
 }
 
-fn validate_endpoint(
-    context: &AttachContext,
-    endpoint: &ResidentEndpoint,
-) -> Result<Zeroizing<Vec<u8>>> {
+fn resident_key(context: &AttachContext) -> String {
+    format!(
+        "{}:{}:{:x}",
+        context.target.pid,
+        context.target.started,
+        Sha256::digest(&context.sha256)
+    )
+}
+
+fn validate_endpoint(context: &AttachContext, endpoint: &ResidentEndpoint) -> Result<Vec<u8>> {
     let started = context.target.started;
     if endpoint.schema != 1
         || endpoint.port == 0
@@ -167,7 +108,7 @@ fn validate_endpoint(
     {
         bail!("Resident control does not match the selected process and signed bootstrap");
     }
-    unhex(&endpoint.key).map(Zeroizing::new)
+    unhex(&endpoint.key)
 }
 
 fn control_aad(
@@ -205,11 +146,7 @@ fn send_sealed(
     Ok(())
 }
 
-fn read_sealed(
-    input: &mut impl Read,
-    cipher: &Aes256Gcm,
-    aad: &[u8],
-) -> Result<Zeroizing<Vec<u8>>> {
+fn read_sealed(input: &mut impl Read, cipher: &Aes256Gcm, aad: &[u8]) -> Result<Vec<u8>> {
     let mut length = [0; 4];
     input.read_exact(&mut length)?;
     let length = u32::from_be_bytes(length) as usize;
@@ -226,7 +163,6 @@ fn read_sealed(
                 aad,
             },
         )
-        .map(Zeroizing::new)
         .map_err(|_| anyhow!("Resident response authentication failed"))
 }
 
@@ -267,7 +203,7 @@ fn resident_command(
     context: &AttachContext,
     endpoint: &ResidentEndpoint,
     request: &[u8],
-) -> Result<Zeroizing<Vec<u8>>> {
+) -> Result<Vec<u8>> {
     let mut key = validate_endpoint(context, endpoint)?;
     let cipher = Aes256Gcm::new_from_slice(&key).map_err(|_| anyhow!("Invalid resident key"))?;
     key.fill(0);
@@ -487,21 +423,17 @@ pub fn command(context: &AttachContext, request: Value) -> Result<Report> {
         crate::environment_guard::require_allowed()?;
         crate::native_manifest::require_current("celeste_plus")?;
     }
-    let slot = RESIDENT
-        .get_or_init(ResidentRegistry::default)
-        .acquire(&context.target, crate::platform::process_is_definitely_gone)?;
-    let mut resident = slot
-        .endpoint
+    recheck_process(&context.target)?;
+    let mut resident = RESIDENT
+        .get_or_init(|| Mutex::new(HashMap::new()))
         .lock()
         .map_err(|_| anyhow!("Resident control state is unavailable"))?;
-    slot.require_current()?;
-    // Recheck after waiting for this process's earlier command, not before it.
-    recheck_process(&context.target)?;
-    let mut request_bytes = Zeroizing::new(serde_json::to_vec(&request)?);
+    let cache_key = resident_key(context);
+    let mut request_bytes = serde_json::to_vec(&request)?;
     if request_bytes.is_empty() || request_bytes.len() > 65_536 {
         bail!("Beta request exceeds protocol bounds");
     }
-    if let Some(endpoint) = resident.as_ref() {
+    if let Some(endpoint) = resident.get(&cache_key) {
         let response = resident_command(context, endpoint, &request_bytes);
         request_bytes.fill(0);
         return parse_report(context, &request, &response?);
@@ -582,16 +514,12 @@ pub fn command(context: &AttachContext, request: Value) -> Result<Report> {
         }
     };
     let write_result = input_thread.join();
-    let output = Zeroizing::new(
-        output_thread
-            .join()
-            .map_err(|_| anyhow!("Attach output reader failed"))??,
-    );
-    let errors = Zeroizing::new(
-        error_thread
-            .join()
-            .map_err(|_| anyhow!("Attach error reader failed"))??,
-    );
+    let output = output_thread
+        .join()
+        .map_err(|_| anyhow!("Attach output reader failed"))??;
+    let errors = error_thread
+        .join()
+        .map_err(|_| anyhow!("Attach error reader failed"))??;
     if output.len() > 65_536 || errors.len() > 65_536 {
         bail!("Attach helper output exceeds bounds");
     }
@@ -620,9 +548,7 @@ pub fn command(context: &AttachContext, request: Value) -> Result<Report> {
         let endpoint: ResidentEndpoint = serde_json::from_value(value)
             .context("Attach helper returned invalid resident control metadata")?;
         validate_endpoint(context, &endpoint)?;
-        slot.require_current()?;
-        recheck_process(&context.target)?;
-        *resident = Some(endpoint);
+        resident.insert(cache_key, endpoint);
     } else {
         bail!(
             "Verified bootstrap did not provide resident control; restart Minecraft with the current beta launcher"
@@ -634,104 +560,6 @@ pub fn command(context: &AttachContext, request: Value) -> Result<Report> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn fixture_process(pid: u32, started: u64) -> MinecraftProcess {
-        MinecraftProcess {
-            pid,
-            started,
-            title: "synthetic control lifetime".into(),
-        }
-    }
-
-    #[test]
-    fn resident_registry_reuses_process_lifetime_and_keeps_ambiguous_entries() {
-        let registry = ResidentRegistry::default();
-        let first = registry
-            .acquire(&fixture_process(11, 100), |_, _| false)
-            .unwrap();
-        let repeated = registry
-            .acquire(&fixture_process(11, 100), |_, _| false)
-            .unwrap();
-        assert!(Arc::ptr_eq(&first, &repeated));
-        let newer = registry
-            .acquire(&fixture_process(11, 101), |_, _| false)
-            .unwrap();
-        assert!(!Arc::ptr_eq(&first, &newer));
-        // A missing window or inaccessible OS query must not revoke live control.
-        assert_eq!(registry.entries.lock().unwrap().len(), 2);
-        first.require_current().unwrap();
-        newer.require_current().unwrap();
-    }
-
-    #[test]
-    fn resident_registry_retires_only_definitely_gone_process_lifetimes() {
-        let registry = ResidentRegistry::default();
-        let ended = registry
-            .acquire(&fixture_process(11, 100), |_, _| false)
-            .unwrap();
-        let live = registry
-            .acquire(&fixture_process(12, 200), |_, _| false)
-            .unwrap();
-        let weak = Arc::downgrade(&ended);
-        let in_flight = ended.endpoint.lock().unwrap();
-        let selected = registry
-            .acquire(&fixture_process(12, 200), |pid, start| {
-                assert!(
-                    registry.entries.try_lock().is_ok(),
-                    "OS inspection held registry lock"
-                );
-                pid == 11 && start == 100
-            })
-            .unwrap();
-        assert!(Arc::ptr_eq(&live, &selected));
-        assert_eq!(registry.entries.lock().unwrap().len(), 1);
-        assert!(
-            ended.require_current().is_err(),
-            "old Arc resurrected retired control"
-        );
-        selected.require_current().unwrap();
-        drop(in_flight);
-        drop(ended);
-        assert!(
-            weak.upgrade().is_none(),
-            "registry retained exited process secrets"
-        );
-    }
-
-    #[test]
-    fn resident_network_serialization_never_holds_global_registry_lock() {
-        let registry = ResidentRegistry::default();
-        let first = registry
-            .acquire(&fixture_process(11, 100), |_, _| false)
-            .unwrap();
-        let operation = first.endpoint.lock().unwrap();
-        // A paused handshake owns only its process slot; another process can
-        // start while same-process callers still share the exact operation lock.
-        let other = registry
-            .acquire(&fixture_process(12, 200), |_, _| false)
-            .unwrap();
-        let same = registry
-            .acquire(&fixture_process(11, 100), |_, _| false)
-            .unwrap();
-        assert!(other.endpoint.try_lock().is_ok());
-        assert!(same.endpoint.try_lock().is_err());
-        drop(operation);
-        assert!(same.endpoint.try_lock().is_ok());
-    }
-
-    #[test]
-    fn resident_endpoint_keys_are_zeroizing_and_deserialize_without_schema_change() {
-        let wire = format!(
-            r#"{{"schema":1,"port":1234,"pid":11,"started":100,"digest":"{}","key":"{}"}}"#,
-            "a".repeat(64),
-            "b".repeat(64)
-        );
-        let endpoint: ResidentEndpoint = serde_json::from_str(&wire).unwrap();
-        fn guarded(_: &Zeroizing<String>) {}
-        guarded(&endpoint.key);
-        assert_eq!(&*endpoint.key, &"b".repeat(64));
-    }
-
     #[test]
     #[cfg(unix)]
     fn unix_java_paths_preserve_spaces_unicode_and_reject_relative_or_nul() {
@@ -754,7 +582,7 @@ mod tests {
         let aad = [4; 81];
         send_sealed(&mut frame, &cipher, &aad, b"fixture request").unwrap();
         assert_eq!(
-            &**read_sealed(&mut std::io::Cursor::new(&frame), &cipher, &aad).unwrap(),
+            read_sealed(&mut std::io::Cursor::new(&frame), &cipher, &aad).unwrap(),
             b"fixture request"
         );
         let mut changed = aad;
@@ -848,7 +676,7 @@ mod tests {
         wrong.digest = "a".repeat(64);
         assert!(validate_endpoint(&context, &wrong).is_err());
         let mut wrong = endpoint.clone();
-        wrong.key = Zeroizing::new("a".repeat(64));
+        wrong.key = "a".repeat(64);
         assert!(resident_command(&context, &wrong, b"{\"action\":\"status\"}").is_err());
         child.0.stdin.take().unwrap().write_all(b"\n").unwrap();
         assert!(child.0.wait().unwrap().success());

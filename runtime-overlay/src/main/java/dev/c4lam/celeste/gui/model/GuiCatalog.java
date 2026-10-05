@@ -273,9 +273,9 @@ public final class GuiCatalog {
             slider("Distance", "Blocks from your view; applies when the next phrase begins", 18, 2, 64, 1),
             slider("Size", "Lyric scale", 1, .5, 2, .1),
             slider("Opacity", "Text visibility", .9, .1, 1, .05)),
-        dev.c4lam.celeste.gui.model.BlockEspSettings.storage(),
-        dev.c4lam.celeste.gui.model.BlockEspSettings.blocks(),
-        SuspiciousChunkFinderSettings.settings(),
+        dev.c4lam.celeste.module.impl.visual.BlockEspSettings.storage(),
+        dev.c4lam.celeste.module.impl.visual.BlockEspSettings.blocks(),
+        dev.c4lam.celeste.module.impl.visual.SuspiciousChunkFinderFeature.settings(),
         new GuiModule("Block Highlight", "Highlight the block you're looking at", CelestePage.VISUALS, false,
             colorPick("Color", "Highlight color", 116, 223, 255),
             slider("Opacity", "Unified block fill visibility", .35, .05, 1, .05)),
@@ -467,8 +467,10 @@ public final class GuiCatalog {
 
     private static GuiModule playerModels() {
         var settings = new java.util.ArrayList<GuiSetting>();
-        settings.add(new GuiSetting.Action("Load Sahur", "Use Sahur with walking and post-kill celebrations",
-            dev.c4lam.celeste.gui.PlayerModelSelection::loadSahur));
+        if (dev.c4lam.celeste.render.model.BundledPlayerModel.available()) {
+            settings.add(new GuiSetting.Action("Load Sahur", "Use Sahur with walking and post-kill celebrations",
+                dev.c4lam.celeste.module.impl.visual.PlayerModelsFeature::loadSahur));
+        }
         settings.add(new GuiSetting.Action("Load model", "Choose a local .glb with embedded textures and animations",
             dev.c4lam.celeste.gui.ModelImportScreen::open));
         settings.add(mode("Apply to", "Players whose appearance is replaced", "Self", "Self", "Others", "Everyone"));

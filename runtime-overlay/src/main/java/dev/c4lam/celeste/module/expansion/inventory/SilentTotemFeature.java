@@ -18,7 +18,7 @@ import net.minecraft.util.math.MathHelper;
  * left-click transfer. This keeps the cursor clear for an immediate pop
  * refill and never abandons an item on it.
  */
-public final class SilentTotemFeature implements ModuleFeature {
+final class SilentTotemFeature implements ModuleFeature {
     private enum Phase { IDLE, PICK_SOURCE, PLACE_DESTINATION, RETURN_DISPLACED }
 
     private boolean stateInitialized;

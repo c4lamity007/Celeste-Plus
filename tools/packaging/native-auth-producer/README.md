@@ -68,13 +68,3 @@ The release path must check `tools/qa/NativeMethodParity.java` against the exact
 The final second resume passed 41 protected native checks and 15 Java continuation stages. The exact reviewed DLL inventory and evidence index are approval-02; the final verification plan is `acdb3ed005c1511e60ee3648bf0ba0b2c8abeb242244b734cfb8fe9a76898b07`. See the [run record](../../../docs/native-auth-20260928.md) for result pins and the verified live rollout.
 
 The source-only [lifecycle fixture recipe](lifecycle-fixture-queue/README.md) corrects a test race between revocation visibility and owner-thread cleanup queue publication. It rebuilds one test class and preserves all shutdown assertions and other fixture entries. It does not change selected methods, native output, production authorization ordering, or the historical producer bundle. Keep its source patch separate from an already sealed production checkpoint; a new fixture plan and reviewed evidence binding are required.
-
-## Independent module selector update (2026-10-02)
-
-The eight-argument DPoP claims builder now includes exact request-body and identity-evidence hashes. The six-argument overload only forwards, so it must not be treated as protection of the builder. The owner-thread authorization continuation is now `lambda$authorize$7` and carries the module provider and verified module session. The exact source selectors still select 16 bodies across the same three owners. See `provenance/selection-update-20261002.json`.
-
-`tools/qa/AuthNativeSelectionCheck.java` checks the actual selected input bytecode before native generation. It rejects stale descriptors, forwarding proof wrappers, missing body/evidence inputs, and the wrong authorization lambda. It performs offline code inspection; it does not establish behavioral correctness or VMP protection.
-
-Use `tools/migrate_native_auth_selectors.py` with the exact previously reviewed bundle, a compiled current runtime, the JDK, and a fresh output directory to produce a separately pinned selector bundle and `producer-policy-candidate.json`. The tool verifies existing producer bytes, preserves all executable producer files, applies only the exact selectors and provenance, and checks the selected compiled bodies. Adopt the candidate source policy only after review. No historical bundle or VMP approval is modified. Native parity, protected protocol/lifecycle checks, and a new independent VMP review remain required for the new binaries.
-
-New delivery/capability verification classes are protected by the Java module-release process; these three native selections do not claim to virtualize every new module-delivery class.

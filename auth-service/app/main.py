@@ -26,8 +26,6 @@ from pydantic import BaseModel, Field, field_validator
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .beta_delivery import beta_enabled, beta_runtime_catalog, create_beta_router, require_current_runtime_catalog
-from .module_delivery import create_module_router
-from .security_incidents import create_incident_router
 from .api_responses import ApiResponseMiddleware
 from .native_manifest import create_native_manifest_router
 from .native_download import create_native_download_router
@@ -410,7 +408,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if (row is None or row["status"] != "active" or row["license_status"] != "active"
                 or (row["expires_at"] is not None and int(row["expires_at"]) <= int(time.time()))):
             raise HTTPException(401, "authentication denied")
-        catalog = beta_runtime_catalog(settings, int(row["license_uid"]), body.device_id)
+        catalog = beta_runtime_catalog(settings, int(row["license_uid"]))
         if (body.release_id != catalog["release_id"] or body.client_version != catalog["client_version"]
                 or body.client_sha256 != catalog["runtime_sha256"]
                 or body.beta_catalog_sha256 != catalog["catalog_sha256"]):
@@ -523,7 +521,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         with database.connect() as connection:
             require_entitlement(connection, license_uid, product)
         if beta_claim is not None:
-            catalog = beta_runtime_catalog(settings, license_uid, device_id)
+            catalog = beta_runtime_catalog(settings, license_uid)
             if (beta_claim != catalog["catalog_sha256"] or claims.get("release") != catalog["release_id"]
                     or claims.get("client_version") != catalog["client_version"]
                     or claims.get("client_sha256") != catalog["runtime_sha256"]):
@@ -601,6 +599,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         now = int(time.time())
         with database.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
+            connection.execute("DELETE FROM challenges WHERE expires_at <= ?", (now,))
             license_row = connection.execute(
                 "SELECT * FROM licenses WHERE key_hash=?",
                 (license_hash,),
@@ -627,7 +626,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 if body.product != PLUS or settings.plus_auth_protocol != 2:
                     raise HTTPException(409, "device limit reached")
                 rebind, _ = eligible_rebinding(connection, int(license_row["uid"]), body.replace_device_id, now)
-            Database.prune_expired_auth(connection, "challenges", int(time.time()))
             challenge_id = secrets.token_urlsafe(20)
             connection.execute(
                 """
@@ -812,7 +810,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             require_entitlement(connection, int(row["license_uid"]), product)
             if product == PLUS:
                 require_hwid(row, body.hwid_sha256)
-            Database.prune_expired_auth(connection, "challenges", int(time.time()))
             challenge_id = secrets.token_urlsafe(20)
             connection.execute(
                 """
@@ -872,7 +869,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             message = _message(pending)
             if (verify_ed25519(bytes(pending["install_signing_key"]), message, body.install_signature)
                     and verify_ed25519(bytes(pending["token_signing_key"]), message, body.token_signature)):
-                runtime = beta_runtime_catalog(settings, int(pending["license_uid"]), pending["device_id"])
+                runtime = beta_runtime_catalog(settings, int(pending["license_uid"]))
         now = int(time.time())
         with database.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -919,7 +916,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     raise HTTPException(401, "authentication denied")
                 if runtime is None:
                     raise HTTPException(409, "unsupported release")
-                require_current_runtime_catalog(settings, runtime, row["device_id"])
+                require_current_runtime_catalog(settings, runtime)
                 now = int(time.time())
                 if int(row["expires_at"]) <= now or (
                     row["license_expires"] is not None and int(row["license_expires"]) <= now
@@ -1052,7 +1049,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             require_entitlement(connection, int(row["license_uid"]), product)
             if product == PLUS:
                 require_hwid(row, body.hwid_sha256)
-            Database.prune_expired_auth(connection, "challenges", int(time.time()))
             challenge_id = secrets.token_urlsafe(20)
             connection.execute(
                 """
@@ -1391,16 +1387,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     )
                 else:
                     replayed = False
-                    Database.prune_expired_auth(connection, "session_nonces", now)
+                    connection.execute("DELETE FROM session_nonces WHERE expires_at<=?", (now,))
                     try:
                         connection.execute(
                             "INSERT INTO session_nonces(device_id,nonce,expires_at) VALUES(?,?,?)",
                             (body.device_id, body.nonce, now + 120),
                         )
                     except sqlite3.IntegrityError:
-                        if runtime is not None:
-                            # Reject Plus replay before runtime/tamper state can mutate.
-                            raise HTTPException(401, "session verification denied") from None
                         replayed = True
                         security_event(
                             connection,
@@ -1414,10 +1407,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     tampered = body.event == "integrity_mismatch" or not hmac.compare_digest(
                         body.observed_sha256, expected_digest
                     )
-                    if runtime is not None and tampered:
-                        # Plus incidents require the separate fresh two-observation protocol.
-                        # A legacy report still fails closed, but cannot revoke the license.
-                        raise HTTPException(401, "session verification denied")
                     license_active = (
                         row["status"] == "active"
                         and row["license_status"] == "active"
@@ -1443,7 +1432,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                             (now, body.game_uuid, body.game_name, now, "/v1/session/check", client_ip(request),
                              body.observed_sha256, now, body.device_id),
                         )
-                        incident_scope = settings.incident_scope_for(row["device_id"], runtime["release_id"]) if runtime is not None else ""
                         response_token = signer.sign(
                             {
                                 "aud": "celeste-session",
@@ -1457,7 +1445,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                                 "nonce": body.nonce,
                                 "status": "active",
                                 "sub": str(row["license_uid"]),
-                                **({"security_incident_scope": incident_scope} if incident_scope else {}),
                                 **({"release": runtime["release_id"], "client_version": runtime["client_version"],
                                     "beta_catalog_sha256": runtime["catalog_sha256"]} if runtime is not None else {}),
                                 **({"hardware_sha256": body.hardware_sha256, "process_id": body.process_id,
@@ -1679,25 +1666,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 and endpoint.startswith("/v1/beta/artifacts/")) else None
             dpop.require(connection, request, bytes(row["install_signing_key"]), token=access_token(request), claims=claims,
                          delivery=delivery, hardware=hardware)
-            if endpoint.startswith(("/v1/bootstrap/", "/v1/loader/", "/v1/blob/")):
-                consume_artifact_allowance(connection, claims, request)
+            if endpoint.startswith(("/v1/bootstrap/", "/v1/loader/", "/v1/blob/", "/v1/beta/artifacts/")):
+                token_bucket = keyed_digest(settings.key_pepper, "artifact-token", claims["jti"])
+                ip_bucket = keyed_digest(settings.key_pepper, "artifact-ip", client_ip(request))
+                retry = database.consume_artifact_allowance(connection, token_bucket, ip_bucket)
+                if retry:
+                    raise HTTPException(429, "temporarily rate limited", headers={"Retry-After": str(retry)})
         touch_device(device_id, endpoint, request)
         return device_id
-
-    def consume_artifact_allowance(connection, claims, request: Request) -> None:
-        token_bucket = keyed_digest(settings.key_pepper, "artifact-token", claims["jti"])
-        ip_bucket = keyed_digest(settings.key_pepper, "artifact-ip", client_ip(request))
-        retry = database.consume_artifact_allowance(connection, token_bucket, ip_bucket)
-        if retry:
-            raise HTTPException(429, "temporarily rate limited", headers={"Retry-After": str(retry)})
-
-    def admit_beta_artifact(claims, request: Request) -> None:
-        # The beta route has already checked the complete proof and revalidated
-        # live authority after acquiring its transfer slot. Busy retries consume
-        # proofs/abuse limits, but not the bounded artifact preparation allowance.
-        with database.connect() as connection:
-            connection.execute("BEGIN IMMEDIATE")
-            consume_artifact_allowance(connection, claims, request)
 
     @app.get("/v1/bootstrap/{bootstrap_id}")
     def bootstrap_loader(bootstrap_id: str, request: Request):
@@ -2248,10 +2224,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         response.delete_cookie(COOKIE_NAME, path="/")
         return response
 
-    app.include_router(create_module_router(settings, database, signer, dpop, apply_limit))
-    app.include_router(create_incident_router(settings, database, signer, dpop, apply_limit))
-    app.include_router(create_beta_router(settings, database, signer, require_active_artifact_device,
-                                         apply_limit, admit_beta_artifact))
+    app.include_router(create_beta_router(settings, database, signer, require_active_artifact_device, apply_limit))
     app.include_router(create_native_manifest_router(settings, database, signer, apply_limit))
     app.include_router(create_native_download_router(settings, database, signer, apply_limit))
     app.include_router(create_transport_policy_router(settings, signer, apply_limit, dpop.origin))

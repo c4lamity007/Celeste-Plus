@@ -176,35 +176,6 @@ class PrepareChecks(unittest.TestCase):
         for name, data in assets.items():
             self.assertEqual((output/name).read_bytes(), data)
 
-    def test_exact_reviewed_visual_textures_preserve_bytes(self):
-        names = ('energy_ribbon.png', 'plasma_flow.png', 'fake_lag/halo.png', 'fake_lag/soft.png',
-                 'fake_lag/streak.png', 'jump/glow.png', 'jump/splash.png')
-        assets = {'src/main/resources/assets/celeste/textures/visual/' + name: png() for name in names}
-        self.assertEqual({str(path) for path in tool.VISUAL_TEXTURES}, set(assets))
-        for name, data in assets.items():
-            self.add_overlay(name, data)
-        output = tool.prepare(self.repo, self.core)
-        for name, data in assets.items():
-            self.assertEqual((output/name).read_bytes(), data)
-
-    def test_visual_texture_allowlist_rejects_neighbors_and_keeps_png_validation(self):
-        prefix = 'src/main/resources/assets/celeste/textures/visual/'
-        for name in ('unreviewed.png', 'jump/unreviewed.png', 'plasma_flow.dll', 'fake_lag/halo.PNG'):
-            with self.subTest(name=name):
-                self.add_overlay(prefix + name, png())
-                with self.assertRaisesRegex(ValueError, 'reviewed font/HUD'):
-                    tool.prepare(self.repo, self.core)
-                self.entries.pop()
-                self.assertFalse((self.repo/'build').exists())
-        for data in (b'MZnot-an-image', png() + b'trailing payload', png(4097),
-                     png()[:40] + bytes([png()[40] ^ 1]) + png()[41:]):
-            with self.subTest(size=len(data)):
-                self.add_overlay(prefix + 'jump/glow.png', data)
-                with self.assertRaisesRegex(ValueError, 'PNG'):
-                    tool.prepare(self.repo, self.core)
-                self.entries.pop()
-                self.assertFalse((self.repo/'build').exists())
-
     def test_png_corruption_or_unbounded_dimensions_fail_before_output(self):
         for data in (b'MZnot-an-image', png()[:-1], png() + b'trailing payload', png(4097), png(0),
                      png()[:40] + bytes([png()[40] ^ 1]) + png()[41:]):

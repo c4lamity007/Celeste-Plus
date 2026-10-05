@@ -44,28 +44,11 @@ public final class BetaDeliveryClientCheck {
     public static void main(String[] args) throws Exception {
         JsonObject golden = new Gson().fromJson(Files.readString(Path.of(args[0]), StandardCharsets.UTF_8), JsonObject.class);
         envelopeVector();
-        HttpsTransport unusedTransport = new HttpsTransport(ORIGIN, new byte[32]);
-        unusedTransport.close(); unusedTransport.close();
-        rejected(IOException.class, () -> unusedTransport.get(ORIGIN.resolve("v1/fixture"), Map.of(), 1024, Duration.ofSeconds(1)));
         Fixture serverGolden = new Fixture(golden);
         BetaDeliveryClient.VerifiedCatalog serverCatalog = serverGolden.client().verifyManifest(serverGolden.manifestToken, serverGolden.nonce);
         check(serverCatalog.catalogSha256().equals(golden.get("catalog_sha256").getAsString()), "actual signed server catalog");
         rejected(GeneralSecurityException.class, () -> serverGolden.client().fetchCatalog());
         Fixture fixture = new Synthetic(golden).fixture;
-        int[] transportCloses = {0};
-        BetaDeliveryClient retiring = new BetaDeliveryClient(ORIGIN, fixture.publicKey, fixture.installerToken,
-            fixture.device, fixture.uid, fixture.proofSigner, () -> fixture.hardware, fixture.clock,
-            new BetaDeliveryClient.Transport() {
-                @Override public BetaDeliveryClient.Reply get(URI uri, Map<String, String> headers, int maximum, Duration timeout) {
-                    throw new AssertionError("Closed delivery client reached transport");
-                }
-                @Override public void close() { transportCloses[0]++; }
-            });
-        retiring.close(); retiring.close();
-        check(transportCloses[0] == 1, "delivery owns exactly one transport retirement");
-        rejected(IOException.class, retiring::fetchCatalog);
-        rejected(IOException.class, () -> retiring.revalidate(null));
-        rejected(IOException.class, () -> retiring.download(null));
         check(fixture.uid == 42, "arbitrary UID42 accepted without Owner UID exemption");
         check(golden.getAsJsonObject("installer_claims").get("product").getAsString().equals("celeste_plus"), "server installer is scoped to Celeste+");
         check(golden.getAsJsonObject("manifest_claims").get("product").getAsString().equals("celeste_plus"), "server manifest is scoped to Celeste+");

@@ -8,7 +8,7 @@ import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.item.Items;
 
 /** Danger-based main-hand totem policy using an ordinary visible selection. */
-public final class AutoDoubleHandFeature implements ModuleFeature {
+final class AutoDoubleHandFeature implements ModuleFeature {
     private static final int PRIORITY = 230;
     private int originalVisibleSlot = -1;
     private int switchedVisibleSlot = -1;
@@ -22,7 +22,7 @@ public final class AutoDoubleHandFeature implements ModuleFeature {
     @Override
     public void onStartTick(ModuleContext context) {
         var client = context.client();
-        if (!AutoDoubleHandInventorySupport.playable(client) || client.player.isUsingItem()) {
+        if (!InventorySupport.playable(client) || client.player.isUsingItem()) {
             release(client);
             return;
         }
@@ -34,7 +34,7 @@ public final class AutoDoubleHandFeature implements ModuleFeature {
             release(client);
             return;
         }
-        int slot = AutoDoubleHandInventorySupport.hotbarSlot(client, Items.TOTEM_OF_UNDYING);
+        int slot = InventorySupport.hotbarSlot(client, Items.TOTEM_OF_UNDYING);
         if (slot < 0) {
             release(client);
             return;

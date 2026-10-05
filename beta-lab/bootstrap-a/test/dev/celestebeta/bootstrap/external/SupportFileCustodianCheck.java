@@ -30,12 +30,7 @@ public final class SupportFileCustodianCheck {
                     case "foreign"->Files.writeString(owned.resolve("keep.txt"),"unowned");
                     case "changed"->Files.write(owned.resolve("one.jar"),new byte[]{7});
                     case "forged"->{byte[] marker=Files.readAllBytes(owned.resolve(SupportFileCustodian.RECEIPT));marker[marker.length-3]^=1;Files.write(owned.resolve(SupportFileCustodian.RECEIPT),marker);}
-                    case "replace"->{
-                        Path file=owned.resolve("one.jar"), displaced=owned.resolve("one.jar.original");
-                        Files.move(file,displaced);Files.write(file,new byte[]{1,2,3});
-                        Files.setLastModifiedTime(file,java.nio.file.attribute.FileTime.fromMillis(946684800000L));
-                        Files.delete(displaced);
-                    }
+                    case "replace"->{Path file=owned.resolve("one.jar");Files.delete(file);Files.write(file,new byte[]{1,2,3});}
                     case "path"->{Path moved=owned.resolveSibling(owned.getFileName()+"-moved");Files.move(owned,moved);owned=moved;}
                     case "directory"->{Files.delete(owned.resolve("one.jar"));Files.createDirectory(owned.resolve("one.jar"));}
                     default->throw new AssertionError(failure);

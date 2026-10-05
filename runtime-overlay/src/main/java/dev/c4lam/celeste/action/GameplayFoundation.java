@@ -9,7 +9,6 @@ import net.minecraft.client.MinecraftClient;
 
 public final class GameplayFoundation {
     private static boolean initialized;
-    private static Object observedWorld;
 
     private GameplayFoundation() {
     }
@@ -25,10 +24,6 @@ public final class GameplayFoundation {
 
     /** Called before module START hooks. */
     public static void beginTick(MinecraftClient client) {
-        if(observedWorld != client.world) {
-            observedWorld=client.world;
-            ServerWorldFacts.clear();
-        }
         RotationManager.getInstance().prepare(client);
         ActionScheduler.getInstance().beginTick(client);
         SilentSlotManager.getInstance().beginTick(client);
@@ -57,8 +52,6 @@ public final class GameplayFoundation {
     }
 
     public static void clear() {
-        ServerWorldFacts.clear();
-        observedWorld=null;
         ActionScheduler.getInstance().clear();
         UseInputLease.getInstance().clear(MinecraftClient.getInstance());
         SilentSlotManager.getInstance().clear();

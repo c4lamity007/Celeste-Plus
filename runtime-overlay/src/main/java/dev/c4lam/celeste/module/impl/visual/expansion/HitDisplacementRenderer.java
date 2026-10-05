@@ -72,7 +72,7 @@ public final class HitDisplacementRenderer {
             ClientPlayConnectionEvents.Disconnect.class, (handler, client) -> reset(), ClientPlayConnectionEvents.DISCONNECT::register);
         ResourceLoader resources = ResourceLoader.get(ResourceType.CLIENT_RESOURCES);
         BetaSubscriptions.register(resources, "celeste:hit_displacement/reload", SynchronousResourceReloader.class,
-            manager -> reset(), proxy -> resources.registerReloader(dev.c4lam.celeste.module.delivery.ModuleResourceNames.reloader(id("hit_displacement")), proxy));
+            manager -> reset(), proxy -> resources.registerReloader(id("hit_displacement"), proxy));
     }
 
     public static synchronized void pulse(MinecraftClient client, int rgb, double size) {
@@ -210,7 +210,7 @@ public final class HitDisplacementRenderer {
         world = null;
         player = null;
         if (RenderSystem.isOnRenderThread()) releaseResources();
-        else dev.c4lam.celeste.module.delivery.ModuleScope.executeCurrent(MinecraftClient.getInstance()::execute, HitDisplacementRenderer::releaseResources);
+        else MinecraftClient.getInstance().execute(HitDisplacementRenderer::releaseResources);
     }
 
     public static synchronized void releaseResources() {

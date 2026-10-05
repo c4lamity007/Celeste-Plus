@@ -1,6 +1,5 @@
 package dev.c4lam.celeste.module.impl.expansion;
 
-import dev.c4lam.celeste.action.LocalInputOwnership;
 import dev.c4lam.celeste.action.ActionScheduler;
 import dev.c4lam.celeste.module.ModuleContext;
 import dev.c4lam.celeste.module.ModuleFeature;

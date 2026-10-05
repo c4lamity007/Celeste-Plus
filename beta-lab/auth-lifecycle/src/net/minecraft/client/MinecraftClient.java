@@ -7,21 +7,6 @@ public final class MinecraftClient {
     private static final MinecraftClient INSTANCE = new MinecraftClient();
     private final Thread owner = Thread.currentThread();
     private final ConcurrentLinkedQueue<Runnable> queued = new ConcurrentLinkedQueue<>();
-    public boolean focused=true, hudHidden, menuOpen;
-    public boolean isWindowFocused(){return focused;}
-    public Window getWindow(){return new Window();}
-    public static final class Window {
-        public long getHandle(){return 1234;}
-        public int getFramebufferWidth(){return 1920;}
-        public int getFramebufferHeight(){return 1080;}
-        public int getScaledWidth(){return 960;}
-        public int getScaledHeight(){return 540;}
-    }
-    public final java.util.concurrent.atomic.AtomicInteger scheduledStops = new java.util.concurrent.atomic.AtomicInteger();
-    public void scheduleStop() {
-        if(!isOnThread())throw new AssertionError("Stop scheduled off owner thread");
-        scheduledStops.incrementAndGet();
-    }
 
     private MinecraftClient() { }
 

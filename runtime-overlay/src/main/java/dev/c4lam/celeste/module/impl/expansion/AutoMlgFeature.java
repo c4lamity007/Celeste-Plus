@@ -1,11 +1,10 @@
 package dev.c4lam.celeste.module.impl.expansion;
 
-import dev.c4lam.celeste.rotation.LocalRotationProjection;
 import dev.c4lam.celeste.action.ActionScheduler;
 import dev.c4lam.celeste.action.GameplayFoundation;
 import dev.c4lam.celeste.module.ModuleContext;
 import dev.c4lam.celeste.module.ModuleFeature;
-import dev.c4lam.celeste.action.OwnFluidTracker;
+import dev.c4lam.celeste.module.expansion.inventory.OwnFluidTracker;
 import dev.c4lam.celeste.rotation.MoveFixMode;
 import dev.c4lam.celeste.rotation.Rotation;
 import dev.c4lam.celeste.rotation.RotationManager;

@@ -239,10 +239,13 @@ def test_beta_session_dual_signatures_and_freshness_stay_required(runtime, chang
 
 
 @pytest.mark.parametrize("event,observed", [("integrity_mismatch", "d" * 64), ("heartbeat", "f" * 64)])
-def test_legacy_beta_integrity_violation_denies_without_skipping_incident_warning(runtime, event, observed):
+def test_current_beta_integrity_violation_still_revokes_owner(runtime, event, observed):
     body = heartbeat(runtime, event=event, observed_sha256=observed)
     assert runtime.beta.client.post("/v1/session/check", json=body).status_code == 401
-    assert_not_revoked(runtime)
+    with runtime.beta.app.state.database.connect() as connection:
+        assert connection.execute("SELECT status FROM licenses WHERE uid=7").fetchone()[0] == "revoked"
+        device = connection.execute("SELECT status,tamper_count FROM devices WHERE license_uid=7").fetchone()
+        assert tuple(device) == ("revoked", 1)
     assert_not_revoked(runtime, 8)
 
 

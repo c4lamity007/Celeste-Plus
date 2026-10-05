@@ -1,29 +1,17 @@
 package dev.c4lam.celeste.module.expansion.sword;
 
-import dev.c4lam.celeste.action.SwordAttackCoordinator;
-
 import dev.c4lam.celeste.action.ActionScheduler;
 import dev.c4lam.celeste.module.ModuleContext;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.entity.LivingEntity;
 
 /** Tick-bounded vanilla back-binding press after a real vanilla entity attack. */
-public final class STapFeature extends STapInterceptFeature {
+public final class STapFeature extends InterceptFeature {
     private int configuredDuration = 1;
     private boolean groundOnly = true;
     private long startsAtTick = Long.MAX_VALUE;
     private long endsAtTick = Long.MIN_VALUE;
     private boolean ownsBackKey;
-
-    @Override
-    protected SwordAttackCoordinator.AttackPolicy attackPolicy() {
-        return new SwordAttackCoordinator.AttackPolicy() {
-            @Override public void attacked(MinecraftClient client, net.minecraft.entity.Entity target) {
-                if (target instanceof LivingEntity living && STapSwordExpansionTargets.validLiving(client, living, 6.0D, true))
-                    onAttack(client, living);
-            }
-        };
-    }
 
     @Override
     public String name() {
@@ -47,7 +35,7 @@ public final class STapFeature extends STapInterceptFeature {
         }
         MinecraftClient client = context.client();
         if (client.currentScreen != null || client.player == null
-            || !STapPhysicalBinding.isDown(client, client.options.forwardKey)) {
+            || !PhysicalBinding.isDown(client, client.options.forwardKey)) {
             restore(client);
             return;
         }
@@ -61,9 +49,9 @@ public final class STapFeature extends STapInterceptFeature {
         if (!active() || client.player == null || target == null
             || client.currentScreen != null || !client.player.isSprinting()
             || (groundOnly && !client.player.isOnGround())
-            || !STapPhysicalBinding.isSupported(client.options.forwardKey)
-            || !STapPhysicalBinding.isSupported(client.options.backKey)
-            || !STapPhysicalBinding.isDown(client, client.options.forwardKey)) {
+            || !PhysicalBinding.isSupported(client.options.forwardKey)
+            || !PhysicalBinding.isSupported(client.options.backKey)
+            || !PhysicalBinding.isDown(client, client.options.forwardKey)) {
             return;
         }
         long firstInputTick = ActionScheduler.getInstance().tickNumber() + 1L;
@@ -88,7 +76,7 @@ public final class STapFeature extends STapInterceptFeature {
         startsAtTick = Long.MAX_VALUE;
         endsAtTick = Long.MIN_VALUE;
         if (ownsBackKey && client != null && client.options != null) {
-            client.options.backKey.setPressed(STapPhysicalBinding.isDown(client, client.options.backKey));
+            client.options.backKey.setPressed(PhysicalBinding.isDown(client, client.options.backKey));
         }
         ownsBackKey = false;
     }

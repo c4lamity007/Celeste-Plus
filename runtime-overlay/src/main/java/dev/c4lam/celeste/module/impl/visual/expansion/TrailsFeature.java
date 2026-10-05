@@ -24,7 +24,7 @@ public final class TrailsFeature implements ModuleFeature {
     @Override public void onDisable(ModuleContext context) { enabled = false; clear(); }
     @Override public void onWorldChanged(ModuleContext context) { enabled = false; clear(); }
 
-    public void extract(WorldExtractionContext context, List<TrailsWorldGlowRenderer.Quad> glows, int quadLimit) {
+    public void extract(WorldExtractionContext context, List<WorldGlowRenderer.Quad> glows, int quadLimit) {
         var client = MinecraftClient.getInstance();
         if (!enabled || context == null || context.camera() == null || client.player == null
             || client.world != context.world() || !client.player.isAlive() || client.player.isSpectator()
@@ -48,8 +48,8 @@ public final class TrailsFeature implements ModuleFeature {
             if (i > 0) distances[i] = distances[i - 1] + points.get(i).distanceTo(points.get(i - 1));
         }
         double total = distances[distances.length - 1];
-        TrailsGlowTrail.appendRound(glows, points, context.camera().getCameraPos(), Math.min(64, available),
-            1, opacity, false, progress -> TrailsVisualEffects.color(theme, color, 0, progress * .32),
+        GlowTrail.appendRound(glows, points, context.camera().getCameraPos(), Math.min(64, available),
+            1, opacity, false, progress -> VisualEffects.color(theme, color, 0, progress * .32),
             progress -> {
                 double at = total * progress;
                 int edge = 1;

@@ -27,12 +27,7 @@ public final class VisualAtmosphere {
         active = gameContext && !advanced ? preset(preset) : null;
     }
     static void clear() { active = null; }
-    public static String activePresetName() { Preset value = active; return value == null ? null : value.sky; }
-    private static Preset effective() {
-        Object name = dev.c4lam.celeste.module.delivery.ModuleHooks.invoke("atmosphere", "atmosphere.palette", activePresetName());
-        return name instanceof String value ? preset(value) : null;
-    }
-    public static boolean usesPreset() { return effective() != null; }
+    public static boolean usesPreset() { return active != null; }
 
     public static Preset preset(String name) {
         for (Preset value : Preset.values()) if (value.sky.equalsIgnoreCase(name)) return value;
@@ -40,13 +35,13 @@ public final class VisualAtmosphere {
     }
 
     public static String sky(String fallback) {
-        Preset current = effective();
+        Preset current = active;
         return current == null ? fallback : current.sky;
     }
 
     /** RGB input/output; phase is in turns. Natural texture/alpha remain the caller's responsibility. */
     public static int tint(int fallbackRgb, double seconds, double phaseOffset) {
-        Preset current = effective();
+        Preset current = active;
         return current == null ? fallbackRgb & 0xFFFFFF : sample(current, seconds, phaseOffset);
     }
 

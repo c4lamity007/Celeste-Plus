@@ -3,7 +3,7 @@ package dev.c4lam.celeste.gui;
 import dev.c4lam.celeste.config.InterfaceConfig;
 import dev.c4lam.celeste.gui.model.GuiSetting;
 import dev.c4lam.celeste.module.ModuleManager;
-import dev.c4lam.celeste.gui.model.BlockEspSettings;
+import dev.c4lam.celeste.module.impl.visual.BlockEspSettings;
 import dev.c4lam.celeste.render.GuiRenderer;
 import dev.c4lam.celeste.render.RenderUtil;
 import dev.c4lam.celeste.render.font.Fonts;

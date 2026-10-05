@@ -39,7 +39,7 @@ public final class GroundShadersFeature implements ModuleFeature {
             token = new Object();
         } else token = previous.options.worldToken;
         GroundShadersMath.Settings settings = GroundShadersMath.settings(context.slider("Intensity", .35),
-            GroundShadersVisualAtmosphere.tint(context.colorPick("Color", 0x2EAFD6), 0, 0));
+            VisualAtmosphere.tint(context.colorPick("Color", 0x2EAFD6), 0, 0));
         active = new Snapshot(world, new Options(token, settings));
     }
 

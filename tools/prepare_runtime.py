@@ -25,11 +25,6 @@ COMMIT = re.compile(r"[0-9a-f]{40}\Z")
 TEXT_EXTENSIONS = {".java", ".json", ".glsl", ".vsh", ".fsh"}
 FONT_ASSETS = PurePosixPath("src/main/resources/assets/celeste/fonts")
 HUD_GLYPHS = PurePosixPath("src/main/resources/assets/celeste/textures/hud/glyphs")
-# Exact reviewed inert visual textures; no broader binary asset directory is allowed.
-VISUAL_TEXTURES = frozenset(PurePosixPath("src/main/resources/assets/celeste/textures/visual") / name for name in (
-    "energy_ribbon.png", "plasma_flow.png", "fake_lag/halo.png", "fake_lag/soft.png",
-    "fake_lag/streak.png", "jump/glow.png", "jump/splash.png",
-))
 LICENSES = PurePosixPath("src/main/resources/META-INF/licenses/celeste")
 RESERVED = {"con", "prn", "aux", "nul", *(f"com{i}" for i in range(1, 10)), *(f"lpt{i}" for i in range(1, 10))}
 MEDIA_OVERRIDE = '''// Explicit Windows media DLL inputs; no pinned source is edited.
@@ -123,9 +118,9 @@ def overlay_kind(path: PurePosixPath) -> str:
         return "text"
     if path.suffix == ".svg" and path.is_relative_to(HUD_GLYPHS / "source"):
         return "text"
-    if path.suffix == ".png" and (path.is_relative_to(FONT_ASSETS) or path.parent == HUD_GLYPHS or path in VISUAL_TEXTURES):
+    if path.suffix == ".png" and (path.is_relative_to(FONT_ASSETS) or path.parent == HUD_GLYPHS):
         return "png"
-    raise ValueError("Overlay permits runtime source text, license text, and reviewed font/HUD assets or exact reviewed visual textures only")
+    raise ValueError("Overlay permits runtime source text, license text, and reviewed font/HUD assets only")
 
 
 def validate_png(data: bytes) -> None:
@@ -243,7 +238,7 @@ def extract_archive(archive: tarfile.TarFile, members: dict, destination: Path) 
             target.chmod(0o755 if member.mode & 0o111 else 0o644)
 
 
-def prepare(repo: Path, core_checkout: Path | None = None, *, independent_modules: bool = False) -> Path:
+def prepare(repo: Path, core_checkout: Path | None = None) -> Path:
     repo = repo.resolve(strict=True)
     lock, manifest, overlay = read_contract(repo)
     if core_checkout is not None:
@@ -284,15 +279,9 @@ def prepare(repo: Path, core_checkout: Path | None = None, *, independent_module
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(temporary, target)
-    selected_profile = None
-    if independent_modules:
-        import modular_runtime_profile
-        selected_profile = modular_runtime_profile.apply(destination, overlay, repo)
     report = {"schema": "celeste-plus-prepared-runtime-1", "coreCommit": lock["commit"],
               "overlayManifestSha256": lock["overlayManifestSha256"], "overlayFiles": len(overlay),
               "sourceState": manifest["sourceState"], "complete": True}
-    if selected_profile is not None:
-        report["moduleSourceProfile"] = selected_profile
     with (destination / ".celeste-plus-runtime.json").open("x", encoding="utf-8") as stream:
         json.dump(report, stream, indent=2)
         stream.write("\n")
@@ -338,7 +327,6 @@ def main(argv=None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--core-checkout", type=Path, help="Read the exact commit from a local Celeste Git repository; no checkout edits")
     parser.add_argument("--build", action="store_true", help="Run the prepared core's Gradle build after verification")
-    parser.add_argument("--independent-modules", action="store_true", help="Compile the reviewed independent-module registry and exclude legacy adapters before compilation")
     parser.add_argument("--media-dll", type=Path, help="External MediaPlayerInfo.dll supplied to the optional runtime build")
     parser.add_argument("--media-cleanup-dll", type=Path, help="Compiled CelesteMediaCleanup.dll supplied to the optional Windows runtime build")
     args = parser.parse_args(argv)
@@ -347,7 +335,7 @@ def main(argv=None) -> None:
     try:
         media = media_bridge(args.media_dll, windows=os.name == "nt") if args.media_dll is not None else None
         cleanup = media_bridge(args.media_cleanup_dll, windows=os.name == "nt") if args.media_cleanup_dll is not None else None
-        destination = prepare(Path(__file__).resolve().parents[1], args.core_checkout, independent_modules=args.independent_modules)
+        destination = prepare(Path(__file__).resolve().parents[1], args.core_checkout)
         if args.build:
             environment = os.environ.copy()
             # Only explicit CLI inputs may override the pinned root resources.

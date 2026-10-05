@@ -64,7 +64,7 @@ public final class HitEffectsFeature implements ModuleFeature {
         Options settings=options;
         if(!settings.particles && !settings.ground && !settings.displacement) return;
         double now=clock.sample(System.nanoTime(),false);
-        int color=HitEffectsVisualAtmosphere.tint(settings.color,now,0);
+        int color=VisualAtmosphere.tint(settings.color,now,0);
         Vec3d position=target.getEntityPos();
         long seed=System.nanoTime() ^ ++sequence*0x9E3779B97F4A7C15L ^ target.getId();
         if(settings.particles) state.burst(new HitEffectsState.Point(position.x,
@@ -72,14 +72,14 @@ public final class HitEffectsFeature implements ModuleFeature {
         if(settings.ground) {
             // A fresh, tightly capped collision snapshot exists only during this call.
             Surface surface=new Surface(client.world,ShapeContext.of(target));
-            int start=HitEffectsVisualAtmosphere.tint(settings.color,0,.75);
-            int end=HitEffectsVisualAtmosphere.tint(HitEffectsState.gradient(settings.color,0xFFFFFF,.22),0,.25);
+            int start=VisualAtmosphere.tint(settings.color,0,.75);
+            int end=VisualAtmosphere.tint(HitEffectsState.gradient(settings.color,0xFFFFFF,.22),0,.25);
             state.ground(HitGroundPath.build(position.x,position.y,position.z,seed,surface),now,settings.size,start,end);
         }
         if(settings.displacement) HitDisplacementRenderer.pulse(client,target,color,settings.size);
     }
 
-    public synchronized HitEffectsRenderer.Frame extract(WorldExtractionContext context) {
+    synchronized HitEffectsRenderer.Frame extract(WorldExtractionContext context) {
         MinecraftClient client=MinecraftClient.getInstance();
         if(!enabled || client.player==null || !client.player.isAlive() || client.player.isSpectator()
             || client.world!=world || world!=context.world() || context.camera()==null || !context.camera().isReady()) {

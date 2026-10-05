@@ -10,7 +10,7 @@ import net.minecraft.client.world.ClientWorld;
 import net.minecraft.util.Hand;
 
 /** Volt ThrowPot's press-to-throw behavior without camera or selected-slot mutation. */
-public final class ThrowPotFeature implements ModuleFeature {
+final class ThrowPotFeature implements ModuleFeature {
     private static final int PRIORITY = 185;
     private boolean actionDown;
     private int throwsRemaining;
@@ -26,17 +26,17 @@ public final class ThrowPotFeature implements ModuleFeature {
 
     @Override
     public void onEnable(ModuleContext context) {
-        actionDown = ThrowPotInventorySupport.actionKeyDown(context);
+        actionDown = InventorySupport.actionKeyDown(context);
     }
 
     @Override
     public void onStartTick(ModuleContext context) {
         clearIntent();
         MinecraftClient client = context.client();
-        boolean down = ThrowPotInventorySupport.actionKeyDown(context);
+        boolean down = InventorySupport.actionKeyDown(context);
         boolean rising = down && !actionDown;
         actionDown = down;
-        if (!ThrowPotInventorySupport.playable(client) || !client.isWindowFocused() || client.getOverlay() != null) {
+        if (!InventorySupport.playable(client) || !client.isWindowFocused() || client.getOverlay() != null) {
             cancel();
             return;
         }
@@ -51,31 +51,31 @@ public final class ThrowPotFeature implements ModuleFeature {
             }
             return;
         }
-        int slot = ThrowPotInventorySupport.hotbarSlot(client, ThrowPotInventorySupport::isSplashHealing);
+        int slot = InventorySupport.hotbarSlot(client, InventorySupport::isSplashHealing);
         if (slot < 0) {
             cancel();
             return;
         }
         intentWorld = client.world;
         intentSlot = slot;
-        ThrowPotInventorySupport.requestDown(this, client.player, PRIORITY);
+        InventorySupport.requestDown(this, client.player, PRIORITY);
     }
 
     @Override
     public void onActionTick(ModuleContext context) {
         ClientWorld world = intentWorld;
         int slot = intentSlot;
-        if (world == null || slot < 0 || !ThrowPotInventorySupport.downReady(this)) return;
+        if (world == null || slot < 0 || !InventorySupport.downReady(this)) return;
         ActionScheduler.getInstance().submit(this, PRIORITY, client -> {
-            if (!ThrowPotInventorySupport.playable(client) || !client.isWindowFocused() || client.getOverlay() != null
+            if (!InventorySupport.playable(client) || !client.isWindowFocused() || client.getOverlay() != null
                 || client.world != world || !context.module().enabled()
                 || throwsRemaining <= 0 || client.player.age > expiresAtAge || !delayElapsed(context)
-                || slot > 8 || !ThrowPotInventorySupport.isSplashHealing(client.player.getInventory().getStack(slot))
-                || !ThrowPotInventorySupport.downReady(this)) return;
+                || slot > 8 || !InventorySupport.isSplashHealing(client.player.getInventory().getStack(slot))
+                || !InventorySupport.downReady(this)) return;
             SilentSlotManager.getInstance().runWithSlot(this, slot, PRIORITY,
                 context.toggle("Silent swap", true), () -> {
-                if (ThrowPotInventorySupport.isSplashHealing(client.player.getMainHandStack())
-                    && ThrowPotInventorySupport.useItem(client, Hand.MAIN_HAND)) {
+                if (InventorySupport.isSplashHealing(client.player.getMainHandStack())
+                    && InventorySupport.useItem(client, Hand.MAIN_HAND)) {
                     lastActionAge = client.player.age;
                     throwsRemaining--;
                 }
