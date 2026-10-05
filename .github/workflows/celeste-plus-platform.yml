@@ -40,10 +40,6 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Prepare pinned runtime sources
-        shell: bash
-        run: python tools/prepare_runtime.py
-
       - name: Install pinned native toolchain
         shell: bash
         run: |
@@ -139,7 +135,13 @@ jobs:
 
       - name: Check standalone host, delivery, and lifecycle
         shell: bash
-        run: bash ./gradlew --no-daemon --console=plain build
+        # The pinned Celeste core is private and intentionally not exposed to
+        # this repo's general CI token. Its runtime auth fixtures run in the
+        # owner build; all Plus-resident checks still run here.
+        run: |
+          bash ./gradlew --no-daemon --console=plain build \
+            -x runtimeIncidentTransportCheck \
+            -x runtimeSecurityIncidentCheck
 
       - name: Check runtime overlay and bootstrap protection boundaries
         shell: bash
