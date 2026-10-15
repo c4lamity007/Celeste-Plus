@@ -41,9 +41,10 @@ final class HttpsTransport implements BetaDeliveryClient.Transport {
             HttpResponse<byte[]> response = future.get(timeout.toMillis(), TimeUnit.MILLISECONDS);
             return new BetaDeliveryClient.Reply(response.uri(), response.statusCode(), response.headers().map(), response.body());
         } catch (ExecutionException exception) {
-            throw new IOException("Beta HTTPS transfer failed", exception.getCause());
+            throw new IOException("Beta HTTPS " + transferKind(uri) + " transfer failed ("
+                + failureCategory(exception.getCause()) + ")", exception.getCause());
         } catch (TimeoutException exception) {
-            throw new IOException("Beta HTTPS transfer deadline exceeded", exception);
+            throw new IOException("Beta HTTPS " + transferKind(uri) + " transfer deadline exceeded", exception);
         } finally {
             if (!future.isDone() || future.isCompletedExceptionally()) {
                 BoundedBody body = subscriber.get();
@@ -51,6 +52,27 @@ final class HttpsTransport implements BetaDeliveryClient.Transport {
                 future.cancel(true);
             }
         }
+    }
+
+    private static String transferKind(URI uri) {
+        return uri.getRawPath() != null && uri.getRawPath().startsWith("/v1/beta/artifacts/") ? "artifact" : "manifest";
+    }
+
+    static String failureCategory(Throwable failure) {
+        for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+            if (cause instanceof javax.net.ssl.SSLException) return "TLS connection error";
+            if (cause instanceof java.net.UnknownHostException) return "DNS lookup failed";
+            if (cause instanceof java.net.ConnectException) return "connection could not be established";
+            if (cause instanceof java.net.SocketException) {
+                String message = cause.getMessage();
+                if (message != null && message.toLowerCase(java.util.Locale.ROOT).contains("reset")) return "connection reset";
+                return "socket connection error";
+            }
+            if (cause instanceof java.io.EOFException) return "response ended early";
+            if (cause instanceof IOException && "Beta response exceeded its byte limit".equals(cause.getMessage()))
+                return "response exceeded its allowed size";
+        }
+        return failure == null ? "transport error" : "I/O failure (" + failure.getClass().getSimpleName() + ")";
     }
 
     static final class BoundedBody implements HttpResponse.BodySubscriber<byte[]> {

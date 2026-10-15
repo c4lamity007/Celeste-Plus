@@ -4,6 +4,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.Gson;
 import dev.c4lam.celeste.auth.DpopProofSigner;
 import java.io.IOException;
+import java.net.SocketException;
 import java.net.URI;
 import java.nio.ByteBuffer;
 import java.nio.ReadOnlyBufferException;
@@ -69,6 +70,22 @@ public final class BetaDeliveryClientCheck {
         check(fixture.proofIds.size() == 5, "catalog and all four artifacts have independent fresh signed proofs");
         catalog = client.fetchCatalog();
         check(fixture.proofIds.size() == 6, "retry on the same route does not reuse a proof");
+        Synthetic retryServer = new Synthetic(golden);
+        Fixture retryFixture = retryServer.fixture;
+        retryFixture.transientManifestFailures = 1;
+        retryFixture.transientArtifactFailures = 1;
+        BetaDeliveryClient retryClient = retryFixture.client();
+        BetaDeliveryClient.VerifiedCatalog retryCatalog = retryClient.fetchCatalog();
+        try (BetaDeliveryClient.MemoryRelease retried = retryClient.download(retryCatalog)) {
+            check(Arrays.equals(read(retried.artifact("payload-b")), retryFixture.artifacts.get("payload-b")),
+                "transient connection reset retries the artifact transfer");
+        }
+        check(retryFixture.requestNonces.size() == 7, "manifest and artifact retries use fresh request and envelope nonces");
+        check(retryFixture.proofIds.size() == 7, "manifest and artifact retries use fresh DPoP proofs");
+        check(HttpsTransport.failureCategory(new SocketException("Connection reset; token=must-not-appear"))
+            .equals("connection reset"), "transport diagnostics redact exception text");
+        check(HttpsTransport.failureCategory(new IOException("wrapped", new IOException("Beta response exceeded its byte limit")))
+            .equals("response exceeded its allowed size"), "bounded-body failures have a safe diagnostic");
         fixture.hardware = "7".repeat(64);
         try (var changedHardware = client.download(catalog)) {
             check(changedHardware.artifact("bootstrap-a").remaining() > 0, "hardware provider sampled on each artifact request");
@@ -135,7 +152,10 @@ public final class BetaDeliveryClientCheck {
             Fixture failing = new Synthetic(golden).fixture; failing.failure = failure;
             BetaDeliveryClient failingClient = failing.client();
             BetaDeliveryClient.VerifiedCatalog fresh = failingClient.fetchCatalog();
+            int requestsBeforeDownload = failing.requests;
             rejected(Exception.class, () -> failingClient.download(fresh));
+            check(failing.requests == requestsBeforeDownload + 2,
+                "authorization, response, and integrity failures are not retried: " + failure);
             check(!failing.delivered.isEmpty() && failing.delivered.stream().allMatch(BetaDeliveryClientCheck::allZero), "failure clears all delivered bytes: " + failure);
         }
         Fixture expired = new Fixture(golden);
@@ -214,6 +234,8 @@ public final class BetaDeliveryClientCheck {
         final List<byte[]> delivered = new ArrayList<>();
         String hardware = "6".repeat(64);
         String failure = "";
+        int transientManifestFailures;
+        int transientArtifactFailures;
         int requests;
         Fixture(JsonObject golden) throws Exception {
             this.golden = golden;
@@ -251,6 +273,10 @@ public final class BetaDeliveryClientCheck {
                 String requestNonce = headers.get("X-Celeste-Request-Nonce");
                 check(requestNonce != null && requestNonce.matches("[A-Za-z0-9_-]{32}") && requestNonces.add(requestNonce),
                     "fresh canonical 24-byte request nonce");
+                if (transientManifestFailures > 0) {
+                    transientManifestFailures--;
+                    throw new SocketException("Connection reset");
+                }
                 if (failure.equals("offline")) throw new IOException("fixture offline");
                 if (failure.equals("manifest-denied")) return new BetaDeliveryClient.Reply(uri, 403,
                     Map.of("Content-Type", List.of("application/json")), new byte[0]);
@@ -272,6 +298,10 @@ public final class BetaDeliveryClientCheck {
             String id = uri.getPath().substring(uri.getPath().lastIndexOf('/') + 1);
             check(uri.getPath().equals("/v1/beta/artifacts/" + golden.getAsJsonObject("manifest_claims").get("release_id").getAsString() + "/" + id), "fixed artifact route");
             check(headers.get("X-Celeste-Beta-Manifest").equals(manifestToken), "exact signed manifest header");
+            if (transientArtifactFailures > 0) {
+                transientArtifactFailures--;
+                throw new SocketException("Connection reset");
+            }
             byte[] content = artifacts.get(id).clone();
             check(maximum == content.length + ArtifactEnvelope.OVERHEAD, "transport bound equals signed plaintext plus fixed AEAD overhead");
             URI finalUri = uri; int status = 200;

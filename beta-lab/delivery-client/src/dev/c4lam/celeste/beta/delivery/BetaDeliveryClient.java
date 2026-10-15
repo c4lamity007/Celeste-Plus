@@ -8,9 +8,13 @@ import com.google.gson.Strictness;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonToken;
 import dev.c4lam.celeste.auth.DpopProofSigner;
+import java.io.EOFException;
 import java.io.IOException;
 import java.io.StringReader;
+import java.net.ConnectException;
 import java.net.URI;
+import java.net.SocketException;
+import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
@@ -40,6 +44,8 @@ public final class BetaDeliveryClient {
     static final int MAX_TOKEN_BYTES = 16_384;
     static final int MAX_MANIFEST_RESPONSE_BYTES = 20_480;
     static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(25);
+    private static final int TRANSIENT_TRANSFER_RETRIES = 1;
+    private static final long TRANSIENT_RETRY_DELAY_MILLIS = 150;
     static final List<String> IDS = List.of("bootstrap-a", "bootstrap-b", "payload-a", "payload-b");
     private static final SecureRandom REQUEST_RANDOM = new SecureRandom();
     private static final Set<String> CATALOG_KEYS = Set.of("schema", "release_id", "client_version", "runtime_sha256", "artifacts");
@@ -184,16 +190,24 @@ public final class BetaDeliveryClient {
 
     public VerifiedCatalog fetchCatalog() throws IOException, InterruptedException, GeneralSecurityException {
         installer();
-        byte[] random = new byte[24];
-        REQUEST_RANDOM.nextBytes(random);
-        String nonce = Base64.getUrlEncoder().withoutPadding().encodeToString(random);
-        Arrays.fill(random, (byte) 0);
-        byte[] body = fetch("/v1/beta/manifest", null, nonce, MAX_MANIFEST_RESPONSE_BYTES, "application/json");
-        try {
-            JsonObject wrapper = object(body);
-            exact(wrapper, Set.of("manifest"));
-            return verifyManifest(text(wrapper, "manifest"), nonce);
-        } finally { Arrays.fill(body, (byte) 0); }
+        for (int attempt = 0; ; attempt++) {
+            byte[] random = new byte[24];
+            REQUEST_RANDOM.nextBytes(random);
+            String nonce = Base64.getUrlEncoder().withoutPadding().encodeToString(random);
+            Arrays.fill(random, (byte) 0);
+            byte[] body = null;
+            try {
+                body = fetchOnce("/v1/beta/manifest", null, nonce, MAX_MANIFEST_RESPONSE_BYTES, "application/json");
+                JsonObject wrapper = object(body);
+                exact(wrapper, Set.of("manifest"));
+                return verifyManifest(text(wrapper, "manifest"), nonce);
+            } catch (IOException failure) {
+                if (attempt >= TRANSIENT_TRANSFER_RETRIES || !isTransientTransferFailure(failure)) throw failure;
+                pauseBeforeTransferRetry();
+            } finally {
+                if (body != null) Arrays.fill(body, (byte) 0);
+            }
+        }
     }
 
     /** A new signed server response is required at each loading boundary. */
@@ -230,6 +244,23 @@ public final class BetaDeliveryClient {
     }
 
     private byte[] fetch(String path, String manifest, String nonce, int limit, String mediaType)
+        throws IOException, InterruptedException, GeneralSecurityException {
+        // Catalog nonces must be fresh per request and the signed response must be
+        // verified against the nonce used for that exact attempt.
+        if (nonce != null) return fetchOnce(path, manifest, nonce, limit, mediaType);
+        for (int attempt = 0; ; attempt++) {
+            try {
+                // Artifact recipient key, nonce, DPoP proof and envelope are rebuilt
+                // by fetchOnce, so retries never replay a consumed authorization.
+                return fetchOnce(path, manifest, null, limit, mediaType);
+            } catch (IOException failure) {
+                if (attempt >= TRANSIENT_TRANSFER_RETRIES || !isTransientTransferFailure(failure)) throw failure;
+                pauseBeforeTransferRetry();
+            }
+        }
+    }
+
+    private byte[] fetchOnce(String path, String manifest, String nonce, int limit, String mediaType)
         throws IOException, InterruptedException, GeneralSecurityException {
         URI uri = origin.resolve(path);
         try (ArtifactEnvelope envelope = manifest == null ? null : new ArtifactEnvelope()) {
@@ -276,6 +307,20 @@ public final class BetaDeliveryClient {
             throw new IOException("Beta response length rejected", exception);
         } finally { if (!accepted && body != null) Arrays.fill(body, (byte) 0); }
         }
+    }
+
+    private static boolean isTransientTransferFailure(Throwable failure) {
+        boolean retryable = false;
+        for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+            if (cause instanceof javax.net.ssl.SSLException) return false;
+            if (cause instanceof ConnectException || cause instanceof SocketException
+                || cause instanceof EOFException || cause instanceof UnknownHostException) retryable = true;
+        }
+        return retryable;
+    }
+
+    private static void pauseBeforeTransferRetry() throws InterruptedException {
+        Thread.sleep(TRANSIENT_RETRY_DELAY_MILLIS);
     }
 
     static List<String> values(Map<String, List<String>> headers, String name) {
