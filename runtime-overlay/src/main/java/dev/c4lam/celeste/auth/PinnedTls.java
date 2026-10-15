@@ -5,6 +5,9 @@ import com.google.gson.JsonParser;
 import java.io.IOException;
 import java.net.Socket;
 import java.net.URI;
+import java.net.Proxy;
+import java.net.ProxySelector;
+import java.net.SocketAddress;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -45,16 +48,81 @@ import javax.net.ssl.X509ExtendedTrustManager;
 public final class PinnedTls {
     private static final SecureRandom RANDOM = new SecureRandom();
     private static final ConcurrentHashMap<String, Client> CLIENTS = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<String, Integer> OWNERS = new ConcurrentHashMap<>();
     private static final Set<String> CLAIMS = Set.of("aud", "product", "origin", "request_nonce", "iat", "nbf", "exp", "leaf_sha256");
     private static final byte[] ED25519 = HexFormat.of().parseHex("302a300506032b6570032100");
+    private static final ProxySelector DIRECT = new ProxySelector() {
+        @Override public java.util.List<Proxy> select(URI uri) { return java.util.List.of(Proxy.NO_PROXY); }
+        @Override public void connectFailed(URI uri, SocketAddress address, IOException error) { }
+    };
     private PinnedTls() { }
+    static HttpClient.Builder directClientBuilder() {
+        return HttpClient.newBuilder().proxy(DIRECT).connectTimeout(Duration.ofSeconds(8))
+            .followRedirects(HttpClient.Redirect.NEVER);
+    }
     private record Client(HttpClient http, long deadline) { }
     record Policy(Set<String> pins, long expires) { }
+
+    /** Compatibility owner for runtime images built against the scoped TLS API. */
+    public static synchronized Owner acquire(URI origin, byte[] serverKey, String product) {
+        final String base;
+        try { base = origin(origin); }
+        catch (IOException invalid) { throw new IllegalArgumentException("Invalid TLS origin", invalid); }
+        if (serverKey == null || serverKey.length != 32
+            || !("celeste_plus".equals(product) || "celeste".equals(product)))
+            throw new IllegalArgumentException("Invalid TLS policy identity");
+        String key = cacheKey(base, serverKey, product);
+        OWNERS.merge(key, 1, Integer::sum);
+        return new Owner(URI.create(base + "/"), serverKey, product, key);
+    }
+
+    public static final class Owner implements AutoCloseable {
+        private final URI origin;
+        private final String product;
+        private final String cacheKey;
+        private byte[] serverKey;
+        private boolean closed;
+
+        private Owner(URI origin, byte[] serverKey, String product, String cacheKey) {
+            this.origin = origin;
+            this.serverKey = serverKey.clone();
+            this.product = product;
+            this.cacheKey = cacheKey;
+        }
+
+        public HttpClient client() throws IOException, InterruptedException {
+            synchronized (PinnedTls.class) {
+                byte[] key;
+                synchronized (this) {
+                    if (closed) throw new IOException("TLS transport owner is closed");
+                    key = serverKey.clone();
+                }
+                try { return PinnedTls.client(origin, key, product); }
+                finally { Arrays.fill(key, (byte) 0); }
+            }
+        }
+
+        @Override public void close() {
+            synchronized (PinnedTls.class) {
+                synchronized (this) {
+                    if (closed) return;
+                    closed = true;
+                    Arrays.fill(serverKey, (byte) 0);
+                    serverKey = new byte[0];
+                }
+                Integer remaining = OWNERS.computeIfPresent(cacheKey, (ignored, count) -> count <= 1 ? null : count - 1);
+                if (remaining == null) {
+                    Client client = CLIENTS.remove(cacheKey);
+                    if (client != null) client.http.shutdown();
+                }
+            }
+        }
+    }
 
     public static synchronized HttpClient client(URI origin, byte[] serverKey, String product) throws IOException, InterruptedException {
         String base = origin(origin);
         if (!product.equals("celeste_plus") && !product.equals("celeste")) throw new IOException("Unsupported TLS policy product");
-        String key = base + ":" + product + ":" + HexFormat.of().formatHex(serverKey);
+        String key = cacheKey(base, serverKey, product);
         Client existing = CLIENTS.get(key);
         if (existing != null && System.nanoTime() - existing.deadline < 0) return existing.http;
         // The only unpinned HTTPS request carries no token, identity, proof or license.
@@ -64,8 +132,7 @@ public final class PinnedTls {
         URI endpoint = URI.create(base + "/v1/transport-policy?product=" + product);
         HttpRequest request = HttpRequest.newBuilder(endpoint).timeout(Duration.ofSeconds(12))
             .header("X-Celeste-Request-Nonce", nonce).header("Accept", "application/json").GET().build();
-        HttpClient bootstrap = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(8))
-            .followRedirects(HttpClient.Redirect.NEVER).build();
+        HttpClient bootstrap = directClientBuilder().build();
         byte[] bytes;
         PolicyBody body = new PolicyBody();
         var pending = bootstrap.sendAsync(request, info -> body);
@@ -92,8 +159,7 @@ public final class PinnedTls {
             SSLContext context = SSLContext.getInstance("TLS");
             context.init(null, new TrustManager[] {new LeafTrust(delegate, policy.pins, deadline)}, null);
             SSLParameters parameters = new SSLParameters(); parameters.setEndpointIdentificationAlgorithm("HTTPS");
-            HttpClient pinned = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(8))
-                .followRedirects(HttpClient.Redirect.NEVER).sslContext(context).sslParameters(parameters).build();
+            HttpClient pinned = directClientBuilder().sslContext(context).sslParameters(parameters).build();
             Client previous = CLIENTS.put(key, new Client(pinned, deadline));
             if (previous != null) previous.http.shutdown();
             return pinned;
@@ -179,6 +245,9 @@ public final class PinnedTls {
         if (!"https".equals(uri.getScheme()) || uri.getHost() == null || uri.getUserInfo() != null || uri.getQuery() != null
             || uri.getFragment() != null || !(uri.getPath().isEmpty() || uri.getPath().equals("/"))) throw new IOException("Invalid pinned origin");
         return "https://" + uri.getRawAuthority();
+    }
+    private static String cacheKey(String base, byte[] serverKey, String product) {
+        return base + ":" + product + ":" + HexFormat.of().formatHex(serverKey);
     }
     static final class LeafTrust extends X509ExtendedTrustManager {
         private final X509ExtendedTrustManager delegate;

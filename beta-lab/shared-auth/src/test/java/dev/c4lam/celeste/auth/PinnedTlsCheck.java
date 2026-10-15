@@ -3,6 +3,10 @@ package dev.c4lam.celeste.auth;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import java.net.URI;
+import java.net.InetSocketAddress;
+import java.net.Proxy;
+import java.net.ProxySelector;
+import java.net.SocketAddress;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -41,6 +45,8 @@ public final class PinnedTlsCheck {
         String origin = golden.get("origin").getAsString(), product = "celeste_plus", nonce = golden.get("request_nonce").getAsString();
         long now = golden.get("now").getAsLong();
         check(PinnedTls.verify(token, key, origin, product, nonce, now).pins().equals(Set.of("a".repeat(64), "b".repeat(64))), "actual server signed pin rotation vector");
+        proxyIsolation();
+        ownerLifecycle();
         reject(() -> PinnedTls.verify(token,key,origin,product,"Z".repeat(32),now));
         reject(() -> PinnedTls.verify(token,key,"https://other.invalid",product,nonce,now));
         reject(() -> PinnedTls.verify(token,key,origin,"celeste",nonce,now));
@@ -62,6 +68,33 @@ public final class PinnedTlsCheck {
         }
         realTls();
         System.out.println("PASS: signed TLS policy and handshake pin checks ("+checks+" checks; public fixtures + loopback TLS only)");
+    }
+    private static void proxyIsolation() throws Exception {
+        ProxySelector previous = ProxySelector.getDefault();
+        AtomicBoolean consulted = new AtomicBoolean();
+        ProxySelector.setDefault(new ProxySelector() {
+            @Override public List<Proxy> select(URI uri) {
+                consulted.set(true);
+                return List.of(new Proxy(Proxy.Type.HTTP, new InetSocketAddress("127.0.0.1", 9)));
+            }
+            @Override public void connectFailed(URI uri, SocketAddress address, java.io.IOException error) { }
+        });
+        try (HttpClient client = PinnedTls.directClientBuilder().build()) {
+            check(client.proxy().orElseThrow().select(URI.create("https://auth.invalid/"))
+                .equals(List.of(Proxy.NO_PROXY)) && !consulted.get(), "auth TLS ignores third-party JVM proxy selectors");
+        } finally {
+            ProxySelector.setDefault(previous);
+        }
+    }
+    private static void ownerLifecycle() throws Exception {
+        PinnedTls.Owner owner = PinnedTls.acquire(URI.create("https://auth.invalid/"), new byte[32], "celeste_plus");
+        owner.close();
+        try {
+            owner.client();
+            throw new AssertionError("Closed TLS owner returned a client");
+        } catch (java.io.IOException expected) {
+            check(expected.getMessage().contains("closed"), "closed TLS owner rejects client access");
+        }
     }
     private static void realTls() throws Exception {
         Path directory=Files.createTempDirectory("celeste-tls-fixture-");
