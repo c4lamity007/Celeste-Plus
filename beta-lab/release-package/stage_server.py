@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import stat
 import tomllib
@@ -60,6 +61,23 @@ def safe_path(root: Path, name: str, *, exists: bool = True) -> Path:
         info = path.stat()
         require(stat.S_ISREG(info.st_mode) and info.st_nlink == 1, f"Not a single regular file: {name}")
     return path
+
+
+def relative_to_existing_root(root: Path, target: Path) -> Path:
+    """Find a lexical child path while comparing Windows aliases by file identity."""
+    root = root.resolve(strict=True)
+    cursor = target.absolute()
+    parts = []
+    while True:
+        if cursor.exists():
+            if os.path.samefile(cursor, root):
+                return Path(*reversed(parts))
+            if cursor.is_symlink() or getattr(cursor, "is_junction", lambda: False)():
+                raise ValueError("Links/junctions are not permitted in staging paths")
+        if cursor.parent == cursor:
+            raise ValueError("Path is outside its staging root")
+        parts.append(cursor.name)
+        cursor = cursor.parent
 
 
 def read_file(root: Path, name: str, maximum: int = 160 * 1024 * 1024) -> bytes:
@@ -200,13 +218,20 @@ def deployment_files(server: Path, release_id: str) -> dict[str, bytes]:
 def stage(project: Path, beta: Path, output: Path, manifest_digest: str, legacy_digest: str) -> dict:
     project, beta = project.resolve(strict=True), beta.absolute()
     output = output.absolute()
-    allowed_root = project / "build/module-qa"
-    require(output.resolve().is_relative_to(allowed_root.resolve()) and output.resolve() != allowed_root.resolve(),
+    try:
+        relative_output = relative_to_existing_root(project, output)
+    except (OSError, ValueError):
+        raise ValueError("Output must be a fresh child directory under build/module-qa") from None
+    require(len(relative_output.parts) > 2 and relative_output.parts[:2] == ("build", "module-qa"),
             "Output must be a fresh child directory under build/module-qa")
-    safe_path(allowed_root, output.relative_to(allowed_root).as_posix(), exists=False)
+    safe_path(project, relative_output.as_posix(), exists=False)
     require(not output.exists(), "Output already exists; use a fresh directory")
-    require(not output.resolve().is_relative_to(beta.resolve())
-            and not beta.resolve().is_relative_to(output.resolve()), "Input and output cannot overlap")
+    try:
+        relative_to_existing_root(beta, output)
+    except (OSError, ValueError):
+        pass
+    else:
+        raise ValueError("Input and output cannot overlap")
     production, prod_files = production_snapshot(project / "auth-service/releases", manifest_digest, legacy_digest)
     catalog, beta_files = beta_snapshot(beta, production)
     files = deployment_files(project / "auth-service", catalog["release_id"])
