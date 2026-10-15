@@ -82,8 +82,28 @@ public final class BetaDeliveryClientCheck {
         }
         check(retryFixture.requestNonces.size() == 7, "manifest and artifact retries use fresh request and envelope nonces");
         check(retryFixture.proofIds.size() == 7, "manifest and artifact retries use fresh DPoP proofs");
+        Synthetic tlsResetServer = new Synthetic(golden);
+        Fixture tlsResetFixture = tlsResetServer.fixture;
+        tlsResetFixture.transientTlsManifestFailures = 1;
+        tlsResetFixture.client().fetchCatalog();
+        check(tlsResetFixture.requests == 2, "TLS-wrapped socket reset retries the manifest request");
+        check(tlsResetFixture.requestNonces.size() == 2 && tlsResetFixture.proofIds.size() == 2,
+            "TLS-wrapped retry rebuilds its request nonce and DPoP proof");
+        Synthetic pinFailureServer = new Synthetic(golden);
+        Fixture pinFailureFixture = pinFailureServer.fixture;
+        pinFailureFixture.failure = "certificate-pin";
+        try {
+            pinFailureFixture.client().fetchCatalog();
+            throw new AssertionError("certificate pin rejection was accepted");
+        } catch (IOException expected) { }
+        check(pinFailureFixture.requests == 1, "certificate pin rejection is never retried");
         check(HttpsTransport.failureCategory(new SocketException("Connection reset; token=must-not-appear"))
             .equals("connection reset"), "transport diagnostics redact exception text");
+        check(HttpsTransport.failureCategory(new javax.net.ssl.SSLException("TLS record closed", new SocketException("Connection reset")))
+            .equals("connection reset"), "TLS-wrapped reset keeps a useful safe diagnostic");
+        check(HttpsTransport.failureCategory(new javax.net.ssl.SSLException("TLS rejected",
+            new java.security.cert.CertificateException("pin mismatch"))).equals("TLS certificate verification failed"),
+            "TLS pin failures remain distinguishable and safe");
         check(HttpsTransport.failureCategory(new IOException("wrapped", new IOException("Beta response exceeded its byte limit")))
             .equals("response exceeded its allowed size"), "bounded-body failures have a safe diagnostic");
         fixture.hardware = "7".repeat(64);
@@ -235,6 +255,7 @@ public final class BetaDeliveryClientCheck {
         String hardware = "6".repeat(64);
         String failure = "";
         int transientManifestFailures;
+        int transientTlsManifestFailures;
         int transientArtifactFailures;
         int requests;
         Fixture(JsonObject golden) throws Exception {
@@ -276,6 +297,14 @@ public final class BetaDeliveryClientCheck {
                 if (transientManifestFailures > 0) {
                     transientManifestFailures--;
                     throw new SocketException("Connection reset");
+                }
+                if (transientTlsManifestFailures > 0) {
+                    transientTlsManifestFailures--;
+                    throw new javax.net.ssl.SSLException("TLS peer closed", new SocketException("Connection reset"));
+                }
+                if (failure.equals("certificate-pin")) {
+                    throw new IOException("TLS validation failed", new javax.net.ssl.SSLException("peer rejected",
+                        new java.security.cert.CertificateException("pin mismatch")));
                 }
                 if (failure.equals("offline")) throw new IOException("fixture offline");
                 if (failure.equals("manifest-denied")) return new BetaDeliveryClient.Reply(uri, 403,

@@ -59,8 +59,10 @@ final class HttpsTransport implements BetaDeliveryClient.Transport {
     }
 
     static String failureCategory(Throwable failure) {
+        boolean tlsFailure = false;
         for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
-            if (cause instanceof javax.net.ssl.SSLException) return "TLS connection error";
+            if (cause instanceof java.security.cert.CertificateException
+                || cause instanceof javax.net.ssl.SSLPeerUnverifiedException) return "TLS certificate verification failed";
             if (cause instanceof java.net.UnknownHostException) return "DNS lookup failed";
             if (cause instanceof java.net.ConnectException) return "connection could not be established";
             if (cause instanceof java.net.SocketException) {
@@ -71,7 +73,9 @@ final class HttpsTransport implements BetaDeliveryClient.Transport {
             if (cause instanceof java.io.EOFException) return "response ended early";
             if (cause instanceof IOException && "Beta response exceeded its byte limit".equals(cause.getMessage()))
                 return "response exceeded its allowed size";
+            if (cause instanceof javax.net.ssl.SSLException) tlsFailure = true;
         }
+        if (tlsFailure) return "TLS connection error";
         return failure == null ? "transport error" : "I/O failure (" + failure.getClass().getSimpleName() + ")";
     }
 

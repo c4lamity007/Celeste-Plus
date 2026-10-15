@@ -311,12 +311,19 @@ public final class BetaDeliveryClient {
 
     private static boolean isTransientTransferFailure(Throwable failure) {
         boolean retryable = false;
+        boolean certificateFailure = false;
         for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
-            if (cause instanceof javax.net.ssl.SSLException) return false;
+            // A socket reset can be wrapped by SSLException during TLS setup or
+            // record reads. Retry that transport failure with fresh DPoP and
+            // envelope material, but never retry certificate or hostname rejection.
+            if (cause instanceof java.security.cert.CertificateException
+                || cause instanceof javax.net.ssl.SSLPeerUnverifiedException) certificateFailure = true;
             if (cause instanceof ConnectException || cause instanceof SocketException
-                || cause instanceof EOFException || cause instanceof UnknownHostException) retryable = true;
+                || cause instanceof EOFException || cause instanceof UnknownHostException
+                || cause instanceof java.util.concurrent.TimeoutException
+                || cause instanceof java.net.http.HttpTimeoutException) retryable = true;
         }
-        return retryable;
+        return retryable && !certificateFailure;
     }
 
     private static void pauseBeforeTransferRetry() throws InterruptedException {
