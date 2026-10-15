@@ -161,8 +161,14 @@ def class_info(data: bytes) -> tuple[str, set[str]]:
         else:
             refs.add(value)
     for index in descriptors:
-        refs.update(re.findall(r"L([^;<:]+)", pool[index]))
+        refs.update(class_signature_references(pool[index]))
     return own_name, refs
+
+
+def class_signature_references(signature: str) -> set[str]:
+    # A nested generic type such as Outer<T>.Lease has a dot before Lease.
+    # That suffix is not a new JVM class-type token, even when it starts with L.
+    return {match.group(1) for match in re.finditer(r"(?<![A-Za-z0-9_$/\.])L([^;<:]+)", signature)}
 
 
 def class_index(entries: dict[str, bytes]) -> set[str]:
